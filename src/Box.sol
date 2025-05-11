@@ -25,20 +25,21 @@ interface ISwapper {
     function swap(IERC20 input, IERC20 output, uint256 amountIn) external;
 }
 
-///
+/// @title Box: A contract that can hold a currency and some assets and swap them
 contract Box /* is IERC4626 */ {
     IERC20 public immutable currency;
 
     address public owner;
+    // TODO: Maybe allow multiple allocators, but we can use a proxy anyway
     address public allocator;
     address public guardian;
+    // TODO: Allow multiple feeders?
     address public feeder;
 
     // ASSETS RELATED
+    // TODO: make it multi-assets, avoid too much slippage when going from a PT-sSUDe to another maturoty
     IERC20 public asset;
     IOracle public oracle;
-    /// @dev Only used when the feeder withdraw after shutdown, this one should be immutable
-    ISwapper public seller;
 
     // SWAPPING RELATED
     /// @notice starting date of a swapping epoch
@@ -84,27 +85,26 @@ contract Box /* is IERC4626 */ {
         require(shutdown == false, "BOX: Can't deposit if shut down");
 
         currency.transferFrom(msg.sender, address(this), amount);
+        // TODO: mint shares
     }
 
     function withdraw(uint256 amount) public {
         require(isFeeder(msg.sender), "BOX: Only feeders can withdraw");
 
         // If we are shut down, try to gather enough liqudity
+        // Do we need it or assume someone will be smart enough to use deallocate?
         if(shutdown && currency.balanceOf(address(this)) < amount)
-            _shutdownDeallocate(amount);
+            deallocate(0, ISwapper(0));
+
+        // Burn shares
 
         // Can only transfer the USDC don't touch the assets
         currency.transfer(msg.sender, amount);
     }
 
-    function _shutdownDeallocate(uint256 amount) internal {
-        // TODO loop through the asset to deallocate until we have enough assets
-        // TODO for the slippage check, we increase the allowed slipage over a year
-    }
-
     /// @notice Return the prorata share of currency and assets against shares
     function unbox(uint256 shares) public {
-        // TODO is it needed?
+        // TODO is it needed? probably not
     }    
     
     /////////////////////////////
@@ -113,55 +113,71 @@ contract Box /* is IERC4626 */ {
 
     /// @notice Buy asset with currency
     /// @dev we don't specify any code, just a safety threshold
-    // TODO: Use the callback way
-    function allocate(uint256 cash, uint256 assets) public {
+    function allocate(uint256 cash, ISwapper swapper) public {
         require(isAllocator(msg.sender), "BOX: Only allocator can allocate");
         require(shutdown == false, "BOX: Can't allocate if shut down");
 
-        // TODO: safe mulDiv
-        uint256 cost =  (assets * oracle.price()) / 10**36;
-        uint256 maxCost = (cost * (1 ether + maxSlippage)) / 1 ether;
 
-        require(cash < maxCost, "BOX: Allocation too expensive");
+        uint256 assetsBefore = asset.balanceOf(address(this));
+
+        cash.approve(address(swapper), cash);
+        swapper.swap(cash, asset, cash);
+        
+        uint256 assetsReceived = asset.balanceOf(address(this)) - assetsBefore;
+
+        // TODO: safe mulDiv
+        uint256 expectedAssets =  (cash * oracle.price()) / 10**36;
+        uint256 minAssets = (cost * (1 ether + maxSlippage)) / 1 ether;
+
+        require(assetsReceived < minAssets, "BOX: Allocation too expensive");
 
         uint256 slippage = cash - cost; // min 0
         _increaseSlippage(slippage);
-
-        asset.transferFrom(msg.sender, address(this), assets);
-        currency.transferFrom(address(this), msg.sender, cash);
     }    
 
     /// @notice Sell asset for currency
-    // TODO: Use the callback way
-    function deallocate(uint256 assets, uint256 cash) public {
+    function deallocate(uint256 assets, ISwapper swapper) public {
         require(isAllocator(msg.sender), "BOX: Only allocator can deallocate");
+        // Alternatively we could let people deallocate when shutdown
+        require(isAllocator(msg.sender) || shutdown, "BOX: Only allocator can deallocate or during shutdown");
+
+        uint256 cashBefore = cash.balanceOf(address(this));
+
+        swapper.swap(asset, cash, assets);
+
+        uint256 cashReceived = cash.balanceOf(address(this)) - cashBefore;
 
         // TODO: safe mulDiv
-        uint256 cost =  (assets * oracle.price()) / 10**36;
-        uint256 maxCost = (cost * (1 ether + maxSlippage)) / 1 ether;
+        uint256 expectedCash =  (assets * oracle.price()) / 10**36;
+        uint256 minCash = (expectedCash * (1 ether - maxSlippage)) / 1 ether;
+        _increaseSlippage(slippage);
 
-        require(cash < maxCost, "BOX: Allocation too expensive");
+        // TODO: In case of shutdown, the allowed slippage is function of time since shutdown 0% to 10% in 10 days ?
 
-        currency.transferFrom(msg.sender, address(this), cash);
-        asset.transferFrom(address(this), msg.sender, assets);
+        require(cashReceived < minCash, "BOX: Asset sale is not generating enough cash");
     }    
     
     /// @notice Sell asset for another
     // TODO: Use the callback way
-    function reallocate(IERC20 from, IERC20 to, uint256 fromAmount, uint256 toAmount) public {
+    function reallocate(IERC20 from, IERC20 to, uint256 fromAmount, ISwapper swapper) public {
         require(isAllocator(msg.sender), "BOX: Only allocator can reallocate");
         require(shutdown == false, "BOX: Can't reallocate if shut down");
 
-        // TODOs
+        swapper.swap(from, to, fromAmount);
+
+        // TODO : check slippage
     }    
 
     function _increaseSlippage(uint slippage) internal {
         uint256 sipplagePct = (slippage * 10**18)/totalAssets();
 
         // reset the slippage epoch if more than a week old
-        if
+        if(slippageEpochStart + 7 days < block.timestamp) {
+            slippageEpochStart = block.timestamp;
+            slippageAccum = 0;
+        }
 
-        slippageAccum += 
+        slippageAccum += sipplagePct;
 
         require(slippageAccum < maxSlippage, "BOX: Too much accumulated slippage");
 
