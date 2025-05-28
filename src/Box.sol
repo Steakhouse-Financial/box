@@ -45,11 +45,14 @@ interface ISwapper {
 
 /// @title Box: A contract that can hold a currency and some assets and swap them
 contract Box is IERC4626 {
+    uint256 constant TIMELOCK_CAP = 2 weeks;
+    uint256 constant MAX_SLIPPAGE = 0.1 ether; // 10%
+
     IERC20 public immutable currency;
     ISwapper public immutable backupSwapper;
 
     address public owner;
-    address public guardian;
+    address public curator;
 
     // Role-based access control
     mapping(address => bool) public isAllocator;
@@ -80,21 +83,10 @@ contract Box is IERC4626 {
     bool public shutdown;
     /// @notice Timestamp when shutdown was triggered
     uint256 public shutdownTime;
-  
-    uint256 public timelock = 7 days;
-    
-    // Pending values for timelock pattern
-    struct PendingValue {
-        uint192 value;
-        uint64 validAt;
-    }
-    
-    PendingValue public pendingTimelock;
-    mapping(address => PendingValue) public pendingGuardian;
-    mapping(address => PendingValue) public pendingAllocator;
-    mapping(address => PendingValue) public pendingFeeder;
-    mapping(IERC20 => PendingValue) public pendingInvestmentToken;
-    PendingValue public pendingSlippage;
+
+    // TIMELOCK SYSTEM (VaultV2 pattern)
+    mapping(bytes4 => uint256) public timelock;
+    mapping(bytes => uint256) public executableAt;
 
     // Events
     event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
@@ -102,42 +94,28 @@ contract Box is IERC4626 {
     event Allocate(IERC20 indexed token, uint256 currencyAmount, uint256 tokensReceived);
     event Deallocate(IERC20 indexed token, uint256 tokensAmount, uint256 currencyReceived);
     event Shutdown(address indexed guardian);
-    event OwnerChanged(address indexed oldOwner, address indexed newOwner);
-    event AllocatorAdded(address indexed allocator);
-    event AllocatorRemoved(address indexed allocator);
-    event FeederAdded(address indexed feeder);
-    event FeederRemoved(address indexed feeder);
-    event GuardianChanged(address indexed oldGuardian, address indexed newGuardian);
-    event InvestmentTokenAdded(IERC20 indexed token, IOracle indexed oracle);
-    event InvestmentTokenRemoved(IERC20 indexed token);
-    event SlippageChanged(uint256 newSlippage);
-    event TimelockChanged(uint256 newTimelock);
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
+    event Submit(bytes4 indexed selector, bytes data, uint256 executableAt);
+    event Revoke(address indexed caller, bytes4 indexed selector, bytes data);
     
-    // Timelock events
-    event TimelockSubmitted(uint256 newTimelock);
-    event PendingTimelockRevoked();
-    event GuardianSubmitted(address indexed newGuardian);
-    event PendingGuardianRevoked(address indexed guardian);
-    event AllocatorSubmitted(address indexed allocator, bool isAdd);
-    event PendingAllocatorRevoked(address indexed allocator);
-    event FeederSubmitted(address indexed feeder, bool isAdd);
-    event PendingFeederRevoked(address indexed feeder);
-    event SlippageSubmitted(uint256 newSlippage);
-    event PendingSlippageRevoked();
-    event InvestmentTokenSubmitted(IERC20 indexed token, IOracle indexed oracle, bool isAdd);
-    event PendingInvestmentTokenRevoked(IERC20 indexed token);
-
     constructor(
         address _owner, 
         IERC20 _currency,
         ISwapper _backupSwapper
     ) {
         owner = _owner;
+        curator = _owner; // Initially owner is also curator
         currency = _currency;
         backupSwapper = _backupSwapper;
         slippageEpochStart = block.timestamp;
+        
+        // Set initial timelocks
+        timelock[this.setIsAllocator.selector] = 1 days;
+        timelock[this.setIsFeeder.selector] = 1 days;
+        timelock[this.setMaxSlippage.selector] = 1 days;
+        timelock[this.addInvestmentToken.selector] = 1 days;
+        timelock[this.removeInvestmentToken.selector] = 1 days;
     }
 
     /////////////////////////////
@@ -244,11 +222,6 @@ contract Box is IERC4626 {
         shares = previewWithdraw(assets);
         require(balanceOf[owner_] >= shares, "BOX: Insufficient shares");
 
-        // // If we are shut down, try to gather enough liquidity by deallocating
-        // if (shutdown && currency.balanceOf(address(this)) < assets) {
-        //     _deallocateForLiquidity(assets - currency.balanceOf(address(this)));
-        // }
-
         require(currency.balanceOf(address(this)) >= assets, "BOX: Insufficient liquidity");
 
         if (msg.sender != owner_) {
@@ -281,11 +254,6 @@ contract Box is IERC4626 {
         require(balanceOf[owner_] >= shares, "BOX: Insufficient shares");
 
         assets = previewRedeem(shares);
-
-        // // If we are shut down, try to gather enough liquidity by deallocating
-        // if (shutdown && currency.balanceOf(address(this)) < assets) {
-        //     _deallocateForLiquidity(assets - currency.balanceOf(address(this)));
-        // }
 
         require(currency.balanceOf(address(this)) >= assets, "BOX: Insufficient liquidity");
 
@@ -405,7 +373,6 @@ contract Box is IERC4626 {
     /// @notice Sell investment token for currency
     function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper) public {
         require(isAllocator[msg.sender] || shutdown, "BOX: Only allocators can deallocate or during shutdown");
-        // require(isInvestmentToken[token], "BOX: Token not whitelisted");
         require(address(oracles[token]) != address(0), "BOX: No oracle for token");
 
         if (shutdown) {
@@ -519,288 +486,104 @@ contract Box is IERC4626 {
     }
 
     /////////////////////////////
-    /// OWNER FUNCTIONS (TIMELOCKED)
+    /// OWNER FUNCTIONS
     /////////////////////////////
 
-    /// @notice Submit a new timelock value
-    function submitTimelock(uint256 newTimelock) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(newTimelock >= 1 days, "BOX: Timelock too short");
-        require(newTimelock <= 90 days, "BOX: Timelock too long");
-        require(pendingTimelock.validAt == 0, "BOX: Already pending");
-        
-        pendingTimelock = PendingValue({
-            value: uint192(newTimelock),
-            validAt: uint64(block.timestamp + timelock)
-        });
-        
-        emit TimelockSubmitted(newTimelock);
-    }
-
-    /// @notice Accept a pending timelock change
-    function acceptTimelock() external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(pendingTimelock.validAt != 0, "BOX: No pending timelock");
-        require(block.timestamp >= pendingTimelock.validAt, "BOX: Timelock not elapsed");
-        
-        uint256 newTimelock = pendingTimelock.value;
-        delete pendingTimelock;
-        
-        timelock = newTimelock;
-        emit TimelockChanged(newTimelock);
-    }
-
-    /// @notice Revoke a pending timelock change
-    function revokePendingTimelock() external {
-        require(msg.sender == guardian, "BOX: Only guardian");
-        require(pendingTimelock.validAt != 0, "BOX: No pending timelock");
-        
-        delete pendingTimelock;
-        emit PendingTimelockRevoked();
-    }
-
-    /// @notice Submit a new guardian
-    function submitGuardian(address newGuardian) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(newGuardian != address(0), "BOX: Invalid guardian");
-        require(pendingGuardian[newGuardian].validAt == 0, "BOX: Already pending");
-        
-        pendingGuardian[newGuardian] = PendingValue({
-            value: 1, // Just a flag
-            validAt: uint64(block.timestamp + timelock)
-        });
-        
-        emit GuardianSubmitted(newGuardian);
-    }
-
-    /// @notice Accept a pending guardian change
-    function acceptGuardian(address newGuardian) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(pendingGuardian[newGuardian].validAt != 0, "BOX: No pending guardian");
-        require(block.timestamp >= pendingGuardian[newGuardian].validAt, "BOX: Timelock not elapsed");
-        
-        delete pendingGuardian[newGuardian];
-        
-        address oldGuardian = guardian;
-        guardian = newGuardian;
-        emit GuardianChanged(oldGuardian, newGuardian);
-    }
-
-    /// @notice Revoke a pending guardian change
-    function revokePendingGuardian(address newGuardian) external {
-        require(msg.sender == guardian, "BOX: Only guardian");
-        require(pendingGuardian[newGuardian].validAt != 0, "BOX: No pending guardian");
-        
-        delete pendingGuardian[newGuardian];
-        emit PendingGuardianRevoked(newGuardian);
-    }
-
-    /// @notice Submit a new allocator
-    function submitAllocator(address allocator, bool isAdd) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(allocator != address(0), "BOX: Invalid allocator");
-        require(pendingAllocator[allocator].validAt == 0, "BOX: Already pending");
-        
-        pendingAllocator[allocator] = PendingValue({
-            value: isAdd ? 1 : 0,
-            validAt: uint64(block.timestamp + timelock)
-        });
-        
-        emit AllocatorSubmitted(allocator, isAdd);
-    }
-
-    /// @notice Accept a pending allocator change
-    function acceptAllocator(address allocator) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(pendingAllocator[allocator].validAt != 0, "BOX: No pending allocator");
-        require(block.timestamp >= pendingAllocator[allocator].validAt, "BOX: Timelock not elapsed");
-        
-        bool isAdd = pendingAllocator[allocator].value == 1;
-        delete pendingAllocator[allocator];
-        
-        isAllocator[allocator] = isAdd;
-        
-        if (isAdd) {
-            emit AllocatorAdded(allocator);
-        } else {
-            emit AllocatorRemoved(allocator);
-        }
-    }
-
-    /// @notice Revoke a pending allocator change
-    function revokePendingAllocator(address allocator) external {
-        require(msg.sender == guardian, "BOX: Only guardian");
-        require(pendingAllocator[allocator].validAt != 0, "BOX: No pending allocator");
-        
-        delete pendingAllocator[allocator];
-        emit PendingAllocatorRevoked(allocator);
-    }
-
-    /// @notice Submit a new feeder
-    function submitFeeder(address feeder, bool isAdd) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(feeder != address(0), "BOX: Invalid feeder");
-        require(pendingFeeder[feeder].validAt == 0, "BOX: Already pending");
-        
-        pendingFeeder[feeder] = PendingValue({
-            value: isAdd ? 1 : 0,
-            validAt: uint64(block.timestamp + timelock)
-        });
-        
-        emit FeederSubmitted(feeder, isAdd);
-    }
-
-    /// @notice Accept a pending feeder change
-    function acceptFeeder(address feeder) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(pendingFeeder[feeder].validAt != 0, "BOX: No pending feeder");
-        require(block.timestamp >= pendingFeeder[feeder].validAt, "BOX: Timelock not elapsed");
-        
-        bool isAdd = pendingFeeder[feeder].value == 1;
-        delete pendingFeeder[feeder];
-        
-        isFeeder[feeder] = isAdd;
-        
-        if (isAdd) {
-            emit FeederAdded(feeder);
-        } else {
-            emit FeederRemoved(feeder);
-        }
-    }
-
-    /// @notice Revoke a pending feeder change
-    function revokePendingFeeder(address feeder) external {
-        require(msg.sender == guardian, "BOX: Only guardian");
-        require(pendingFeeder[feeder].validAt != 0, "BOX: No pending feeder");
-        
-        delete pendingFeeder[feeder];
-        emit PendingFeederRevoked(feeder);
-    }
-
-    /// @notice Submit a new slippage value
-    function submitSlippage(uint256 newSlippage) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(newSlippage <= 0.1 ether, "BOX: Slippage too high"); // Max 10%
-        require(pendingSlippage.validAt == 0, "BOX: Already pending");
-        
-        pendingSlippage = PendingValue({
-            value: uint192(newSlippage),
-            validAt: uint64(block.timestamp + timelock)
-        });
-        
-        emit SlippageSubmitted(newSlippage);
-    }
-
-    /// @notice Accept a pending slippage change
-    function acceptSlippage() external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(pendingSlippage.validAt != 0, "BOX: No pending slippage");
-        require(block.timestamp >= pendingSlippage.validAt, "BOX: Timelock not elapsed");
-        
-        uint256 newSlippage = pendingSlippage.value;
-        delete pendingSlippage;
-        
-        maxSlippage = newSlippage;
-        emit SlippageChanged(newSlippage);
-    }
-
-    /// @notice Revoke a pending slippage change
-    function revokePendingSlippage() external {
-        require(msg.sender == guardian, "BOX: Only guardian");
-        require(pendingSlippage.validAt != 0, "BOX: No pending slippage");
-        
-        delete pendingSlippage;
-        emit PendingSlippageRevoked();
-    }
-
-    /// @notice Submit a new investment token
-    function submitInvestmentToken(IERC20 token, IOracle oracle, bool isAdd) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(address(token) != address(0), "BOX: Invalid token");
-        if (isAdd) {
-            require(address(oracle) != address(0), "BOX: Oracle required");
-            require(!isInvestmentToken[token], "BOX: Token already added");
-        } else {
-            require(isInvestmentToken[token], "BOX: Token not found");
-            require(token.balanceOf(address(this)) == 0, "BOX: Token balance must be zero");
-        }
-        require(pendingInvestmentToken[token].validAt == 0, "BOX: Already pending");
-        
-        pendingInvestmentToken[token] = PendingValue({
-            value: isAdd ? 1 : 0,
-            validAt: uint64(block.timestamp + timelock)
-        });
-        
-        emit InvestmentTokenSubmitted(token, oracle, isAdd);
-    }
-
-    /// @notice Accept a pending investment token change
-    function acceptInvestmentToken(IERC20 token, IOracle oracle) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(pendingInvestmentToken[token].validAt != 0, "BOX: No pending investment token");
-        require(block.timestamp >= pendingInvestmentToken[token].validAt, "BOX: Timelock not elapsed");
-        
-        bool isAdd = pendingInvestmentToken[token].value == 1;
-        delete pendingInvestmentToken[token];
-        
-        if (isAdd) {
-            require(address(oracle) != address(0), "BOX: Oracle required");
-            require(!isInvestmentToken[token], "BOX: Token already added");
-            
-            investmentTokens.push(token);
-            oracles[token] = oracle;
-            isInvestmentToken[token] = true;
-            
-            emit InvestmentTokenAdded(token, oracle);
-        } else {
-            require(isInvestmentToken[token], "BOX: Token not found");
-            require(token.balanceOf(address(this)) == 0, "BOX: Token balance must be zero");
-            
-            // Remove from array
-            for (uint256 i = 0; i < investmentTokens.length; i++) {
-                if (investmentTokens[i] == token) {
-                    investmentTokens[i] = investmentTokens[investmentTokens.length - 1];
-                    investmentTokens.pop();
-                    break;
-                }
-            }
-            
-            delete oracles[token];
-            isInvestmentToken[token] = false;
-            
-            emit InvestmentTokenRemoved(token);
-        }
-    }
-
-    /// @notice Revoke a pending investment token change
-    function revokePendingInvestmentToken(IERC20 token) external {
-        require(msg.sender == guardian, "BOX: Only guardian");
-        require(pendingInvestmentToken[token].validAt != 0, "BOX: No pending investment token");
-        
-        delete pendingInvestmentToken[token];
-        emit PendingInvestmentTokenRevoked(token);
-    }
-
-    /// @notice Change owner (immediate, no timelock needed)
     function setOwner(address newOwner) external {
         require(msg.sender == owner, "BOX: Only owner");
         require(newOwner != address(0), "BOX: Invalid owner");
         address oldOwner = owner;
         owner = newOwner;
-        emit OwnerChanged(oldOwner, newOwner);
     }
 
-    /////////////////////////////
-    /// GUARDIAN FUNCTIONS
-    /////////////////////////////
+    function setCurator(address newCurator) external {
+        require(msg.sender == owner, "BOX: Only owner");
+        curator = newCurator;
+    }
 
-    /// @notice Trigger shutdown (guardian only)
     function triggerShutdown() external {
-        require(msg.sender == guardian, "BOX: Only guardian can shutdown");
+        require(msg.sender == curator, "BOX: Only curator can shutdown");
         require(!shutdown, "BOX: Already shut down");
         shutdown = true;
         shutdownTime = block.timestamp;
-        emit Shutdown(guardian);
+        emit Shutdown(curator);
+    }
+
+    /////////////////////////////
+    /// TIMELOCK FUNCTIONS (VaultV2 pattern)
+    /////////////////////////////
+
+    function submit(bytes calldata data) external {
+        require(msg.sender == curator, "BOX: Only curator");
+        require(executableAt[data] == 0, "BOX: Data already pending");
+
+        bytes4 selector = bytes4(data);
+        executableAt[data] = block.timestamp + timelock[selector];
+        emit Submit(selector, data, executableAt[data]);
+    }
+
+    modifier timelocked() {
+        require(executableAt[msg.data] != 0, "BOX: Data not timelocked");
+        require(block.timestamp >= executableAt[msg.data], "BOX: Timelock not expired");
+        executableAt[msg.data] = 0;
+        _;
+    }
+
+    function revoke(bytes calldata data) external {
+        require(msg.sender == curator, "BOX: Only curator");
+        require(executableAt[data] != 0, "BOX: Data not timelocked");
+        executableAt[data] = 0;
+        emit Revoke(msg.sender, bytes4(data), data);
+    }
+
+    function increaseTimelock(bytes4 selector, uint256 newDuration) external {
+        require(msg.sender == curator, "BOX: Only curator");
+        require(newDuration <= TIMELOCK_CAP, "BOX: Timelock duration too high");
+        require(newDuration >= timelock[selector], "BOX: Timelock not increasing");
+        timelock[selector] = newDuration;
+    }
+
+    /////////////////////////////
+    /// TIMELOCKED FUNCTIONS
+    /////////////////////////////
+
+    function setIsAllocator(address account, bool newIsAllocator) external timelocked {
+        isAllocator[account] = newIsAllocator;
+    }
+
+    function setIsFeeder(address account, bool newIsFeeder) external timelocked {
+        isFeeder[account] = newIsFeeder;
+    }
+
+    function setMaxSlippage(uint256 newMaxSlippage) external timelocked {
+        require(newMaxSlippage <= MAX_SLIPPAGE, "BOX: Slippage too high");
+        maxSlippage = newMaxSlippage;
+    }
+
+    function addInvestmentToken(IERC20 token, IOracle oracle) external timelocked {
+        require(address(token) != address(0), "BOX: Invalid token");
+        require(address(oracle) != address(0), "BOX: Oracle required");
+        require(!isInvestmentToken[token], "BOX: Token already added");
+        
+        investmentTokens.push(token);
+        oracles[token] = oracle;
+        isInvestmentToken[token] = true;
+    }
+
+    function removeInvestmentToken(IERC20 token) external timelocked {
+        require(isInvestmentToken[token], "BOX: Token not found");
+        require(token.balanceOf(address(this)) == 0, "BOX: Token balance must be zero");
+        
+        for (uint256 i = 0; i < investmentTokens.length; i++) {
+            if (investmentTokens[i] == token) {
+                investmentTokens[i] = investmentTokens[investmentTokens.length - 1];
+                investmentTokens.pop();
+                break;
+            }
+        }
+        
+        delete oracles[token];
+        isInvestmentToken[token] = false;
     }
 
     /////////////////////////////
@@ -816,5 +599,4 @@ contract Box is IERC4626 {
     function getInvestmentToken(uint256 index) external view returns (IERC20) {
         return investmentTokens[index];
     }
-
 }
