@@ -244,10 +244,10 @@ contract Box is IERC4626 {
         shares = previewWithdraw(assets);
         require(balanceOf[owner_] >= shares, "BOX: Insufficient shares");
 
-        // If we are shut down, try to gather enough liquidity by deallocating
-        if (shutdown && currency.balanceOf(address(this)) < assets) {
-            _deallocateForLiquidity(assets - currency.balanceOf(address(this)));
-        }
+        // // If we are shut down, try to gather enough liquidity by deallocating
+        // if (shutdown && currency.balanceOf(address(this)) < assets) {
+        //     _deallocateForLiquidity(assets - currency.balanceOf(address(this)));
+        // }
 
         require(currency.balanceOf(address(this)) >= assets, "BOX: Insufficient liquidity");
 
@@ -282,10 +282,10 @@ contract Box is IERC4626 {
 
         assets = previewRedeem(shares);
 
-        // If we are shut down, try to gather enough liquidity by deallocating
-        if (shutdown && currency.balanceOf(address(this)) < assets) {
-            _deallocateForLiquidity(assets - currency.balanceOf(address(this)));
-        }
+        // // If we are shut down, try to gather enough liquidity by deallocating
+        // if (shutdown && currency.balanceOf(address(this)) < assets) {
+        //     _deallocateForLiquidity(assets - currency.balanceOf(address(this)));
+        // }
 
         require(currency.balanceOf(address(this)) >= assets, "BOX: Insufficient liquidity");
 
@@ -362,6 +362,7 @@ contract Box is IERC4626 {
         // Transfer pro-rata share of each investment token
         for (uint256 i = 0; i < investmentTokens.length; i++) {
             IERC20 token = investmentTokens[i];
+            // needs `+ shares` because _burn reduced totalSupply
             uint256 tokenAmount = (token.balanceOf(address(this)) * shares) / (totalSupply + shares);
             if (tokenAmount > 0) {
                 token.transfer(msg.sender, tokenAmount);
@@ -404,7 +405,7 @@ contract Box is IERC4626 {
     /// @notice Sell investment token for currency
     function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper) public {
         require(isAllocator[msg.sender] || shutdown, "BOX: Only allocators can deallocate or during shutdown");
-        require(isInvestmentToken[token], "BOX: Token not whitelisted");
+        // require(isInvestmentToken[token], "BOX: Token not whitelisted");
         require(address(oracles[token]) != address(0), "BOX: No oracle for token");
 
         if (shutdown) {
