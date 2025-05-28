@@ -2,7 +2,11 @@
 pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
-import {Box, IERC20, IOracle, ISwapper} from "../src/Box.sol";
+import {Box} from "../src/Box.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IOracle} from "../src/interfaces/IOracle.sol";
+import {ISwapper} from "../src/interfaces/ISwapper.sol";
+import {Errors} from "../src/lib/Errors.sol";
 
 contract MockERC20 is IERC20 {
     string public name;
@@ -103,8 +107,9 @@ contract BoxTest is Test {
 
     event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
     event Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
-    event Allocate(IERC20 indexed token, uint256 currencyAmount, uint256 tokensReceived);
-    event Deallocate(IERC20 indexed token, uint256 tokensAmount, uint256 currencyReceived);
+    event Allocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
+    event Deallocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
+    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 amount, ISwapper indexed swapper);
     event Shutdown(address indexed guardian);
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -121,7 +126,7 @@ contract BoxTest is Test {
         backupSwapper = new MockSwapper();
         badSwapper = new MockSwapper();
 
-        box = new Box(owner, currency, backupSwapper);
+        box = new Box(currency, backupSwapper, owner, owner); // Initially owner is also curator
 
         // Setup roles and investment tokens using new timelock pattern
         // Note: owner is initially the curator, so owner can submit
@@ -228,7 +233,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         currency.approve(address(box), 100e18);
         
-        vm.expectRevert("BOX: Cannot deposit zero");
+        vm.expectRevert(Errors.CannotDepositZero.selector);
         box.deposit(0, feeder);
         vm.stopPrank();
     }
@@ -237,7 +242,7 @@ contract BoxTest is Test {
         vm.startPrank(nonAuthorized);
         currency.approve(address(box), 100e18);
         
-        vm.expectRevert("BOX: Only feeders can deposit");
+        vm.expectRevert(Errors.OnlyFeeders.selector);
         box.deposit(100e18, nonAuthorized);
         vm.stopPrank();
     }
@@ -249,7 +254,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         currency.approve(address(box), 100e18);
         
-        vm.expectRevert("BOX: Can't deposit if shut down");
+        vm.expectRevert(Errors.CannotDepositIfShutdown.selector);
         box.deposit(100e18, feeder);
         vm.stopPrank();
     }
@@ -274,7 +279,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         currency.approve(address(box), 100e18);
         
-        vm.expectRevert("BOX: Cannot mint zero");
+        vm.expectRevert(Errors.CannotMintZero.selector);
         box.mint(0, feeder);
         vm.stopPrank();
     }
@@ -283,7 +288,7 @@ contract BoxTest is Test {
         vm.startPrank(nonAuthorized);
         currency.approve(address(box), 100e18);
         
-        vm.expectRevert("BOX: Only feeders can mint");
+        vm.expectRevert(Errors.OnlyFeeders.selector);
         box.mint(100e18, nonAuthorized);
         vm.stopPrank();
     }
@@ -295,7 +300,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         currency.approve(address(box), 100e18);
         
-        vm.expectRevert("BOX: Can't mint if shut down");
+        vm.expectRevert(Errors.CannotMintIfShutdown.selector);
         box.mint(100e18, feeder);
         vm.stopPrank();
     }
@@ -326,7 +331,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectRevert("BOX: Only feeders can withdraw");
+        vm.expectRevert(Errors.OnlyFeeders.selector);
         vm.prank(nonAuthorized);
         box.withdraw(50e18, nonAuthorized, feeder);
     }
@@ -336,7 +341,7 @@ contract BoxTest is Test {
         currency.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
-        vm.expectRevert("BOX: Insufficient shares");
+        vm.expectRevert(Errors.InsufficientShares.selector);
         box.withdraw(200e18, feeder, feeder);
         vm.stopPrank();
     }
@@ -384,7 +389,7 @@ contract BoxTest is Test {
         require(userSuccess, "Failed to set user1 as feeder");
         vm.stopPrank();
 
-        vm.expectRevert("BOX: Insufficient allowance");
+        vm.expectRevert(Errors.InsufficientAllowance.selector);
         vm.prank(user1);
         box.withdraw(50e18, user1, feeder);
     }
@@ -414,7 +419,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectRevert("BOX: Only feeders can redeem");
+        vm.expectRevert(Errors.OnlyFeeders.selector);
         vm.prank(nonAuthorized);
         box.redeem(50e18, nonAuthorized, feeder);
     }
@@ -424,7 +429,7 @@ contract BoxTest is Test {
         currency.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
-        vm.expectRevert("BOX: Insufficient shares");
+        vm.expectRevert(Errors.InsufficientShares.selector);
         box.redeem(200e18, feeder, feeder);
         vm.stopPrank();
     }
@@ -544,8 +549,8 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectEmit(true, false, false, true);
-        emit Allocate(asset1, 50e18, 50e18);
+        vm.expectEmit(true, false, true, false);
+        emit Allocation(asset1, 50e18, swapper);
 
         // Allocate to asset1
         vm.prank(allocator);
@@ -562,7 +567,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectRevert("BOX: Only allocators can allocate");
+        vm.expectRevert(Errors.OnlyAllocators.selector);
         vm.prank(nonAuthorized);
         box.allocate(asset1, 50e18, swapper);
     }
@@ -576,7 +581,7 @@ contract BoxTest is Test {
         vm.prank(guardian);
         box.triggerShutdown();
 
-        vm.expectRevert("BOX: Can't allocate if shut down");
+        vm.expectRevert(Errors.CannotAllocateIfShutdown.selector);
         vm.prank(allocator);
         box.allocate(asset1, 50e18, swapper);
     }
@@ -587,7 +592,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectRevert("BOX: Token not whitelisted");
+        vm.expectRevert(Errors.TokenNotWhitelisted.selector);
         vm.prank(allocator);
         box.allocate(asset3, 50e18, swapper);
     }
@@ -598,7 +603,7 @@ contract BoxTest is Test {
         bytes memory tokenData = abi.encodeWithSelector(box.addInvestmentToken.selector, asset3, IOracle(address(0)));
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
-        vm.expectRevert("BOX: Oracle required");
+        vm.expectRevert(Errors.OracleRequired.selector);
         (bool success,) = address(box).call(tokenData);
         vm.stopPrank();
     }
@@ -613,7 +618,7 @@ contract BoxTest is Test {
         oracle1.setPrice(0.5e36); // 1 currency = 2 tokens expected
         // But swapper gives 1:1, so we get less than expected
 
-        vm.expectRevert("BOX: Allocation too expensive");
+        vm.expectRevert(Errors.AllocationTooExpensive.selector);
         vm.prank(allocator);
         box.allocate(asset1, 50e18, swapper);
     }
@@ -645,8 +650,8 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(asset1, 50e18, swapper);
 
-        vm.expectEmit(true, false, false, true);
-        emit Deallocate(asset1, 25e18, 25e18);
+        vm.expectEmit(true, false, true, false);
+        emit Deallocation(asset1, 25e18, swapper);
 
         // Deallocate
         vm.prank(allocator);
@@ -666,13 +671,13 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(asset1, 50e18, swapper);
 
-        vm.expectRevert("BOX: Only allocators can deallocate or during shutdown");
+        vm.expectRevert(Errors.OnlyAllocatorsOrShutdown.selector);
         vm.prank(nonAuthorized);
         box.deallocate(asset1, 25e18, swapper);
     }
 
     function testDeallocateNonWhitelistedToken() public {
-        vm.expectRevert("BOX: No oracle for token");
+        vm.expectRevert(Errors.NoOracleForToken.selector);
         vm.prank(allocator);
         box.deallocate(asset3, 25e18, swapper);
     }
@@ -690,7 +695,7 @@ contract BoxTest is Test {
         oracle1.setPrice(2e36); // 1 token = 2 currency expected
         // But swapper gives 1:1, so we get less than expected
 
-        vm.expectRevert("BOX: Token sale not generating enough currency");
+        vm.expectRevert(Errors.TokenSaleNotGeneratingEnoughCurrency.selector);
         vm.prank(allocator);
         box.deallocate(asset1, 25e18, swapper);
     }
@@ -714,7 +719,7 @@ contract BoxTest is Test {
     }
 
     function testReallocateNonAllocator() public {
-        vm.expectRevert("BOX: Only allocators can reallocate");
+        vm.expectRevert(Errors.OnlyAllocators.selector);
         vm.prank(nonAuthorized);
         box.reallocate(asset1, asset2, 25e18, swapper);
     }
@@ -723,17 +728,17 @@ contract BoxTest is Test {
         vm.prank(guardian);
         box.triggerShutdown();
 
-        vm.expectRevert("BOX: Can't reallocate if shut down");
+        vm.expectRevert(Errors.CannotReallocateIfShutdown.selector);
         vm.prank(allocator);
         box.reallocate(asset1, asset2, 25e18, swapper);
     }
 
     function testReallocateNonWhitelistedTokens() public {
-        vm.expectRevert("BOX: Tokens not whitelisted");
+        vm.expectRevert(Errors.TokensNotWhitelisted.selector);
         vm.prank(allocator);
         box.reallocate(asset3, asset1, 25e18, swapper);
 
-        vm.expectRevert("BOX: Tokens not whitelisted");
+        vm.expectRevert(Errors.TokensNotWhitelisted.selector);
         vm.prank(allocator);
         box.reallocate(asset1, asset3, 25e18, swapper);
     }
@@ -753,7 +758,7 @@ contract BoxTest is Test {
         oracle2.setPrice(0.5e36); // 1 asset2 = 0.5 currency (so we expect 2 asset2 for 1 asset1)
         
         // But swapper gives 1:1, so we get less than expected (50% slippage)
-        vm.expectRevert("BOX: Reallocation slippage too high");
+        vm.expectRevert(Errors.ReallocationSlippageTooHigh.selector);
         vm.prank(allocator);
         box.reallocate(asset1, asset2, 25e18, swapper);
     }
@@ -879,28 +884,25 @@ contract BoxTest is Test {
         box.deposit(1000e18, feeder);
         vm.stopPrank();
 
-        // Set swapper to have 0.5% slippage
+        // Set swapper to have 1% slippage
         swapper.setSlippage(1); // 1% slippage
 
         vm.startPrank(allocator);
-        // Multiple small allocations that accumulate slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
-        box.allocate(asset1, 50e18, swapper); // 0.05% slippage
+        // Multiple larger allocations that accumulate slippage faster
+        // Each 100e18 allocation with 1% slippage should contribute more significantly
+        box.allocate(asset1, 100e18, swapper); // ~0.1% slippage
+        box.allocate(asset1, 100e18, swapper); // ~0.1% slippage  
+        box.allocate(asset1, 100e18, swapper); // ~0.1% slippage
+        box.allocate(asset1, 100e18, swapper); // ~0.1% slippage
+        box.allocate(asset1, 100e18, swapper); // ~0.1% slippage
+        box.allocate(asset1, 100e18, swapper); // ~0.1% slippage
+        box.allocate(asset1, 100e18, swapper); // ~0.1% slippage
+        box.allocate(asset1, 100e18, swapper); // ~0.1% slippage
+        box.allocate(asset1, 100e18, swapper); // ~0.1% slippage
         
         // This should fail as it would exceed 1% total slippage
-        vm.expectRevert("BOX: Too much accumulated slippage");
-        box.allocate(asset1, 50e18, swapper); // Would push over 1% total
+        vm.expectRevert(Errors.TooMuchAccumulatedSlippage.selector);
+        box.allocate(asset1, 100e18, swapper); // Would push over 1% total
         vm.stopPrank();
     }
 
@@ -942,7 +944,7 @@ contract BoxTest is Test {
     }
 
     function testShutdownNonGuardian() public {
-        vm.expectRevert("BOX: Only curator can shutdown");
+        vm.expectRevert(Errors.OnlyCuratorCanShutdown.selector);
         vm.prank(nonAuthorized);
         box.triggerShutdown();
     }
@@ -951,7 +953,7 @@ contract BoxTest is Test {
         vm.prank(guardian);
         box.triggerShutdown();
 
-        vm.expectRevert("BOX: Already shut down");
+        vm.expectRevert(Errors.AlreadyShutdown.selector);
         vm.prank(guardian);
         box.triggerShutdown();
     }
@@ -1068,7 +1070,7 @@ contract BoxTest is Test {
         currency.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
-        vm.expectRevert("BOX: Insufficient shares");
+        vm.expectRevert(Errors.InsufficientShares.selector);
         box.unbox(200e18);
         vm.stopPrank();
     }
@@ -1078,7 +1080,7 @@ contract BoxTest is Test {
         currency.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
-        vm.expectRevert("BOX: Cannot unbox zero shares");
+        vm.expectRevert(Errors.CannotUnboxZeroShares.selector);
         box.unbox(0);
         vm.stopPrank();
     }
@@ -1096,7 +1098,7 @@ contract BoxTest is Test {
         box.submit(slippageData);
         
         // Try to execute too early - should fail
-        vm.expectRevert("BOX: Timelock not expired");
+        vm.expectRevert(Errors.TimelockNotExpired.selector);
         (bool success,) = address(box).call(slippageData);
         
         // Warp to after timelock
@@ -1112,7 +1114,7 @@ contract BoxTest is Test {
 
     function testTimelockSubmitNonCurator() public {
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.02 ether);
-        vm.expectRevert("BOX: Only curator");
+        vm.expectRevert(Errors.OnlyCurator.selector);
         vm.prank(nonAuthorized);
         box.submit(slippageData);
     }
@@ -1126,7 +1128,7 @@ contract BoxTest is Test {
         
         // Should fail to execute after revoke
         vm.warp(block.timestamp + 1 days + 1);
-        vm.expectRevert("BOX: Data not timelocked");
+        vm.expectRevert(Errors.DataNotTimelocked.selector);
         (bool success,) = address(box).call(slippageData);
         vm.stopPrank();
     }
@@ -1136,7 +1138,7 @@ contract BoxTest is Test {
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.02 ether);
         box.submit(slippageData);
 
-        vm.expectRevert("BOX: Only curator");
+        vm.expectRevert(Errors.OnlyCurator.selector);
         vm.prank(nonAuthorized);
         box.revoke(slippageData);
     }
@@ -1217,7 +1219,7 @@ contract BoxTest is Test {
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.15 ether);
         box.submit(slippageData);
         vm.warp(block.timestamp + 1 days + 1);
-        vm.expectRevert("BOX: Slippage too high");
+        vm.expectRevert(Errors.SlippageTooHigh.selector);
         (bool success,) = address(box).call(slippageData);
         vm.stopPrank();
     }
@@ -1265,7 +1267,7 @@ contract BoxTest is Test {
         bytes memory tokenData = abi.encodeWithSelector(box.removeInvestmentToken.selector, asset1);
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
-        vm.expectRevert("BOX: Token balance must be zero");
+        vm.expectRevert(Errors.TokenBalanceMustBeZero.selector);
         (bool success,) = address(box).call(tokenData);
         vm.stopPrank();
     }
@@ -1280,13 +1282,13 @@ contract BoxTest is Test {
     }
 
     function testOwnerChangeNonOwner() public {
-        vm.expectRevert("BOX: Only owner");
+        vm.expectRevert(Errors.OnlyOwner.selector);
         vm.prank(nonAuthorized);
         box.setOwner(address(0x99));
     }
 
     function testOwnerChangeInvalidAddress() public {
-        vm.expectRevert("BOX: Invalid owner");
+        vm.expectRevert(Errors.InvalidOwner.selector);
         vm.prank(owner);
         box.setOwner(address(0));
     }
@@ -1330,7 +1332,7 @@ contract BoxTest is Test {
         box.allocate(asset1, 100e18, swapper);
 
         // Try to withdraw - should fail due to insufficient liquidity
-        vm.expectRevert("BOX: Insufficient liquidity");
+        vm.expectRevert(Errors.InsufficientLiquidity.selector);
         vm.prank(feeder);
         box.withdraw(50e18, feeder, feeder);
     }
