@@ -1,50 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-interface IERC20 {
-    function totalSupply() external view returns (uint256);
-    function balanceOf(address account) external view returns (uint256);
-    function transfer(address to, uint256 amount) external returns (bool success);
-    function allowance(address owner, address spender) external view returns (uint256 remaining);
-    function approve(address spender, uint256 amount) external returns (bool success);
-    function transferFrom(
-        address from,
-        address to,
-        uint256 amount
-    ) external returns (bool success);
-}
-
-interface IERC4626 {
-    function asset() external view returns (address assetTokenAddress);
-    function totalAssets() external view returns (uint256 totalManagedAssets);
-    function convertToShares(uint256 assets) external view returns (uint256 shares);
-    function convertToAssets(uint256 shares) external view returns (uint256 assets);
-    function maxDeposit(address receiver) external view returns (uint256 maxAssets);
-    function previewDeposit(uint256 assets) external view returns (uint256 shares);
-    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
-    function maxMint(address receiver) external view returns (uint256 maxShares);
-    function previewMint(uint256 shares) external view returns (uint256 assets);
-    function mint(uint256 shares, address receiver) external returns (uint256 assets);
-    function maxWithdraw(address owner) external view returns (uint256 maxAssets);
-    function previewWithdraw(uint256 assets) external view returns (uint256 shares);
-    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256 shares);
-    function maxRedeem(address owner) external view returns (uint256 maxShares);
-    function previewRedeem(uint256 shares) external view returns (uint256 assets);
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets);
-}
-
-interface IOracle {    
-    /// @notice Returns the price of 1 asset of collateral token quoted in 1 asset of loan token, scaled by 1e36.
-    function price() external view returns (uint256);
-}
-
-interface ISwapper {
-    /// @notice Take `amountIn` `input` from `msg.sender` swap to `output` and send back to `msg.sender`
-    function swap(IERC20 input, IERC20 output, uint256 amountIn) external;
-}
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "./interfaces/IOracle.sol";
+import "./interfaces/ISwapper.sol";
+import "./lib/Errors.sol";
 
 /// @title Box: A contract that can hold a currency and some assets and swap them
 contract Box is IERC4626 {
+    using SafeERC20 for IERC20;
+    
     uint256 constant TIMELOCK_CAP = 2 weeks;
     uint256 constant MAX_SLIPPAGE = 0.1 ether; // 10%
 
@@ -58,64 +25,65 @@ contract Box is IERC4626 {
     mapping(address => bool) public isAllocator;
     mapping(address => bool) public isFeeder;
 
-    // INVESTMENT TOKENS
+    // ERC20 state
+    string public name;
+    string public symbol;
+    uint8 public constant decimals = 18;
+    uint256 public totalSupply;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    // Investment tokens and oracles
     IERC20[] public investmentTokens;
     mapping(IERC20 => IOracle) public oracles;
     mapping(IERC20 => bool) public isInvestmentToken;
 
-    // SHARES (ERC4626)
-    uint256 public totalSupply;
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
-    string public constant name = "Box Shares";
-    string public constant symbol = "BOX";
-    uint8 public constant decimals = 18;
-
-    // SWAPPING RELATED
-    /// @notice starting date of a swapping epoch
-    uint256 public slippageEpochStart;
-    /// @notice amount of currency already rotated
-    uint256 public slippageAccum;
-    /// @notice maximum allowed slippage per epoch
+    // Slippage tracking
     uint256 public maxSlippage = 0.01 ether; // 1%
+    uint256 public accumulatedSlippage;
+    uint256 public slippageEpochStart;
 
-    /// @notice Is the Box shut down
+    // Shutdown mechanism
     bool public shutdown;
-    /// @notice Timestamp when shutdown was triggered
     uint256 public shutdownTime;
 
-    // TIMELOCK SYSTEM (VaultV2 pattern)
+    // Timelock governance (VaultV2 pattern)
     mapping(bytes4 => uint256) public timelock;
     mapping(bytes => uint256) public executableAt;
 
     // Events
-    event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
-    event Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
-    event Allocate(IERC20 indexed token, uint256 currencyAmount, uint256 tokensReceived);
-    event Deallocate(IERC20 indexed token, uint256 tokensAmount, uint256 currencyReceived);
+    event Allocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
+    event Deallocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
+    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 amount, ISwapper indexed swapper);
     event Shutdown(address indexed guardian);
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-    event Submit(bytes4 indexed selector, bytes data, uint256 executableAt);
-    event Revoke(address indexed caller, bytes4 indexed selector, bytes data);
+    event Unbox(address indexed user, uint256 shares);
+    event SlippageAccumulated(uint256 amount, uint256 total);
+    event SlippageEpochReset(uint256 newEpochStart);
+    event TimelockSubmitted(bytes4 indexed selector, bytes data, uint256 executableAt);
+    event TimelockRevoked(bytes4 indexed selector, bytes data);
+    event TimelockIncreased(bytes4 indexed selector, uint256 newDuration);
     
     constructor(
-        address _owner, 
         IERC20 _currency,
-        ISwapper _backupSwapper
+        ISwapper _backupSwapper,
+        address _owner,
+        address _curator
     ) {
-        owner = _owner;
-        curator = _owner; // Initially owner is also curator
         currency = _currency;
         backupSwapper = _backupSwapper;
+        owner = _owner;
+        curator = _curator;
         slippageEpochStart = block.timestamp;
         
-        // Set initial timelocks
-        timelock[this.setIsAllocator.selector] = 1 days;
-        timelock[this.setIsFeeder.selector] = 1 days;
+        name = "Box Shares";
+        symbol = "BOX";
+
+        // Initialize timelock durations
         timelock[this.setMaxSlippage.selector] = 1 days;
         timelock[this.addInvestmentToken.selector] = 1 days;
         timelock[this.removeInvestmentToken.selector] = 1 days;
+        timelock[this.setIsAllocator.selector] = 1 days;
+        timelock[this.setIsFeeder.selector] = 1 days;
     }
 
     /////////////////////////////
@@ -164,14 +132,14 @@ contract Box is IERC4626 {
 
     /// @notice Mints shares Vault shares to receiver by depositing exactly amount of underlying tokens.
     function deposit(uint256 assets, address receiver) public returns (uint256 shares) {
-        require(isFeeder[msg.sender], "BOX: Only feeders can deposit");
-        require(!shutdown, "BOX: Can't deposit if shut down");
-        require(assets > 0, "BOX: Cannot deposit zero");
+        if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
+        if (shutdown) revert Errors.CannotDepositIfShutdown();
+        if (assets == 0) revert Errors.CannotDepositZero();
 
         shares = previewDeposit(assets);
-        require(shares > 0, "BOX: Zero shares");
+        if (shares == 0) revert Errors.CannotDepositZero();
 
-        currency.transferFrom(msg.sender, address(this), assets);
+        currency.safeTransferFrom(msg.sender, address(this), assets);
         
         _mint(receiver, shares);
 
@@ -190,13 +158,13 @@ contract Box is IERC4626 {
 
     /// @notice Mints exactly shares Vault shares to receiver
     function mint(uint256 shares, address receiver) external returns (uint256 assets) {
-        require(isFeeder[msg.sender], "BOX: Only feeders can mint");
-        require(!shutdown, "BOX: Can't mint if shut down");
-        require(shares > 0, "BOX: Cannot mint zero");
+        if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
+        if (shutdown) revert Errors.CannotMintIfShutdown();
+        if (shares == 0) revert Errors.CannotMintZero();
 
         assets = previewMint(shares);
         
-        currency.transferFrom(msg.sender, address(this), assets);
+        currency.safeTransferFrom(msg.sender, address(this), assets);
         
         _mint(receiver, shares);
 
@@ -216,13 +184,12 @@ contract Box is IERC4626 {
 
     /// @notice Burns shares from owner and sends exactly assets of underlying tokens to receiver
     function withdraw(uint256 assets, address receiver, address owner_) public returns (uint256 shares) {
-        require(isFeeder[msg.sender], "BOX: Only feeders can withdraw");
-        require(msg.sender == owner_ || allowance[owner_][msg.sender] >= previewWithdraw(assets), "BOX: Insufficient allowance");
+        if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
         
         shares = previewWithdraw(assets);
-        require(balanceOf[owner_] >= shares, "BOX: Insufficient shares");
-
-        require(currency.balanceOf(address(this)) >= assets, "BOX: Insufficient liquidity");
+        if (msg.sender != owner_ && allowance[owner_][msg.sender] < shares) revert Errors.InsufficientAllowance();
+        if (balanceOf[owner_] < shares) revert Errors.InsufficientShares();
+        if (currency.balanceOf(address(this)) < assets) revert Errors.InsufficientLiquidity();
 
         if (msg.sender != owner_) {
             uint256 allowed = allowance[owner_][msg.sender];
@@ -232,7 +199,7 @@ contract Box is IERC4626 {
         }
 
         _burn(owner_, shares);
-        currency.transfer(receiver, assets);
+        currency.safeTransfer(receiver, assets);
 
         emit Withdraw(msg.sender, receiver, owner_, assets, shares);
     }
@@ -249,13 +216,13 @@ contract Box is IERC4626 {
 
     /// @notice Burns exactly shares from owner and sends assets of underlying tokens to receiver
     function redeem(uint256 shares, address receiver, address owner_) external returns (uint256 assets) {
-        require(isFeeder[msg.sender], "BOX: Only feeders can redeem");
-        require(msg.sender == owner_ || allowance[owner_][msg.sender] >= shares, "BOX: Insufficient allowance");
-        require(balanceOf[owner_] >= shares, "BOX: Insufficient shares");
+        if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
+        if (msg.sender != owner_ && allowance[owner_][msg.sender] < shares) revert Errors.InsufficientAllowance();
+        if (balanceOf[owner_] < shares) revert Errors.InsufficientShares();
 
         assets = previewRedeem(shares);
 
-        require(currency.balanceOf(address(this)) >= assets, "BOX: Insufficient liquidity");
+        if (currency.balanceOf(address(this)) < assets) revert Errors.InsufficientLiquidity();
 
         if (msg.sender != owner_) {
             uint256 allowed = allowance[owner_][msg.sender];
@@ -265,7 +232,7 @@ contract Box is IERC4626 {
         }
 
         _burn(owner_, shares);
-        currency.transfer(receiver, assets);
+        currency.safeTransfer(receiver, assets);
 
         emit Withdraw(msg.sender, receiver, owner_, assets, shares);
     }
@@ -316,15 +283,15 @@ contract Box is IERC4626 {
 
     /// @notice Return the prorata share of currency and assets against shares (emergency exit)
     function unbox(uint256 shares) public {
-        require(balanceOf[msg.sender] >= shares, "BOX: Insufficient shares");
-        require(shares > 0, "BOX: Cannot unbox zero shares");
+        if (balanceOf[msg.sender] < shares) revert Errors.InsufficientShares();
+        if (shares == 0) revert Errors.CannotUnboxZeroShares();
 
         uint256 currencyAmount = (currency.balanceOf(address(this)) * shares) / totalSupply;
         
         _burn(msg.sender, shares);
 
         if (currencyAmount > 0) {
-            currency.transfer(msg.sender, currencyAmount);
+            currency.safeTransfer(msg.sender, currencyAmount);
         }
 
         // Transfer pro-rata share of each investment token
@@ -333,7 +300,7 @@ contract Box is IERC4626 {
             // needs `+ shares` because _burn reduced totalSupply
             uint256 tokenAmount = (token.balanceOf(address(this)) * shares) / (totalSupply + shares);
             if (tokenAmount > 0) {
-                token.transfer(msg.sender, tokenAmount);
+                token.safeTransfer(msg.sender, tokenAmount);
             }
         }
     }
@@ -344,10 +311,10 @@ contract Box is IERC4626 {
 
     /// @notice Buy investment token with currency
     function allocate(IERC20 token, uint256 currencyAmount, ISwapper swapper) public {
-        require(isAllocator[msg.sender], "BOX: Only allocators can allocate");
-        require(!shutdown, "BOX: Can't allocate if shut down");
-        require(isInvestmentToken[token], "BOX: Token not whitelisted");
-        require(address(oracles[token]) != address(0), "BOX: No oracle for token");
+        if (!isAllocator[msg.sender]) revert Errors.OnlyAllocators();
+        if (shutdown) revert Errors.CannotAllocateIfShutdown();
+        if (!isInvestmentToken[token]) revert Errors.TokenNotWhitelisted();
+        if (address(oracles[token]) == address(0)) revert Errors.NoOracleForToken();
 
         uint256 tokensBefore = token.balanceOf(address(this));
 
@@ -360,20 +327,20 @@ contract Box is IERC4626 {
         uint256 expectedTokens = (currencyAmount * 1e36) / oracles[token].price();
         uint256 minTokens = (expectedTokens * (1 ether - maxSlippage)) / 1 ether;
 
-        require(tokensReceived >= minTokens, "BOX: Allocation too expensive");
+        if (tokensReceived < minTokens) revert Errors.AllocationTooExpensive();
 
         // Calculate slippage as difference between expected and actual
         uint256 slippage = expectedTokens > tokensReceived ? 
             expectedTokens - tokensReceived : 0;
         _increaseSlippage((slippage * oracles[token].price() / 1e36 * 1e18) / totalAssets());
 
-        emit Allocate(token, currencyAmount, tokensReceived);
+        emit Allocation(token, currencyAmount, swapper);
     }
 
     /// @notice Sell investment token for currency
     function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper) public {
-        require(isAllocator[msg.sender] || shutdown, "BOX: Only allocators can deallocate or during shutdown");
-        require(address(oracles[token]) != address(0), "BOX: No oracle for token");
+        if (!isAllocator[msg.sender] && !shutdown) revert Errors.OnlyAllocatorsOrShutdown();
+        if (address(oracles[token]) == address(0)) revert Errors.NoOracleForToken();
 
         if (shutdown) {
             _deallocateShutdown(token, tokensAmount);
@@ -394,14 +361,14 @@ contract Box is IERC4626 {
         uint256 expectedCurrency = (tokensAmount * oracles[token].price()) / 1e36;
         uint256 minCurrency = (expectedCurrency * (1 ether - maxSlippage)) / 1 ether;
 
-        require(currencyReceived >= minCurrency, "BOX: Token sale not generating enough currency");
+        if (currencyReceived < minCurrency) revert Errors.TokenSaleNotGeneratingEnoughCurrency();
 
         // Calculate slippage
         uint256 slippage = expectedCurrency > currencyReceived ? 
             expectedCurrency - currencyReceived : 0;
         _increaseSlippage((slippage * 1e18) / totalAssets());
 
-        emit Deallocate(token, tokensAmount, currencyReceived);
+        emit Deallocation(token, tokensAmount, swapper);
     }
 
     function _deallocateShutdown(IERC20 token, uint256 tokensAmount) internal {
@@ -420,9 +387,9 @@ contract Box is IERC4626 {
         uint256 expectedCurrency = (tokensAmount * oracles[token].price()) / 1e36;
         uint256 minCurrency = (expectedCurrency * (1 ether - shutdownSlippage)) / 1 ether;
 
-        require(currencyReceived >= minCurrency, "BOX: Shutdown deallocate slippage too high");
+        if (currencyReceived < minCurrency) revert Errors.TokenSaleNotGeneratingEnoughCurrency();
 
-        emit Deallocate(token, tokensAmount, currencyReceived);
+        emit Deallocation(token, tokensAmount, backupSwapper);
     }
 
     function _deallocateForLiquidity(uint256 currencyNeeded) internal {
@@ -442,10 +409,10 @@ contract Box is IERC4626 {
 
     /// @notice Reallocate from one investment token to another
     function reallocate(IERC20 from, IERC20 to, uint256 fromAmount, ISwapper swapper) public {
-        require(isAllocator[msg.sender], "BOX: Only allocators can reallocate");
-        require(!shutdown, "BOX: Can't reallocate if shut down");
-        require(isInvestmentToken[from] && isInvestmentToken[to], "BOX: Tokens not whitelisted");
-        require(address(oracles[from]) != address(0) && address(oracles[to]) != address(0), "BOX: Oracles required");
+        if (!isAllocator[msg.sender]) revert Errors.OnlyAllocators();
+        if (shutdown) revert Errors.CannotReallocateIfShutdown();
+        if (!isInvestmentToken[from] || !isInvestmentToken[to]) revert Errors.TokensNotWhitelisted();
+        if (address(oracles[from]) == address(0) || address(oracles[to]) == address(0)) revert Errors.OracleRequired();
 
         uint256 toBefore = to.balanceOf(address(this));
 
@@ -460,7 +427,7 @@ contract Box is IERC4626 {
         uint256 expectedToTokens = (fromValue * 1e36) / oracles[to].price(); // Expected tokens based on oracle prices
         uint256 minToTokens = (expectedToTokens * (1 ether - maxSlippage)) / 1 ether;
 
-        require(toReceived >= minToTokens, "BOX: Reallocation slippage too high");
+        if (toReceived < minToTokens) revert Errors.ReallocationSlippageTooHigh();
 
         // Calculate slippage as difference between expected and actual, in currency terms
         uint256 expectedValue = (expectedToTokens * oracles[to].price()) / 1e36;
@@ -470,19 +437,18 @@ contract Box is IERC4626 {
         // Track slippage as percentage of total assets
         _increaseSlippage((slippage * 1e18) / totalAssets());
 
-        emit Allocate(to, fromValue, toReceived);
-        emit Deallocate(from, fromAmount, fromValue);
+        emit Reallocation(from, to, fromAmount, swapper);
     }
 
     function _increaseSlippage(uint256 slippagePct) internal {
         // Reset the slippage epoch if more than a week old
         if (slippageEpochStart + 7 days < block.timestamp) {
             slippageEpochStart = block.timestamp;
-            slippageAccum = 0;
+            accumulatedSlippage = 0;
         }
 
-        slippageAccum += slippagePct;
-        require(slippageAccum < maxSlippage, "BOX: Too much accumulated slippage");
+        accumulatedSlippage += slippagePct;
+        if (accumulatedSlippage >= maxSlippage) revert Errors.TooMuchAccumulatedSlippage();
     }
 
     /////////////////////////////
@@ -490,20 +456,20 @@ contract Box is IERC4626 {
     /////////////////////////////
 
     function setOwner(address newOwner) external {
-        require(msg.sender == owner, "BOX: Only owner");
-        require(newOwner != address(0), "BOX: Invalid owner");
+        if (msg.sender != owner) revert Errors.OnlyOwner();
+        if (newOwner == address(0)) revert Errors.InvalidOwner();
         address oldOwner = owner;
         owner = newOwner;
     }
 
     function setCurator(address newCurator) external {
-        require(msg.sender == owner, "BOX: Only owner");
+        if (msg.sender != owner) revert Errors.OnlyOwner();
         curator = newCurator;
     }
 
     function triggerShutdown() external {
-        require(msg.sender == curator, "BOX: Only curator can shutdown");
-        require(!shutdown, "BOX: Already shut down");
+        if (msg.sender != curator) revert Errors.OnlyCuratorCanShutdown();
+        if (shutdown) revert Errors.AlreadyShutdown();
         shutdown = true;
         shutdownTime = block.timestamp;
         emit Shutdown(curator);
@@ -514,33 +480,34 @@ contract Box is IERC4626 {
     /////////////////////////////
 
     function submit(bytes calldata data) external {
-        require(msg.sender == curator, "BOX: Only curator");
-        require(executableAt[data] == 0, "BOX: Data already pending");
+        if (msg.sender != curator) revert Errors.OnlyCurator();
+        if (executableAt[data] != 0) revert Errors.DataNotTimelocked();
 
         bytes4 selector = bytes4(data);
         executableAt[data] = block.timestamp + timelock[selector];
-        emit Submit(selector, data, executableAt[data]);
+        emit TimelockSubmitted(selector, data, executableAt[data]);
     }
 
     modifier timelocked() {
-        require(executableAt[msg.data] != 0, "BOX: Data not timelocked");
-        require(block.timestamp >= executableAt[msg.data], "BOX: Timelock not expired");
+        if (executableAt[msg.data] == 0) revert Errors.DataNotTimelocked();
+        if (block.timestamp < executableAt[msg.data]) revert Errors.TimelockNotExpired();
         executableAt[msg.data] = 0;
         _;
     }
 
     function revoke(bytes calldata data) external {
-        require(msg.sender == curator, "BOX: Only curator");
-        require(executableAt[data] != 0, "BOX: Data not timelocked");
+        if (msg.sender != curator) revert Errors.OnlyCurator();
+        if (executableAt[data] == 0) revert Errors.DataNotTimelocked();
         executableAt[data] = 0;
-        emit Revoke(msg.sender, bytes4(data), data);
+        emit TimelockRevoked(bytes4(data), data);
     }
 
     function increaseTimelock(bytes4 selector, uint256 newDuration) external {
-        require(msg.sender == curator, "BOX: Only curator");
-        require(newDuration <= TIMELOCK_CAP, "BOX: Timelock duration too high");
-        require(newDuration >= timelock[selector], "BOX: Timelock not increasing");
+        if (msg.sender != curator) revert Errors.OnlyCurator();
+        if (newDuration > TIMELOCK_CAP) revert Errors.SlippageTooHigh(); // Reusing error for timelock cap
+        if (newDuration < timelock[selector]) revert Errors.SlippageTooHigh(); // Reusing error for timelock decrease
         timelock[selector] = newDuration;
+        emit TimelockIncreased(selector, newDuration);
     }
 
     /////////////////////////////
@@ -556,14 +523,14 @@ contract Box is IERC4626 {
     }
 
     function setMaxSlippage(uint256 newMaxSlippage) external timelocked {
-        require(newMaxSlippage <= MAX_SLIPPAGE, "BOX: Slippage too high");
+        if (newMaxSlippage > MAX_SLIPPAGE) revert Errors.SlippageTooHigh();
         maxSlippage = newMaxSlippage;
     }
 
     function addInvestmentToken(IERC20 token, IOracle oracle) external timelocked {
-        require(address(token) != address(0), "BOX: Invalid token");
-        require(address(oracle) != address(0), "BOX: Oracle required");
-        require(!isInvestmentToken[token], "BOX: Token already added");
+        if (address(token) == address(0)) revert Errors.TokenNotWhitelisted();
+        if (address(oracle) == address(0)) revert Errors.OracleRequired();
+        if (isInvestmentToken[token]) revert Errors.TokenNotWhitelisted();
         
         investmentTokens.push(token);
         oracles[token] = oracle;
@@ -571,8 +538,8 @@ contract Box is IERC4626 {
     }
 
     function removeInvestmentToken(IERC20 token) external timelocked {
-        require(isInvestmentToken[token], "BOX: Token not found");
-        require(token.balanceOf(address(this)) == 0, "BOX: Token balance must be zero");
+        if (!isInvestmentToken[token]) revert Errors.TokenNotWhitelisted();
+        if (token.balanceOf(address(this)) != 0) revert Errors.TokenBalanceMustBeZero();
         
         for (uint256 i = 0; i < investmentTokens.length; i++) {
             if (investmentTokens[i] == token) {
@@ -581,7 +548,7 @@ contract Box is IERC4626 {
                 break;
             }
         }
-        
+
         delete oracles[token];
         isInvestmentToken[token] = false;
     }
@@ -590,12 +557,10 @@ contract Box is IERC4626 {
     /// VIEW FUNCTIONS
     /////////////////////////////
 
-    /// @notice Get number of investment tokens
     function getInvestmentTokensLength() external view returns (uint256) {
         return investmentTokens.length;
     }
 
-    /// @notice Get investment token at index
     function getInvestmentToken(uint256 index) external view returns (IERC20) {
         return investmentTokens[index];
     }
