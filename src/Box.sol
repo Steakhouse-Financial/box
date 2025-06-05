@@ -78,6 +78,9 @@ contract Box is IERC4626 {
         name = "Box Shares";
         symbol = "BOX";
 
+        isAllocator[owner] = true;
+        isFeeder[owner] = true;
+
         // Initialize timelock durations
         timelock[this.setMaxSlippage.selector] = 1 days;
         timelock[this.addInvestmentToken.selector] = 1 days;
@@ -319,7 +322,7 @@ contract Box is IERC4626 {
         uint256 tokensBefore = token.balanceOf(address(this));
 
         currency.approve(address(swapper), currencyAmount);
-        swapper.swap(currency, token, currencyAmount);
+        swapper.sell(currency, token, currencyAmount);
         
         uint256 tokensReceived = token.balanceOf(address(this)) - tokensBefore;
 
@@ -353,7 +356,7 @@ contract Box is IERC4626 {
         uint256 currencyBefore = currency.balanceOf(address(this));
 
         token.approve(address(swapper), tokensAmount);
-        swapper.swap(token, currency, tokensAmount);
+        swapper.sell(token, currency, tokensAmount);
 
         uint256 currencyReceived = currency.balanceOf(address(this)) - currencyBefore;
 
@@ -376,7 +379,7 @@ contract Box is IERC4626 {
 
         // Use backup swapper during shutdown
         token.approve(address(backupSwapper), tokensAmount);
-        backupSwapper.swap(token, currency, tokensAmount);
+        backupSwapper.sell(token, currency, tokensAmount);
 
         uint256 currencyReceived = currency.balanceOf(address(this)) - currencyBefore;
 
@@ -417,7 +420,7 @@ contract Box is IERC4626 {
         uint256 toBefore = to.balanceOf(address(this));
 
         from.approve(address(swapper), fromAmount);
-        swapper.swap(from, to, fromAmount);
+        swapper.sell(from, to, fromAmount);
 
         uint256 toReceived = to.balanceOf(address(this)) - toBefore;
 
