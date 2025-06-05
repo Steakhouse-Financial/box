@@ -8,20 +8,61 @@ import "./interfaces/IOracle.sol";
 import "./interfaces/ISwapper.sol";
 import "./lib/Errors.sol";
 
-/// @title Box: A contract that can hold a currency and some assets and swap them
+/**
+ * @title Box
+ * @author Steakhouse
+ * @notice An ERC4626 vault that holds a base currency and can invest in other ERC20 assets
+ * @dev Features role-based access control, timelocked governance, and slippage protection
+ */
 contract Box is IERC4626 {
     using SafeERC20 for IERC20;
     
-    uint256 constant TIMELOCK_CAP = 2 weeks;
-    uint256 constant MAX_SLIPPAGE = 0.1 ether; // 10%
-
+    // ========== CONSTANTS ==========
+    
+    /// @notice Maximum allowed slippage percentage (10%)
+    uint256 public constant MAX_SLIPPAGE_LIMIT = 0.1 ether;
+    
+    /// @notice Maximum timelock duration (2 weeks)
+    uint256 public constant TIMELOCK_CAP = 2 weeks;
+    
+    /// @notice Precision for oracle prices
+    uint256 private constant ORACLE_PRECISION = 1e36;
+    
+    /// @notice Precision for percentage calculations
+    uint256 private constant PRECISION = 1 ether;
+    
+    // ========== IMMUTABLE STATE ==========
+    
+    /// @notice Base currency token (e.g., USDC)
     IERC20 public immutable currency;
+    
+    /// @notice Emergency swapper used during shutdown
     ISwapper public immutable backupSwapper;
-
+    
+    /// @notice Duration of slippage tracking epochs
+    uint256 public immutable slippageEpochDuration;
+    
+    /// @notice Duration over which shutdown slippage tolerance increases
+    uint256 public immutable shutdownSlippageDuration;
+    
+    // ========== MUTABLE STATE ==========
+    
+    /// @notice Contract owner with administrative privileges
     address public owner;
+    
+    /// @notice Curator who can trigger shutdown and manage timelocks
     address public curator;
+    
+    /// @notice Emergency pause state
+    bool public paused;
+    
+    /// @notice Shutdown state
+    bool public shutdown;
+    
+    /// @notice Timestamp when shutdown was triggered
+    uint256 public shutdownTime;
 
-    // Role-based access control
+    // Role mappings
     mapping(address => bool) public isAllocator;
     mapping(address => bool) public isFeeder;
 
@@ -33,173 +74,250 @@ contract Box is IERC4626 {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
-    // Investment tokens and oracles
+    // Investment management
     IERC20[] public investmentTokens;
     mapping(IERC20 => IOracle) public oracles;
     mapping(IERC20 => bool) public isInvestmentToken;
 
     // Slippage tracking
-    uint256 public maxSlippage = 0.01 ether; // 1%
+    uint256 public maxSlippage;
     uint256 public accumulatedSlippage;
     uint256 public slippageEpochStart;
 
-    // Shutdown mechanism
-    bool public shutdown;
-    uint256 public shutdownTime;
-
-    // Timelock governance (VaultV2 pattern)
+    // Timelock governance
     mapping(bytes4 => uint256) public timelock;
     mapping(bytes => uint256) public executableAt;
 
-    // Events
+    // ========== EVENTS ==========
+    
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event CuratorUpdated(address indexed previousCurator, address indexed newCurator);
+    event RoleUpdated(address indexed account, bool isAllocator, bool isFeeder);
+    event Paused(address indexed account);
+    event Unpaused(address indexed account);
+    
     event Allocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
     event Deallocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
     event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 amount, ISwapper indexed swapper);
-    event Shutdown(address indexed guardian);
+    event Shutdown(address indexed curator);
     event Unbox(address indexed user, uint256 shares);
+    
     event SlippageAccumulated(uint256 amount, uint256 total);
     event SlippageEpochReset(uint256 newEpochStart);
+    event MaxSlippageUpdated(uint256 previousMaxSlippage, uint256 newMaxSlippage);
+    
+    event InvestmentTokenAdded(IERC20 indexed token, IOracle indexed oracle);
+    event InvestmentTokenRemoved(IERC20 indexed token);
+    
     event TimelockSubmitted(bytes4 indexed selector, bytes data, uint256 executableAt);
     event TimelockRevoked(bytes4 indexed selector, bytes data);
     event TimelockIncreased(bytes4 indexed selector, uint256 newDuration);
+    event TimelockExecuted(bytes4 indexed selector, bytes data);
+
+    // ========== CUSTOM ERRORS ==========
     
+    error InvalidAddress();
+    error InvalidAmount();
+    error InvalidTimelock();
+    error TimelockDecrease();
+    error ContractPaused();
+    error ArrayLengthMismatch();
+
+    // ========== MODIFIERS ==========
+    
+    modifier notPaused() {
+        if (paused) revert ContractPaused();
+        _;
+    }
+    
+    modifier timelocked() {
+        if (executableAt[msg.data] == 0) revert Errors.DataNotTimelocked();
+        if (block.timestamp < executableAt[msg.data]) revert Errors.TimelockNotExpired();
+        executableAt[msg.data] = 0;
+        emit TimelockExecuted(bytes4(msg.data), msg.data);
+        _;
+    }
+
+    // ========== CONSTRUCTOR ==========
+    
+    /**
+     * @notice Initializes the Box vault
+     * @param _currency Base currency token (e.g., USDC)
+     * @param _backupSwapper Emergency swapper for shutdown
+     * @param _owner Initial owner address
+     * @param _curator Initial curator address  
+     * @param _name ERC20 token name
+     * @param _symbol ERC20 token symbol
+     * @param _maxSlippage Initial maximum slippage percentage
+     * @param _slippageEpochDuration Duration of slippage tracking epochs
+     * @param _shutdownSlippageDuration Duration for shutdown slippage ramp
+     * @param _timelockDurations Array of timelock durations for each function
+     */
     constructor(
         IERC20 _currency,
         ISwapper _backupSwapper,
         address _owner,
-        address _curator
+        address _curator,
+        string memory _name,
+        string memory _symbol,
+        uint256 _maxSlippage,
+        uint256 _slippageEpochDuration,
+        uint256 _shutdownSlippageDuration,
+        uint256[5] memory _timelockDurations
     ) {
+        if (address(_currency) == address(0)) revert InvalidAddress();
+        if (address(_backupSwapper) == address(0)) revert InvalidAddress();
+        if (_owner == address(0)) revert InvalidAddress();
+        if (_curator == address(0)) revert InvalidAddress();
+        if (_maxSlippage > MAX_SLIPPAGE_LIMIT) revert Errors.SlippageTooHigh();
+        if (_slippageEpochDuration == 0) revert InvalidAmount();
+        if (_shutdownSlippageDuration == 0) revert InvalidAmount();
+        
         currency = _currency;
         backupSwapper = _backupSwapper;
         owner = _owner;
         curator = _curator;
+        name = _name;
+        symbol = _symbol;
+        maxSlippage = _maxSlippage;
+        slippageEpochDuration = _slippageEpochDuration;
+        shutdownSlippageDuration = _shutdownSlippageDuration;
         slippageEpochStart = block.timestamp;
         
-        name = "Box Shares";
-        symbol = "BOX";
-
-        isAllocator[owner] = true;
-        isFeeder[owner] = true;
+        // Grant initial roles to owner
+        isAllocator[_owner] = true;
+        isFeeder[_owner] = true;
 
         // Initialize timelock durations
-        timelock[this.setMaxSlippage.selector] = 1 days;
-        timelock[this.addInvestmentToken.selector] = 1 days;
-        timelock[this.removeInvestmentToken.selector] = 1 days;
-        timelock[this.setIsAllocator.selector] = 1 days;
-        timelock[this.setIsFeeder.selector] = 1 days;
+        timelock[this.setMaxSlippage.selector] = _timelockDurations[0];
+        timelock[this.addInvestmentToken.selector] = _timelockDurations[1];
+        timelock[this.removeInvestmentToken.selector] = _timelockDurations[2];
+        timelock[this.setIsAllocator.selector] = _timelockDurations[3];
+        timelock[this.setIsFeeder.selector] = _timelockDurations[4];
+        
+        emit OwnershipTransferred(address(0), _owner);
+        emit CuratorUpdated(address(0), _curator);
+        emit RoleUpdated(_owner, true, true);
     }
 
-    /////////////////////////////
-    /// ERC4626 Implementation
-    /////////////////////////////
+    // ========== ERC4626 IMPLEMENTATION ==========
 
-    /// @notice Returns the address of the underlying token used for the Vault for accounting, depositing, and withdrawing.
+    /// @inheritdoc IERC4626
     function asset() external view returns (address) {
         return address(currency);
     }
 
-    /// @notice Returns the total amount of the underlying asset that is "managed" by Vault.
+    /// @inheritdoc IERC4626
     function totalAssets() public view returns (uint256 assets_) {
         assets_ = currency.balanceOf(address(this));
         
         // Add value of all investment tokens
-        for (uint256 i = 0; i < investmentTokens.length; i++) {
+        uint256 length = investmentTokens.length;
+        for (uint256 i; i < length;) {
             IERC20 token = investmentTokens[i];
             IOracle oracle = oracles[token];
             if (address(oracle) != address(0)) {
                 uint256 tokenBalance = token.balanceOf(address(this));
-                assets_ += (tokenBalance * oracle.price()) / 1e36;
+                if (tokenBalance > 0) {
+                    assets_ += (tokenBalance * oracle.price()) / ORACLE_PRECISION;
+                }
             }
+            unchecked { ++i; }
         }
     }
 
-    /// @notice Returns the amount of shares that the Vault would exchange for the amount of assets provided
+    /// @inheritdoc IERC4626
     function convertToShares(uint256 assets) public view returns (uint256) {
-        return totalSupply == 0 ? assets : (assets * totalSupply) / totalAssets();
+        uint256 supply = totalSupply;
+        return supply == 0 ? assets : (assets * supply) / totalAssets();
     }
 
-    /// @notice Returns the amount of assets that the Vault would exchange for the amount of shares provided
+    /// @inheritdoc IERC4626
     function convertToAssets(uint256 shares) public view returns (uint256) {
-        return totalSupply == 0 ? shares : (shares * totalAssets()) / totalSupply;
+        uint256 supply = totalSupply;
+        return supply == 0 ? shares : (shares * totalAssets()) / supply;
     }
 
-    /// @notice Returns the maximum amount of the underlying asset that can be deposited
+    /// @inheritdoc IERC4626
     function maxDeposit(address) external view returns (uint256) {
-        return shutdown ? 0 : type(uint256).max;
+        return (shutdown || paused) ? 0 : type(uint256).max;
     }
 
-    /// @notice Allows an on-chain or off-chain user to simulate the effects of their deposit
+    /// @inheritdoc IERC4626
     function previewDeposit(uint256 assets) public view returns (uint256) {
         return convertToShares(assets);
     }
 
-    /// @notice Mints shares Vault shares to receiver by depositing exactly amount of underlying tokens.
-    function deposit(uint256 assets, address receiver) public returns (uint256 shares) {
+    /// @inheritdoc IERC4626
+    function deposit(uint256 assets, address receiver) public notPaused returns (uint256 shares) {
         if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
         if (shutdown) revert Errors.CannotDepositIfShutdown();
         if (assets == 0) revert Errors.CannotDepositZero();
+        if (receiver == address(0)) revert InvalidAddress();
 
         shares = previewDeposit(assets);
         if (shares == 0) revert Errors.CannotDepositZero();
 
         currency.safeTransferFrom(msg.sender, address(this), assets);
-        
         _mint(receiver, shares);
 
         emit Deposit(msg.sender, receiver, assets, shares);
     }
 
-    /// @notice Returns the maximum amount of the Vault shares that can be minted
+    /// @inheritdoc IERC4626
     function maxMint(address) external view returns (uint256) {
-        return shutdown ? 0 : type(uint256).max;
+        return (shutdown || paused) ? 0 : type(uint256).max;
     }
 
-    /// @notice Allows an on-chain or off-chain user to simulate the effects of their mint
+    /// @inheritdoc IERC4626
     function previewMint(uint256 shares) public view returns (uint256) {
-        return totalSupply == 0 ? shares : (shares * totalAssets() + totalSupply - 1) / totalSupply;
+        uint256 supply = totalSupply;
+        return supply == 0 ? shares : (shares * totalAssets() + supply - 1) / supply;
     }
 
-    /// @notice Mints exactly shares Vault shares to receiver
-    function mint(uint256 shares, address receiver) external returns (uint256 assets) {
+    /// @inheritdoc IERC4626
+    function mint(uint256 shares, address receiver) external notPaused returns (uint256 assets) {
         if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
         if (shutdown) revert Errors.CannotMintIfShutdown();
         if (shares == 0) revert Errors.CannotMintZero();
+        if (receiver == address(0)) revert InvalidAddress();
 
         assets = previewMint(shares);
         
         currency.safeTransferFrom(msg.sender, address(this), assets);
-        
         _mint(receiver, shares);
 
         emit Deposit(msg.sender, receiver, assets, shares);
     }
 
-    /// @notice Returns the maximum amount of the underlying asset that can be withdrawn
+    /// @inheritdoc IERC4626
     function maxWithdraw(address owner_) external view returns (uint256) {
-        uint256 shares = balanceOf[owner_];
-        return convertToAssets(shares);
+        return convertToAssets(balanceOf[owner_]);
     }
 
-    /// @notice Allows an on-chain or off-chain user to simulate the effects of their withdrawal
+    /// @inheritdoc IERC4626
     function previewWithdraw(uint256 assets) public view returns (uint256) {
-        return totalSupply == 0 ? assets : (assets * totalSupply + totalAssets() - 1) / totalAssets();
+        uint256 supply = totalSupply;
+        return supply == 0 ? assets : (assets * supply + totalAssets() - 1) / totalAssets();
     }
 
-    /// @notice Burns shares from owner and sends exactly assets of underlying tokens to receiver
-    function withdraw(uint256 assets, address receiver, address owner_) public returns (uint256 shares) {
+    /// @inheritdoc IERC4626
+    function withdraw(uint256 assets, address receiver, address owner_) public notPaused returns (uint256 shares) {
         if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
+        if (receiver == address(0)) revert InvalidAddress();
         
         shares = previewWithdraw(assets);
-        if (msg.sender != owner_ && allowance[owner_][msg.sender] < shares) revert Errors.InsufficientAllowance();
-        if (balanceOf[owner_] < shares) revert Errors.InsufficientShares();
-        if (currency.balanceOf(address(this)) < assets) revert Errors.InsufficientLiquidity();
-
+        
         if (msg.sender != owner_) {
             uint256 allowed = allowance[owner_][msg.sender];
+            if (allowed < shares) revert Errors.InsufficientAllowance();
             if (allowed != type(uint256).max) {
                 allowance[owner_][msg.sender] = allowed - shares;
             }
         }
+        
+        if (balanceOf[owner_] < shares) revert Errors.InsufficientShares();
+        if (currency.balanceOf(address(this)) < assets) revert Errors.InsufficientLiquidity();
 
         _burn(owner_, shares);
         currency.safeTransfer(receiver, assets);
@@ -207,32 +325,33 @@ contract Box is IERC4626 {
         emit Withdraw(msg.sender, receiver, owner_, assets, shares);
     }
 
-    /// @notice Returns the maximum amount of Vault shares that can be redeemed
+    /// @inheritdoc IERC4626
     function maxRedeem(address owner_) external view returns (uint256) {
         return balanceOf[owner_];
     }
 
-    /// @notice Allows an on-chain or off-chain user to simulate the effects of their redemption
+    /// @inheritdoc IERC4626
     function previewRedeem(uint256 shares) public view returns (uint256) {
         return convertToAssets(shares);
     }
 
-    /// @notice Burns exactly shares from owner and sends assets of underlying tokens to receiver
-    function redeem(uint256 shares, address receiver, address owner_) external returns (uint256 assets) {
+    /// @inheritdoc IERC4626
+    function redeem(uint256 shares, address receiver, address owner_) external notPaused returns (uint256 assets) {
         if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
-        if (msg.sender != owner_ && allowance[owner_][msg.sender] < shares) revert Errors.InsufficientAllowance();
-        if (balanceOf[owner_] < shares) revert Errors.InsufficientShares();
-
-        assets = previewRedeem(shares);
-
-        if (currency.balanceOf(address(this)) < assets) revert Errors.InsufficientLiquidity();
-
+        if (receiver == address(0)) revert InvalidAddress();
+        
         if (msg.sender != owner_) {
             uint256 allowed = allowance[owner_][msg.sender];
+            if (allowed < shares) revert Errors.InsufficientAllowance();
             if (allowed != type(uint256).max) {
                 allowance[owner_][msg.sender] = allowed - shares;
             }
         }
+        
+        if (balanceOf[owner_] < shares) revert Errors.InsufficientShares();
+
+        assets = previewRedeem(shares);
+        if (currency.balanceOf(address(this)) < assets) revert Errors.InsufficientLiquidity();
 
         _burn(owner_, shares);
         currency.safeTransfer(receiver, assets);
@@ -240,56 +359,75 @@ contract Box is IERC4626 {
         emit Withdraw(msg.sender, receiver, owner_, assets, shares);
     }
 
-    /////////////////////////////
-    /// ERC20 Functions for Shares
-    /////////////////////////////
+    // ========== ERC20 IMPLEMENTATION ==========
 
+    /**
+     * @notice Transfers shares to another address
+     * @param to Recipient address
+     * @param amount Amount of shares to transfer
+     * @return success Always returns true
+     */
     function transfer(address to, uint256 amount) external returns (bool) {
+        if (to == address(0)) revert InvalidAddress();
+        
         balanceOf[msg.sender] -= amount;
-        balanceOf[to] += amount;
+        unchecked {
+            balanceOf[to] += amount;
+        }
+        
         emit Transfer(msg.sender, to, amount);
         return true;
     }
 
+    /**
+     * @notice Transfers shares from one address to another
+     * @param from Sender address
+     * @param to Recipient address
+     * @param amount Amount of shares to transfer
+     * @return success Always returns true
+     */
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        if (to == address(0)) revert InvalidAddress();
+        
         uint256 allowed = allowance[from][msg.sender];
         if (allowed != type(uint256).max) {
             allowance[from][msg.sender] = allowed - amount;
         }
+        
         balanceOf[from] -= amount;
-        balanceOf[to] += amount;
+        unchecked {
+            balanceOf[to] += amount;
+        }
+        
         emit Transfer(from, to, amount);
         return true;
     }
 
+    /**
+     * @notice Approves another address to spend shares
+     * @param spender Address to approve
+     * @param amount Amount of shares to approve
+     * @return success Always returns true
+     */
     function approve(address spender, uint256 amount) external returns (bool) {
         allowance[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
     }
 
-    function _mint(address to, uint256 amount) internal {
-        balanceOf[to] += amount;
-        totalSupply += amount;
-        emit Transfer(address(0), to, amount);
-    }
+    // ========== EMERGENCY EXIT ==========
 
-    function _burn(address from, uint256 amount) internal {
-        balanceOf[from] -= amount;
-        totalSupply -= amount;
-        emit Transfer(from, address(0), amount);
-    }
-
-    /////////////////////////////
-    /// Emergency Exit (Unbox)
-    /////////////////////////////
-
-    /// @notice Return the prorata share of currency and assets against shares (emergency exit)
-    function unbox(uint256 shares) public {
-        if (balanceOf[msg.sender] < shares) revert Errors.InsufficientShares();
+    /**
+     * @notice Emergency exit that returns pro-rata share of all assets
+     * @param shares Amount of shares to burn
+     * @dev Can be called by anyone holding shares
+     */
+    function unbox(uint256 shares) external {
         if (shares == 0) revert Errors.CannotUnboxZeroShares();
+        if (balanceOf[msg.sender] < shares) revert Errors.InsufficientShares();
 
-        uint256 currencyAmount = (currency.balanceOf(address(this)) * shares) / totalSupply;
+        uint256 supply = totalSupply;
+        uint256 currencyAmount = (currency.balanceOf(address(this)) * shares) / supply;
         
         _burn(msg.sender, shares);
 
@@ -298,26 +436,36 @@ contract Box is IERC4626 {
         }
 
         // Transfer pro-rata share of each investment token
-        for (uint256 i = 0; i < investmentTokens.length; i++) {
+        uint256 length = investmentTokens.length;
+        for (uint256 i; i < length;) {
             IERC20 token = investmentTokens[i];
-            // needs `+ shares` because _burn reduced totalSupply
-            uint256 tokenAmount = (token.balanceOf(address(this)) * shares) / (totalSupply + shares);
+            uint256 tokenAmount = (token.balanceOf(address(this)) * shares) / supply;
             if (tokenAmount > 0) {
                 token.safeTransfer(msg.sender, tokenAmount);
             }
+            unchecked { ++i; }
         }
+        
+        emit Unbox(msg.sender, shares);
     }
     
-    /////////////////////////////
-    /// SWAPPING
-    /////////////////////////////
+    // ========== INVESTMENT MANAGEMENT ==========
 
-    /// @notice Buy investment token with currency
-    function allocate(IERC20 token, uint256 currencyAmount, ISwapper swapper) public {
+    /**
+     * @notice Allocates currency to buy investment tokens
+     * @param token Investment token to buy
+     * @param currencyAmount Amount of currency to spend
+     * @param swapper Swapper contract to use
+     */
+    function allocate(IERC20 token, uint256 currencyAmount, ISwapper swapper) external notPaused {
         if (!isAllocator[msg.sender]) revert Errors.OnlyAllocators();
         if (shutdown) revert Errors.CannotAllocateIfShutdown();
         if (!isInvestmentToken[token]) revert Errors.TokenNotWhitelisted();
-        if (address(oracles[token]) == address(0)) revert Errors.NoOracleForToken();
+        if (address(swapper) == address(0)) revert InvalidAddress();
+        if (currencyAmount == 0) revert InvalidAmount();
+        
+        IOracle oracle = oracles[token];
+        if (address(oracle) == address(0)) revert Errors.NoOracleForToken();
 
         uint256 tokensBefore = token.balanceOf(address(this));
 
@@ -326,96 +474,93 @@ contract Box is IERC4626 {
         
         uint256 tokensReceived = token.balanceOf(address(this)) - tokensBefore;
 
-        // Calculate expected tokens and minimum acceptable
-        uint256 expectedTokens = (currencyAmount * 1e36) / oracles[token].price();
-        uint256 minTokens = (expectedTokens * (1 ether - maxSlippage)) / 1 ether;
+        // Validate slippage
+        uint256 expectedTokens = (currencyAmount * ORACLE_PRECISION) / oracle.price();
+        uint256 minTokens = (expectedTokens * (PRECISION - maxSlippage)) / PRECISION;
 
         if (tokensReceived < minTokens) revert Errors.AllocationTooExpensive();
 
-        // Calculate slippage as difference between expected and actual
-        uint256 slippage = expectedTokens > tokensReceived ? 
-            expectedTokens - tokensReceived : 0;
-        _increaseSlippage((slippage * oracles[token].price() / 1e36 * 1e18) / totalAssets());
+        // Track slippage
+        if (expectedTokens > tokensReceived) {
+            uint256 slippage = expectedTokens - tokensReceived;
+            uint256 slippageValue = (slippage * oracle.price()) / ORACLE_PRECISION;
+            _increaseSlippage((slippageValue * PRECISION) / totalAssets());
+        }
 
         emit Allocation(token, currencyAmount, swapper);
     }
 
-    /// @notice Sell investment token for currency
-    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper) public {
+    /**
+     * @notice Deallocates investment tokens to get currency
+     * @param token Investment token to sell
+     * @param tokensAmount Amount of tokens to sell
+     * @param swapper Swapper contract to use (ignored during shutdown)
+     */
+    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper) external notPaused {
         if (!isAllocator[msg.sender] && !shutdown) revert Errors.OnlyAllocatorsOrShutdown();
-        if (address(oracles[token]) == address(0)) revert Errors.NoOracleForToken();
-
-        if (shutdown) {
-            _deallocateShutdown(token, tokensAmount);
-        } else {
-            _deallocateNormal(token, tokensAmount, swapper);
-        }
-    }
-
-    function _deallocateNormal(IERC20 token, uint256 tokensAmount, ISwapper swapper) internal {
-        uint256 currencyBefore = currency.balanceOf(address(this));
-
-        token.approve(address(swapper), tokensAmount);
-        swapper.sell(token, currency, tokensAmount);
-
-        uint256 currencyReceived = currency.balanceOf(address(this)) - currencyBefore;
-
-        // Calculate expected currency and minimum acceptable
-        uint256 expectedCurrency = (tokensAmount * oracles[token].price()) / 1e36;
-        uint256 minCurrency = (expectedCurrency * (1 ether - maxSlippage)) / 1 ether;
-
-        if (currencyReceived < minCurrency) revert Errors.TokenSaleNotGeneratingEnoughCurrency();
-
-        // Calculate slippage
-        uint256 slippage = expectedCurrency > currencyReceived ? 
-            expectedCurrency - currencyReceived : 0;
-        _increaseSlippage((slippage * 1e18) / totalAssets());
-
-        emit Deallocation(token, tokensAmount, swapper);
-    }
-
-    function _deallocateShutdown(IERC20 token, uint256 tokensAmount) internal {
-        uint256 currencyBefore = currency.balanceOf(address(this));
-
-        // Use backup swapper during shutdown
-        token.approve(address(backupSwapper), tokensAmount);
-        backupSwapper.sell(token, currency, tokensAmount);
-
-        uint256 currencyReceived = currency.balanceOf(address(this)) - currencyBefore;
-
-        // During shutdown, slippage tolerance increases over time (0% to 10% over 10 days)
-        uint256 timeElapsed = block.timestamp - shutdownTime;
-        uint256 shutdownSlippage = timeElapsed > 10 days ? 0.1 ether : (timeElapsed * 0.1 ether) / 10 days;
+        if (tokensAmount == 0) revert InvalidAmount();
         
-        uint256 expectedCurrency = (tokensAmount * oracles[token].price()) / 1e36;
-        uint256 minCurrency = (expectedCurrency * (1 ether - shutdownSlippage)) / 1 ether;
+        IOracle oracle = oracles[token];
+        if (address(oracle) == address(0)) revert Errors.NoOracleForToken();
 
-        if (currencyReceived < minCurrency) revert Errors.TokenSaleNotGeneratingEnoughCurrency();
+        uint256 currencyBefore = currency.balanceOf(address(this));
+        ISwapper targetSwapper = shutdown ? backupSwapper : swapper;
+        
+        if (address(targetSwapper) == address(0)) revert InvalidAddress();
 
-        emit Deallocation(token, tokensAmount, backupSwapper);
-    }
+        token.approve(address(targetSwapper), tokensAmount);
+        targetSwapper.sell(token, currency, tokensAmount);
 
-    function _deallocateForLiquidity(uint256 currencyNeeded) internal {
-        // Try to deallocate from investment tokens to get needed liquidity
-        for (uint256 i = 0; i < investmentTokens.length && currency.balanceOf(address(this)) < currencyNeeded; i++) {
-            IERC20 token = investmentTokens[i];
-            uint256 tokenBalance = token.balanceOf(address(this));
-            if (tokenBalance > 0) {
-                uint256 tokensToSell = ((currencyNeeded - currency.balanceOf(address(this))) * 1e36) / oracles[token].price();
-                if (tokensToSell > tokenBalance) {
-                    tokensToSell = tokenBalance;
-                }
-                _deallocateShutdown(token, tokensToSell);
+        uint256 currencyReceived = currency.balanceOf(address(this)) - currencyBefore;
+
+        // Calculate slippage tolerance
+        uint256 slippageTolerance = maxSlippage;
+        if (shutdown) {
+            uint256 timeElapsed = block.timestamp - shutdownTime;
+            if (timeElapsed < shutdownSlippageDuration) {
+                slippageTolerance = (timeElapsed * MAX_SLIPPAGE_LIMIT) / shutdownSlippageDuration;
+            } else {
+                slippageTolerance = MAX_SLIPPAGE_LIMIT;
             }
         }
+
+        // Validate slippage
+        uint256 expectedCurrency = (tokensAmount * oracle.price()) / ORACLE_PRECISION;
+        uint256 minCurrency = (expectedCurrency * (PRECISION - slippageTolerance)) / PRECISION;
+
+        if (currencyReceived < minCurrency) revert Errors.TokenSaleNotGeneratingEnoughCurrency();
+
+        // Track slippage (only in normal operation)
+        if (!shutdown && expectedCurrency > currencyReceived) {
+            uint256 slippage = expectedCurrency - currencyReceived;
+            _increaseSlippage((slippage * PRECISION) / totalAssets());
+        }
+
+        emit Deallocation(token, tokensAmount, targetSwapper);
     }
 
-    /// @notice Reallocate from one investment token to another
-    function reallocate(IERC20 from, IERC20 to, uint256 fromAmount, ISwapper swapper) public {
+    /**
+     * @notice Reallocates from one investment token to another
+     * @param from Token to sell
+     * @param to Token to buy
+     * @param fromAmount Amount of 'from' token to sell
+     * @param swapper Swapper contract to use
+     */
+    function reallocate(
+        IERC20 from, 
+        IERC20 to, 
+        uint256 fromAmount, 
+        ISwapper swapper
+    ) external notPaused {
         if (!isAllocator[msg.sender]) revert Errors.OnlyAllocators();
         if (shutdown) revert Errors.CannotReallocateIfShutdown();
         if (!isInvestmentToken[from] || !isInvestmentToken[to]) revert Errors.TokensNotWhitelisted();
-        if (address(oracles[from]) == address(0) || address(oracles[to]) == address(0)) revert Errors.OracleRequired();
+        if (address(swapper) == address(0)) revert InvalidAddress();
+        if (fromAmount == 0) revert InvalidAmount();
+        
+        IOracle fromOracle = oracles[from];
+        IOracle toOracle = oracles[to];
+        if (address(fromOracle) == address(0) || address(toOracle) == address(0)) revert Errors.OracleRequired();
 
         uint256 toBefore = to.balanceOf(address(this));
 
@@ -424,147 +569,289 @@ contract Box is IERC4626 {
 
         uint256 toReceived = to.balanceOf(address(this)) - toBefore;
 
-        // Calculate expected amounts based on both oracles
-        // fromAmount * fromPrice / toPrice = expected toTokens
-        uint256 fromValue = (fromAmount * oracles[from].price()) / 1e36; // Value in currency terms
-        uint256 expectedToTokens = (fromValue * 1e36) / oracles[to].price(); // Expected tokens based on oracle prices
-        uint256 minToTokens = (expectedToTokens * (1 ether - maxSlippage)) / 1 ether;
+        // Calculate expected amounts
+        uint256 fromValue = (fromAmount * fromOracle.price()) / ORACLE_PRECISION;
+        uint256 expectedToTokens = (fromValue * ORACLE_PRECISION) / toOracle.price();
+        uint256 minToTokens = (expectedToTokens * (PRECISION - maxSlippage)) / PRECISION;
 
         if (toReceived < minToTokens) revert Errors.ReallocationSlippageTooHigh();
 
-        // Calculate slippage as difference between expected and actual, in currency terms
-        uint256 expectedValue = (expectedToTokens * oracles[to].price()) / 1e36;
-        uint256 actualValue = (toReceived * oracles[to].price()) / 1e36;
-        uint256 slippage = expectedValue > actualValue ? expectedValue - actualValue : 0;
-        
-        // Track slippage as percentage of total assets
-        _increaseSlippage((slippage * 1e18) / totalAssets());
+        // Track slippage
+        if (expectedToTokens > toReceived) {
+            uint256 slippageTokens = expectedToTokens - toReceived;
+            uint256 slippageValue = (slippageTokens * toOracle.price()) / ORACLE_PRECISION;
+            _increaseSlippage((slippageValue * PRECISION) / totalAssets());
+        }
 
         emit Reallocation(from, to, fromAmount, swapper);
     }
 
-    function _increaseSlippage(uint256 slippagePct) internal {
-        // Reset the slippage epoch if more than a week old
-        if (slippageEpochStart + 7 days < block.timestamp) {
-            slippageEpochStart = block.timestamp;
-            accumulatedSlippage = 0;
-        }
+    // ========== ADMIN FUNCTIONS ==========
 
-        accumulatedSlippage += slippagePct;
-        if (accumulatedSlippage >= maxSlippage) revert Errors.TooMuchAccumulatedSlippage();
-    }
-
-    /////////////////////////////
-    /// OWNER FUNCTIONS
-    /////////////////////////////
-
-    function setOwner(address newOwner) external {
+    /**
+     * @notice Transfers ownership to a new address
+     * @param newOwner Address of new owner
+     */
+    function transferOwnership(address newOwner) external {
         if (msg.sender != owner) revert Errors.OnlyOwner();
-        if (newOwner == address(0)) revert Errors.InvalidOwner();
+        if (newOwner == address(0)) revert InvalidAddress();
+        
         address oldOwner = owner;
         owner = newOwner;
+        
+        emit OwnershipTransferred(oldOwner, newOwner);
     }
 
+    /**
+     * @notice Updates the curator address
+     * @param newCurator Address of new curator
+     */
     function setCurator(address newCurator) external {
         if (msg.sender != owner) revert Errors.OnlyOwner();
+        if (newCurator == address(0)) revert InvalidAddress();
+        
+        address oldCurator = curator;
         curator = newCurator;
+        
+        emit CuratorUpdated(oldCurator, newCurator);
     }
 
+    /**
+     * @notice Pauses the contract
+     * @dev Only owner can pause
+     */
+    function pause() external {
+        if (msg.sender != owner) revert Errors.OnlyOwner();
+        if (paused) revert ContractPaused();
+        
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /**
+     * @notice Unpauses the contract
+     * @dev Only owner can unpause
+     */
+    function unpause() external {
+        if (msg.sender != owner) revert Errors.OnlyOwner();
+        if (!paused) revert InvalidAmount();
+        
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
+    /**
+     * @notice Triggers emergency shutdown
+     * @dev Only curator can trigger shutdown
+     */
     function triggerShutdown() external {
         if (msg.sender != curator) revert Errors.OnlyCuratorCanShutdown();
         if (shutdown) revert Errors.AlreadyShutdown();
+        
         shutdown = true;
         shutdownTime = block.timestamp;
+        
         emit Shutdown(curator);
     }
 
-    /////////////////////////////
-    /// TIMELOCK FUNCTIONS (VaultV2 pattern)
-    /////////////////////////////
+    // ========== TIMELOCK GOVERNANCE ==========
 
+    /**
+     * @notice Submits a transaction for timelock
+     * @param data Encoded function call
+     */
     function submit(bytes calldata data) external {
         if (msg.sender != curator) revert Errors.OnlyCurator();
         if (executableAt[data] != 0) revert Errors.DataNotTimelocked();
-
+        if (data.length < 4) revert InvalidAmount();
+        
         bytes4 selector = bytes4(data);
-        executableAt[data] = block.timestamp + timelock[selector];
+        uint256 delay = timelock[selector];
+        if (delay == 0) revert InvalidTimelock();
+        
+        executableAt[data] = block.timestamp + delay;
         emit TimelockSubmitted(selector, data, executableAt[data]);
     }
 
-    modifier timelocked() {
-        if (executableAt[msg.data] == 0) revert Errors.DataNotTimelocked();
-        if (block.timestamp < executableAt[msg.data]) revert Errors.TimelockNotExpired();
-        executableAt[msg.data] = 0;
-        _;
-    }
-
+    /**
+     * @notice Revokes a timelocked transaction
+     * @param data Encoded function call to revoke
+     */
     function revoke(bytes calldata data) external {
         if (msg.sender != curator) revert Errors.OnlyCurator();
         if (executableAt[data] == 0) revert Errors.DataNotTimelocked();
+        
         executableAt[data] = 0;
         emit TimelockRevoked(bytes4(data), data);
     }
 
+    /**
+     * @notice Increases timelock duration for a function
+     * @param selector Function selector
+     * @param newDuration New timelock duration
+     */
     function increaseTimelock(bytes4 selector, uint256 newDuration) external {
         if (msg.sender != curator) revert Errors.OnlyCurator();
-        if (newDuration > TIMELOCK_CAP) revert Errors.SlippageTooHigh(); // Reusing error for timelock cap
-        if (newDuration < timelock[selector]) revert Errors.SlippageTooHigh(); // Reusing error for timelock decrease
+        if (newDuration > TIMELOCK_CAP) revert InvalidTimelock();
+        if (newDuration < timelock[selector]) revert TimelockDecrease();
+        
         timelock[selector] = newDuration;
         emit TimelockIncreased(selector, newDuration);
     }
 
-    /////////////////////////////
-    /// TIMELOCKED FUNCTIONS
-    /////////////////////////////
+    // ========== TIMELOCKED FUNCTIONS ==========
 
+    /**
+     * @notice Updates allocator status for an account
+     * @param account Address to update
+     * @param newIsAllocator New allocator status
+     */
     function setIsAllocator(address account, bool newIsAllocator) external timelocked {
+        if (account == address(0)) revert InvalidAddress();
         isAllocator[account] = newIsAllocator;
+        emit RoleUpdated(account, newIsAllocator, isFeeder[account]);
     }
 
+    /**
+     * @notice Updates feeder status for an account
+     * @param account Address to update
+     * @param newIsFeeder New feeder status
+     */
     function setIsFeeder(address account, bool newIsFeeder) external timelocked {
+        if (account == address(0)) revert InvalidAddress();
         isFeeder[account] = newIsFeeder;
+        emit RoleUpdated(account, isAllocator[account], newIsFeeder);
     }
 
+    /**
+     * @notice Updates maximum allowed slippage
+     * @param newMaxSlippage New maximum slippage percentage
+     */
     function setMaxSlippage(uint256 newMaxSlippage) external timelocked {
-        if (newMaxSlippage > MAX_SLIPPAGE) revert Errors.SlippageTooHigh();
+        if (newMaxSlippage > MAX_SLIPPAGE_LIMIT) revert Errors.SlippageTooHigh();
+        
+        uint256 oldMaxSlippage = maxSlippage;
         maxSlippage = newMaxSlippage;
+        
+        emit MaxSlippageUpdated(oldMaxSlippage, newMaxSlippage);
     }
 
+    /**
+     * @notice Adds a new investment token
+     * @param token Token to add
+     * @param oracle Price oracle for the token
+     */
     function addInvestmentToken(IERC20 token, IOracle oracle) external timelocked {
-        if (address(token) == address(0)) revert Errors.TokenNotWhitelisted();
-        if (address(oracle) == address(0)) revert Errors.OracleRequired();
+        if (address(token) == address(0)) revert InvalidAddress();
+        if (address(oracle) == address(0)) revert InvalidAddress();
         if (isInvestmentToken[token]) revert Errors.TokenNotWhitelisted();
         
         investmentTokens.push(token);
         oracles[token] = oracle;
         isInvestmentToken[token] = true;
+        
+        emit InvestmentTokenAdded(token, oracle);
     }
 
+    /**
+     * @notice Removes an investment token
+     * @param token Token to remove
+     */
     function removeInvestmentToken(IERC20 token) external timelocked {
         if (!isInvestmentToken[token]) revert Errors.TokenNotWhitelisted();
         if (token.balanceOf(address(this)) != 0) revert Errors.TokenBalanceMustBeZero();
         
-        for (uint256 i = 0; i < investmentTokens.length; i++) {
+        uint256 length = investmentTokens.length;
+        for (uint256 i; i < length;) {
             if (investmentTokens[i] == token) {
-                investmentTokens[i] = investmentTokens[investmentTokens.length - 1];
+                investmentTokens[i] = investmentTokens[length - 1];
                 investmentTokens.pop();
                 break;
             }
+            unchecked { ++i; }
         }
 
         delete oracles[token];
-        isInvestmentToken[token] = false;
+        delete isInvestmentToken[token];
+        
+        emit InvestmentTokenRemoved(token);
     }
 
-    /////////////////////////////
-    /// VIEW FUNCTIONS
-    /////////////////////////////
+    // ========== VIEW FUNCTIONS ==========
 
+    /**
+     * @notice Returns number of investment tokens
+     * @return count Number of investment tokens
+     */
     function getInvestmentTokensLength() external view returns (uint256) {
         return investmentTokens.length;
     }
 
+    /**
+     * @notice Returns investment token at index
+     * @param index Token index
+     * @return token Investment token address
+     */
     function getInvestmentToken(uint256 index) external view returns (IERC20) {
         return investmentTokens[index];
+    }
+
+    /**
+     * @notice Returns all investment tokens
+     * @return tokens Array of investment token addresses
+     */
+    function getAllInvestmentTokens() external view returns (IERC20[] memory) {
+        return investmentTokens;
+    }
+
+    /**
+     * @notice Checks if an account has either allocator or feeder role
+     * @param account Address to check
+     * @return hasRole True if account has any role
+     */
+    function hasRole(address account) external view returns (bool) {
+        return isAllocator[account] || isFeeder[account];
+    }
+
+    // ========== INTERNAL FUNCTIONS ==========
+
+    /**
+     * @dev Mints shares to an account
+     */
+    function _mint(address to, uint256 amount) internal {
+        totalSupply += amount;
+        unchecked {
+            balanceOf[to] += amount;
+        }
+        emit Transfer(address(0), to, amount);
+    }
+
+    /**
+     * @dev Burns shares from an account
+     */
+    function _burn(address from, uint256 amount) internal {
+        balanceOf[from] -= amount;
+        unchecked {
+            totalSupply -= amount;
+        }
+        emit Transfer(from, address(0), amount);
+    }
+
+    /**
+     * @dev Increases accumulated slippage and checks against maximum
+     */
+    function _increaseSlippage(uint256 slippagePct) internal {
+        // Reset epoch if expired
+        if (block.timestamp >= slippageEpochStart + slippageEpochDuration) {
+            slippageEpochStart = block.timestamp;
+            accumulatedSlippage = slippagePct;
+            emit SlippageEpochReset(block.timestamp);
+        } else {
+            accumulatedSlippage += slippagePct;
+        }
+        
+        if (accumulatedSlippage >= maxSlippage) revert Errors.TooMuchAccumulatedSlippage();
+        
+        emit SlippageAccumulated(slippagePct, accumulatedSlippage);
     }
 }

@@ -126,7 +126,32 @@ contract BoxTest is Test {
         backupSwapper = new MockSwapper();
         badSwapper = new MockSwapper();
 
-        box = new Box(currency, backupSwapper, owner, owner); // Initially owner is also curator
+        // Configure production parameters
+        string memory name = "Box Shares";
+        string memory symbol = "BOX";
+        uint256 maxSlippage = 0.01 ether; // 1%
+        uint256 slippageEpochDuration = 7 days;
+        uint256 shutdownSlippageDuration = 10 days;
+        uint256[5] memory timelockDurations = [
+            uint256(1 days), // setMaxSlippage
+            uint256(1 days), // addInvestmentToken
+            uint256(1 days), // removeInvestmentToken
+            uint256(1 days), // setIsAllocator
+            uint256(1 days)  // setIsFeeder
+        ];
+        
+        box = new Box(
+            currency, 
+            backupSwapper, 
+            owner, 
+            owner, // Initially owner is also curator
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            timelockDurations
+        );
 
         // Setup roles and investment tokens using new timelock pattern
         // Note: owner is initially the curator, so owner can submit
@@ -1153,11 +1178,10 @@ contract BoxTest is Test {
     }
 
     function testGuardianSubmitInvalidAddress() public {
-        // setCurator doesn't validate for address(0), so this test should be removed
-        // or we can test that it allows setting to address(0)
+        // Test that setCurator properly validates against address(0)
+        vm.expectRevert(Box.InvalidAddress.selector);
         vm.prank(owner); // setCurator requires owner, not guardian
         box.setCurator(address(0));
-        assertEq(box.curator(), address(0));
     }
 
     function testAllocatorSubmitAccept() public {
@@ -1276,7 +1300,7 @@ contract BoxTest is Test {
         address newOwner = address(0x99);
         
         vm.prank(owner);
-        box.setOwner(newOwner);
+        box.transferOwnership(newOwner);
 
         assertEq(box.owner(), newOwner);
     }
@@ -1284,13 +1308,13 @@ contract BoxTest is Test {
     function testOwnerChangeNonOwner() public {
         vm.expectRevert(Errors.OnlyOwner.selector);
         vm.prank(nonAuthorized);
-        box.setOwner(address(0x99));
+        box.transferOwnership(address(0x99));
     }
 
     function testOwnerChangeInvalidAddress() public {
-        vm.expectRevert(Errors.InvalidOwner.selector);
+        vm.expectRevert(Box.InvalidAddress.selector);
         vm.prank(owner);
-        box.setOwner(address(0));
+        box.transferOwnership(address(0));
     }
 
     /////////////////////////////
