@@ -73,7 +73,7 @@ contract MockSwapper is ISwapper {
         shouldRevert = _shouldRevert;
     }
 
-    function swap(IERC20 input, IERC20 output, uint256 amountIn) external {
+    function sell(IERC20 input, IERC20 output, uint256 amountIn) external {
         require(!shouldRevert, "Swapper: Forced revert");
         
         input.transferFrom(msg.sender, address(this), amountIn);
