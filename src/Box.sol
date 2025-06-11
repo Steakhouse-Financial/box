@@ -667,7 +667,6 @@ contract Box is IERC4626 {
         
         bytes4 selector = bytes4(data);
         uint256 delay = timelock[selector];
-        if (delay == 0) revert InvalidTimelock();
         
         executableAt[data] = block.timestamp + delay;
         emit TimelockSubmitted(selector, data, executableAt[data]);
