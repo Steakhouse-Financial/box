@@ -252,11 +252,11 @@ contract Box is IERC4626 {
     function deposit(uint256 assets, address receiver) public notPaused returns (uint256 shares) {
         if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
         if (shutdown) revert Errors.CannotDepositIfShutdown();
-        if (assets == 0) revert Errors.CannotDepositZero();
+        //if (assets == 0) revert Errors.CannotDepositZero();
         if (receiver == address(0)) revert InvalidAddress();
 
         shares = previewDeposit(assets);
-        if (shares == 0) revert Errors.CannotDepositZero();
+        //if (shares == 0) revert Errors.CannotDepositZero();
 
         currency.safeTransferFrom(msg.sender, address(this), assets);
         _mint(receiver, shares);

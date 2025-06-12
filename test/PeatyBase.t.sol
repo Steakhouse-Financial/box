@@ -1,0 +1,290 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
+
+import {Test, console} from "forge-std/Test.sol";
+
+import {Box} from "../src/Box.sol";
+import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {IOracle} from "../src/interfaces/IOracle.sol";
+import {ISwapper} from "../src/interfaces/ISwapper.sol";
+import {Errors} from "../src/lib/Errors.sol";
+import {VaultV2} from "@vault-v2/src/VaultV2.sol";
+import {MetaMorphoAdapter} from "@vault-v2/src/adapters/MetaMorphoAdapter.sol";
+
+import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
+import {BoxLib} from "../src/lib/BoxLib.sol";
+import {MetaMorphoAdapterLib} from "../src/lib/MetaMorphoAdapterLib.sol";
+
+contract MockSwapper is ISwapper {
+    uint256 public slippagePercent = 0; // 0% slippage by default
+    bool public shouldRevert = false;
+
+    function sell(IERC20 input, IERC20 output, uint256 amountIn) external {
+    }
+}
+
+/**
+ * @title Peaty on Base integration test
+ */
+contract PeatyBaseTest is Test {
+    using BoxLib for Box;
+    using VaultV2Lib for VaultV2;
+    using MetaMorphoAdapterLib for MetaMorphoAdapter;
+    
+    VaultV2 vault;
+    Box box1;
+    Box box2;
+    MetaMorphoAdapter adapter1;
+    MetaMorphoAdapter adapter2;
+    MetaMorphoAdapter bbqusdcAdapter;
+
+    address user = address(0x123);
+
+    IERC20 usdc = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
+
+    IERC4626 bbqusdc = IERC4626(0xBeeFa74640a5f7c28966cbA82466EED5609444E0); // bbqUSDC on Base
+    
+    IERC4626 stusd = IERC4626(0x0022228a2cc5E7eF0274A7Baa600d44da5aB5776);
+    IOracle stusdOracle = IOracle(0x2eede25066af6f5F2dfc695719dB239509f69915);
+    
+    IERC20 ptusr25sep = IERC20(0xa6F0A4D18B6f6DdD408936e81b7b3A8BEFA18e77);
+    IOracle ptusr25sepOracle = IOracle(0x6AdeD60f115bD6244ff4be46f84149bA758D9085);
+    
+    ISwapper swapper = ISwapper(0xFFF5082CE0E7C04BCc645984A94d4e4C0687Aa60);
+
+    /// @notice Will setup Peaty Base investing in bbqUSDC, box1 (stUSD) and box2 (PTs)
+    function setUp() public {
+        // Fork base on June 12th, 2025
+        uint256 forkId = vm.createFork(vm.rpcUrl("base"), 31463931);
+        vm.selectFork(forkId);
+
+        bytes memory data;
+
+        MockSwapper backupSwapper = new MockSwapper();
+
+        vault = new VaultV2(address(this), address(usdc));
+
+        vault.setCurator(address(this));
+        vault.addAllocator(address(this)); 
+
+        // Setting the vault to use bbqUSDC as the asset
+        bbqusdcAdapter = new MetaMorphoAdapter(
+            address(vault), 
+            address(bbqusdc)
+        );
+        vault.addCollateral(address(bbqusdcAdapter), bbqusdcAdapter.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vault.setLiquidityAdapter(address(bbqusdcAdapter));
+        vault.setLiquidityData("");
+
+        // Creating Box 1 which will invest in stUSD
+        string memory name = "Box 1";
+        string memory symbol = "BOX1";
+        uint256 maxSlippage = 0.01 ether; // 1%
+        uint256 slippageEpochDuration = 7 days;
+        uint256 shutdownSlippageDuration = 10 days;
+        uint256[5] memory timelockDurations = [
+            uint256(0 days), // setMaxSlippage
+            uint256(0 days), // addInvestmentToken
+            uint256(0 days), // removeInvestmentToken
+            uint256(0 days), // setIsAllocator
+            uint256(0 days)  // setIsFeeder
+        ];
+        box1 = new Box(
+            usdc, 
+            backupSwapper, 
+            address(this), 
+            address(this), 
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            timelockDurations
+        );
+
+        // Allow box 1 to invest in stUSD
+        data = abi.encodeWithSelector(
+            box1.addInvestmentToken.selector,
+            address(stusd),
+            address(stusdOracle)
+        );
+        box1.submit(data);
+        box1.addInvestmentToken(stusd, stusdOracle);
+
+        // Creating the ERC4626 adapter between the vault and box1
+        adapter1 = new MetaMorphoAdapter(
+            address(vault), 
+            address(box1)
+        );
+        vault.addCollateral(address(adapter1), adapter1.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+
+        // Allowing the adapter to invest in box 1
+        box1.addFeeder(address(adapter1));
+
+
+        // Creating Box 2 which will invest in PT-USR-25SEP
+        name = "Box 2";
+        symbol = "BOX2";
+        maxSlippage = 0.01 ether; // 1%
+        slippageEpochDuration = 7 days;
+        shutdownSlippageDuration = 10 days;
+        timelockDurations = [
+            uint256(0 days), // setMaxSlippage
+            uint256(0 days), // addInvestmentToken
+            uint256(0 days), // removeInvestmentToken
+            uint256(0 days), // setIsAllocator
+            uint256(0 days)  // setIsFeeder
+        ];
+        box2 = new Box(
+            usdc, 
+            backupSwapper, 
+            address(this), 
+            address(this), 
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            timelockDurations
+        );
+
+        // Allow box 2 to invest in PT-USR-25SEP
+        box2.addCollateral(ptusr25sep, ptusr25sepOracle);
+
+        // Creating the ERC4626 adapter between the vault and box2
+        adapter2 = new MetaMorphoAdapter(
+            address(vault), 
+            address(box2)
+        );
+        vault.addCollateral(address(adapter2), adapter2.data(), 1_000_000 * 10**6, 0.5 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+
+        // Allowing the adapter to invest in box 1
+        box2.addFeeder(address(adapter2));
+
+        // Set a 2% penalty on force withdraw on the box1 adaopter
+        vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
+    }
+
+    /////////////////////////////
+    /// SCENARIOS
+    /////////////////////////////
+
+    /// @notice Test a simple flow
+    function testDepositAllocationRedeem() public {
+        uint256 USDC_1000 = 1000 * 10**6;
+        uint256 USDC_500 = 500 * 10**6;
+        uint256 USDC_250 = 250 * 10**6;
+
+        // Cleaning the balance of USDC in case of
+        usdc.transfer(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb, usdc.balanceOf(address(this))); 
+
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        usdc.transfer(address(this), USDC_1000); // Transfer 1000 USDC to this contract
+        assertEq(usdc.balanceOf(address(this)), USDC_1000);
+        assertEq(vault.balanceOf(address(this)), 0);
+
+        //////////////////////////////////////////////////////
+        // Depositing and investing in bqqUSDC
+        //////////////////////////////////////////////////////
+
+        // Depositing 1000 USDC into the vault
+        usdc.approve(address(vault), USDC_1000); // Approve the vault to spend USDC
+        vault.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
+        assertEq(usdc.balanceOf(address(this)), 0);
+        assertEq(vault.balanceOf(address(this)), USDC_1000);
+
+        // Allocating 1000 USDC to the box1 as it is the liquidity adapter
+        assertEq(bbqusdc.balanceOf(address(bbqusdcAdapter)), 
+            bbqusdc.previewDeposit(USDC_1000), 
+            "Allocation to bbqUSDC should result in gettiong the shares");
+
+        //////////////////////////////////////////////////////
+        // Allocating 500 USDC to stUSD in Box1
+        //////////////////////////////////////////////////////
+        vault.deallocate(address(bbqusdcAdapter), "", USDC_500);
+        vault.allocate(address(adapter1), "", USDC_500);
+
+        assertEq(usdc.balanceOf(address(box1)), USDC_500,
+            "500 USDC deposited in the Box1 contract but not yet invested");
+        
+        box1.allocate(stusd, USDC_250, swapper);
+        assertEq(usdc.balanceOf(address(box1)), USDC_250,
+            "Only 250 USDC left as half was allocated to stUSD");
+
+        box1.allocate(stusd, USDC_250, swapper);
+        assertEq(usdc.balanceOf(address(box1)), 0,
+            "No USDC left as all was allocated to stUSD");
+        assertEq(stusd.previewRedeem(stusd.balanceOf(address(box1))), 500 ether - 2,
+            "Almost 500 USDA equivalent of stUSD (2 round down)");
+
+
+        //////////////////////////////////////////////////////
+        // Allocating 500 USDC to Box2
+        //////////////////////////////////////////////////////
+
+        uint256 remainingUSDC = bbqusdc.previewRedeem(bbqusdc.balanceOf(address(bbqusdcAdapter)));
+
+        vault.deallocate(address(bbqusdcAdapter), "", remainingUSDC);
+        vault.allocate(address(adapter2), "", remainingUSDC );
+
+        assertEq(usdc.balanceOf(address(box2)), remainingUSDC,
+            "All USDC in bbqUSDC is now is Box2");
+        
+
+        //////////////////////////////////////////////////////
+        // Unwinding
+        //////////////////////////////////////////////////////
+
+        // No liquidity is available so we except a revert here
+        vm.expectRevert();
+        vault.withdraw(10 * 10**6, address(this), address(this));
+
+        // We exit stUSD but leave it in box1 for now
+        box1.deallocate(stusd, stusd.balanceOf(address(box1)), swapper);
+        vm.expectRevert();
+        vault.withdraw(10 * 10**6, address(this), address(this));
+
+        // We deallocate from box 1 to the vault liquidity sleeve
+        uint256 box1Balance = usdc.balanceOf(address(box1));
+        vault.deallocate(address(adapter1), "", box1Balance);
+        vault.allocate(address(bbqusdcAdapter), "", box1Balance);
+        vault.withdraw(USDC_500 - 2, address(this), address(this));
+        assertEq(usdc.balanceOf(address(this)), USDC_500 - 2);
+
+        // Testing the force deallocate
+        // We are transfering the vault shares to an EOA
+        uint256 shares = vault.balanceOf(address(this));
+        vault.transfer(user, shares);
+
+        // Impersonating the non permissioned user
+        vm.startPrank(user);
+
+        vm.expectRevert();
+        vault.redeem(shares, address(this), address(this));
+
+        address[] memory adapters = new address[](1);
+        adapters[0] = address(adapter2);
+        bytes[] memory data = new bytes[](1);
+        data[0] = "";
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = usdc.balanceOf(address(box2));
+        vault.forceDeallocate(adapters, data, amounts, address(user));
+        assertLt(vault.balanceOf(address(user)), shares, "User lost some shares due to force deallocation");
+        remainingUSDC = vault.previewRedeem(vault.balanceOf(address(user)));
+        vault.redeem(vault.balanceOf(address(user)), address(user), address(user));
+        assertEq(usdc.balanceOf(address(user)), remainingUSDC, "User should have received the USDC after redeem");
+
+        console.log("Vault total assets: ", vault.totalAssets());
+        console.log("Box 1 total assets: ", box1.totalAssets());
+        console.log("Box 2 total assets: ", box2.totalAssets());
+        console.log("bbqUSD adapter total assets: ", bbqusdc.convertToAssets(bbqusdc.balanceOf(address(bbqusdcAdapter))));
+        console.log("Liquidity total assets: ", usdc.balanceOf(address(vault)));
+        console.log("Vault total supply: ", vault.totalSupply());
+
+        assertEq(vault.totalSupply(), 0, "Vault should have no shares left after redeeming all");
+
+        vm.stopPrank();
+    }
+
+}
