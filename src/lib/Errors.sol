@@ -5,6 +5,8 @@ library Errors {
     // Access control errors
     error OnlyOwner();
     error OnlyCurator();
+    error OnlyGuardian();
+    error OnlyCuratorOrGuardian();
     error OnlyAllocators();
     error OnlyFeeders();
     error OnlyAllocatorsOrShutdown();
@@ -37,7 +39,7 @@ library Errors {
     error SlippageTooHigh();
     
     // Shutdown errors
-    error OnlyCuratorCanShutdown();
+    error OnlyGuardianCanShutdown();
     error AlreadyShutdown();
     error CannotAllocateIfShutdown();
     error CannotReallocateIfShutdown();

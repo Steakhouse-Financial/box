@@ -35,10 +35,7 @@ contract Box is IERC4626 {
     
     /// @notice Base currency token (e.g., USDC)
     IERC20 public immutable currency;
-    
-    /// @notice Emergency swapper used during shutdown
-    ISwapper public immutable backupSwapper;
-    
+        
     /// @notice Duration of slippage tracking epochs
     uint256 public immutable slippageEpochDuration;
     
@@ -50,12 +47,12 @@ contract Box is IERC4626 {
     /// @notice Contract owner with administrative privileges
     address public owner;
     
-    /// @notice Curator who can trigger shutdown and manage timelocks
+    /// @notice Curator who add new investment tokens
     address public curator;
-    
-    /// @notice Emergency pause state
-    bool public paused;
-    
+
+    /// @notice Guardian who can revoke sensitive actions
+    address public guardian;
+        
     /// @notice Shutdown state
     bool public shutdown;
     
@@ -77,7 +74,6 @@ contract Box is IERC4626 {
     // Investment management
     IERC20[] public investmentTokens;
     mapping(IERC20 => IOracle) public oracles;
-    mapping(IERC20 => bool) public isInvestmentToken;
 
     // Slippage tracking
     uint256 public maxSlippage;
@@ -92,6 +88,7 @@ contract Box is IERC4626 {
     
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event CuratorUpdated(address indexed previousCurator, address indexed newCurator);
+    event GuardianUpdated(address indexed previousGuardian, address indexed newGuardian);
     event RoleUpdated(address indexed account, bool isAllocator, bool isFeeder);
     event Paused(address indexed account);
     event Unpaused(address indexed account);
@@ -108,11 +105,13 @@ contract Box is IERC4626 {
     
     event InvestmentTokenAdded(IERC20 indexed token, IOracle indexed oracle);
     event InvestmentTokenRemoved(IERC20 indexed token);
+    event InvestmentTokenOracleChanged(IERC20 indexed token, IOracle indexed oracle);
     
-    event TimelockSubmitted(bytes4 indexed selector, bytes data, uint256 executableAt);
-    event TimelockRevoked(bytes4 indexed selector, bytes data);
-    event TimelockIncreased(bytes4 indexed selector, uint256 newDuration);
-    event TimelockExecuted(bytes4 indexed selector, bytes data);
+    event TimelockSubmitted(bytes4 indexed selector, bytes data, uint256 executableAt, address who);
+    event TimelockRevoked(bytes4 indexed selector, bytes data, address who);
+    event TimelockIncreased(bytes4 indexed selector, uint256 newDuration, address who);
+    event TimelockDecreased(bytes4 indexed selector, uint256 newDuration, address who);
+    event TimelockExecuted(bytes4 indexed selector, bytes data, address who);
 
     // ========== CUSTOM ERRORS ==========
     
@@ -120,21 +119,17 @@ contract Box is IERC4626 {
     error InvalidAmount();
     error InvalidTimelock();
     error TimelockDecrease();
+    error TimelockIncrease();
     error ContractPaused();
     error ArrayLengthMismatch();
 
     // ========== MODIFIERS ==========
-    
-    modifier notPaused() {
-        if (paused) revert ContractPaused();
-        _;
-    }
-    
+        
     modifier timelocked() {
         if (executableAt[msg.data] == 0) revert Errors.DataNotTimelocked();
         if (block.timestamp < executableAt[msg.data]) revert Errors.TimelockNotExpired();
         executableAt[msg.data] = 0;
-        emit TimelockExecuted(bytes4(msg.data), msg.data);
+        emit TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
         _;
     }
 
@@ -143,30 +138,22 @@ contract Box is IERC4626 {
     /**
      * @notice Initializes the Box vault
      * @param _currency Base currency token (e.g., USDC)
-     * @param _backupSwapper Emergency swapper for shutdown
      * @param _owner Initial owner address
      * @param _curator Initial curator address  
      * @param _name ERC20 token name
-     * @param _symbol ERC20 token symbol
-     * @param _maxSlippage Initial maximum slippage percentage
-     * @param _slippageEpochDuration Duration of slippage tracking epochs
-     * @param _shutdownSlippageDuration Duration for shutdown slippage ramp
-     * @param _timelockDurations Array of timelock durations for each function
+     * @param _symbol ERC20 token symboln
      */
     constructor(
         IERC20 _currency,
-        ISwapper _backupSwapper,
         address _owner,
         address _curator,
         string memory _name,
         string memory _symbol,
         uint256 _maxSlippage,
         uint256 _slippageEpochDuration,
-        uint256 _shutdownSlippageDuration,
-        uint256[5] memory _timelockDurations
+        uint256 _shutdownSlippageDuration
     ) {
         if (address(_currency) == address(0)) revert InvalidAddress();
-        if (address(_backupSwapper) == address(0)) revert InvalidAddress();
         if (_owner == address(0)) revert InvalidAddress();
         if (_curator == address(0)) revert InvalidAddress();
         if (_maxSlippage > MAX_SLIPPAGE_LIMIT) revert Errors.SlippageTooHigh();
@@ -174,7 +161,6 @@ contract Box is IERC4626 {
         if (_shutdownSlippageDuration == 0) revert InvalidAmount();
         
         currency = _currency;
-        backupSwapper = _backupSwapper;
         owner = _owner;
         curator = _curator;
         name = _name;
@@ -183,18 +169,7 @@ contract Box is IERC4626 {
         slippageEpochDuration = _slippageEpochDuration;
         shutdownSlippageDuration = _shutdownSlippageDuration;
         slippageEpochStart = block.timestamp;
-        
-        // Grant initial roles to owner
-        isAllocator[_owner] = true;
-        isFeeder[_owner] = true;
-
-        // Initialize timelock durations
-        timelock[this.setMaxSlippage.selector] = _timelockDurations[0];
-        timelock[this.addInvestmentToken.selector] = _timelockDurations[1];
-        timelock[this.removeInvestmentToken.selector] = _timelockDurations[2];
-        timelock[this.setIsAllocator.selector] = _timelockDurations[3];
-        timelock[this.setIsFeeder.selector] = _timelockDurations[4];
-        
+                
         emit OwnershipTransferred(address(0), _owner);
         emit CuratorUpdated(address(0), _curator);
         emit RoleUpdated(_owner, true, true);
@@ -240,7 +215,7 @@ contract Box is IERC4626 {
 
     /// @inheritdoc IERC4626
     function maxDeposit(address) external view returns (uint256) {
-        return (shutdown || paused) ? 0 : type(uint256).max;
+        return (shutdown) ? 0 : type(uint256).max;
     }
 
     /// @inheritdoc IERC4626
@@ -249,14 +224,12 @@ contract Box is IERC4626 {
     }
 
     /// @inheritdoc IERC4626
-    function deposit(uint256 assets, address receiver) public notPaused returns (uint256 shares) {
+    function deposit(uint256 assets, address receiver) public returns (uint256 shares) {
         if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
         if (shutdown) revert Errors.CannotDepositIfShutdown();
-        //if (assets == 0) revert Errors.CannotDepositZero();
         if (receiver == address(0)) revert InvalidAddress();
 
         shares = previewDeposit(assets);
-        //if (shares == 0) revert Errors.CannotDepositZero();
 
         currency.safeTransferFrom(msg.sender, address(this), assets);
         _mint(receiver, shares);
@@ -266,7 +239,7 @@ contract Box is IERC4626 {
 
     /// @inheritdoc IERC4626
     function maxMint(address) external view returns (uint256) {
-        return (shutdown || paused) ? 0 : type(uint256).max;
+        return (shutdown) ? 0 : type(uint256).max;
     }
 
     /// @inheritdoc IERC4626
@@ -276,10 +249,9 @@ contract Box is IERC4626 {
     }
 
     /// @inheritdoc IERC4626
-    function mint(uint256 shares, address receiver) external notPaused returns (uint256 assets) {
+    function mint(uint256 shares, address receiver) external returns (uint256 assets) {
         if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
         if (shutdown) revert Errors.CannotMintIfShutdown();
-        if (shares == 0) revert Errors.CannotMintZero();
         if (receiver == address(0)) revert InvalidAddress();
 
         assets = previewMint(shares);
@@ -302,7 +274,7 @@ contract Box is IERC4626 {
     }
 
     /// @inheritdoc IERC4626
-    function withdraw(uint256 assets, address receiver, address owner_) public notPaused returns (uint256 shares) {
+    function withdraw(uint256 assets, address receiver, address owner_) public returns (uint256 shares) {
         if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
         if (receiver == address(0)) revert InvalidAddress();
         
@@ -336,7 +308,7 @@ contract Box is IERC4626 {
     }
 
     /// @inheritdoc IERC4626
-    function redeem(uint256 shares, address receiver, address owner_) external notPaused returns (uint256 assets) {
+    function redeem(uint256 shares, address receiver, address owner_) external returns (uint256 assets) {
         if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
         if (receiver == address(0)) revert InvalidAddress();
         
@@ -454,18 +426,17 @@ contract Box is IERC4626 {
     /**
      * @notice Allocates currency to buy investment tokens
      * @param token Investment token to buy
-     * @param currencyAmount Amount of currency to spend
-     * @param swapper Swapper contract to use
+     * @param currencyAmount Amount of currency to spend (should be > 0)
+     * @param swapper Swapper contract to use (should not be address(0))
      */
-    function allocate(IERC20 token, uint256 currencyAmount, ISwapper swapper) external notPaused {
-        if (!isAllocator[msg.sender]) revert Errors.OnlyAllocators();
-        if (shutdown) revert Errors.CannotAllocateIfShutdown();
-        if (!isInvestmentToken[token]) revert Errors.TokenNotWhitelisted();
-        if (address(swapper) == address(0)) revert InvalidAddress();
-        if (currencyAmount == 0) revert InvalidAmount();
+    function allocate(IERC20 token, uint256 currencyAmount, ISwapper swapper) external {
+        require(isAllocator[msg.sender], Errors.OnlyAllocators());
+        require(!shutdown, Errors.CannotAllocateIfShutdown());
+        require(isInvestmentToken(token), Errors.TokenNotWhitelisted());
+        require(address(swapper) != address(0), InvalidAddress());
+        require(currencyAmount > 0, InvalidAmount());
         
         IOracle oracle = oracles[token];
-        if (address(oracle) == address(0)) revert Errors.NoOracleForToken();
 
         uint256 tokensBefore = token.balanceOf(address(this));
 
@@ -496,7 +467,7 @@ contract Box is IERC4626 {
      * @param tokensAmount Amount of tokens to sell
      * @param swapper Swapper contract to use (ignored during shutdown)
      */
-    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper) external notPaused {
+    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper) external {
         if (!isAllocator[msg.sender] && !shutdown) revert Errors.OnlyAllocatorsOrShutdown();
         if (tokensAmount == 0) revert InvalidAmount();
         
@@ -504,12 +475,11 @@ contract Box is IERC4626 {
         if (address(oracle) == address(0)) revert Errors.NoOracleForToken();
 
         uint256 currencyBefore = currency.balanceOf(address(this));
-        ISwapper targetSwapper = shutdown ? backupSwapper : swapper;
         
-        if (address(targetSwapper) == address(0)) revert InvalidAddress();
+        if (address(swapper) == address(0)) revert InvalidAddress();
 
-        token.approve(address(targetSwapper), tokensAmount);
-        targetSwapper.sell(token, currency, tokensAmount);
+        token.approve(address(swapper), tokensAmount);
+        swapper.sell(token, currency, tokensAmount);
 
         uint256 currencyReceived = currency.balanceOf(address(this)) - currencyBefore;
 
@@ -536,7 +506,7 @@ contract Box is IERC4626 {
             _increaseSlippage((slippage * PRECISION) / totalAssets());
         }
 
-        emit Deallocation(token, tokensAmount, targetSwapper);
+        emit Deallocation(token, tokensAmount, swapper);
     }
 
     /**
@@ -551,16 +521,15 @@ contract Box is IERC4626 {
         IERC20 to, 
         uint256 fromAmount, 
         ISwapper swapper
-    ) external notPaused {
-        if (!isAllocator[msg.sender]) revert Errors.OnlyAllocators();
-        if (shutdown) revert Errors.CannotReallocateIfShutdown();
-        if (!isInvestmentToken[from] || !isInvestmentToken[to]) revert Errors.TokensNotWhitelisted();
-        if (address(swapper) == address(0)) revert InvalidAddress();
-        if (fromAmount == 0) revert InvalidAmount();
+    ) external {
+        require(isAllocator[msg.sender], Errors.OnlyAllocators());
+        require(!shutdown, Errors.CannotReallocateIfShutdown());
+        require(isInvestmentToken(from) && isInvestmentToken(to), Errors.TokensNotWhitelisted());
+        require(address(swapper) != address(0), InvalidAddress());
+        require(fromAmount > 0, InvalidAmount());
         
         IOracle fromOracle = oracles[from];
         IOracle toOracle = oracles[to];
-        if (address(fromOracle) == address(0) || address(toOracle) == address(0)) revert Errors.OracleRequired();
 
         uint256 toBefore = to.balanceOf(address(this));
 
@@ -617,27 +586,29 @@ contract Box is IERC4626 {
     }
 
     /**
-     * @notice Pauses the contract
-     * @dev Only owner can pause
+     * @notice Updates the curator address
+     * @param newGuardian Address of new guardian
      */
-    function pause() external {
-        if (msg.sender != owner) revert Errors.OnlyOwner();
-        if (paused) revert ContractPaused();
+    function setGuardian(address newGuardian) external timelocked {
+        if (msg.sender != curator) revert Errors.OnlyCurator();
+        if (newGuardian == address(0)) revert InvalidAddress();
         
-        paused = true;
-        emit Paused(msg.sender);
+        address oldGuardian = guardian;
+        guardian = newGuardian;
+        
+        emit GuardianUpdated(oldGuardian, newGuardian);
     }
 
     /**
-     * @notice Unpauses the contract
-     * @dev Only owner can unpause
+     * @notice Updates allocator status for an account
+     * @param account Address to update
+     * @param newIsAllocator New allocator status
      */
-    function unpause() external {
-        if (msg.sender != owner) revert Errors.OnlyOwner();
-        if (!paused) revert InvalidAmount();
-        
-        paused = false;
-        emit Unpaused(msg.sender);
+    function setIsAllocator(address account, bool newIsAllocator) external {
+        if (msg.sender != curator) revert Errors.OnlyCurator();
+        if (account == address(0)) revert InvalidAddress();
+        isAllocator[account] = newIsAllocator;
+        emit RoleUpdated(account, newIsAllocator, isFeeder[account]);
     }
 
     /**
@@ -645,13 +616,13 @@ contract Box is IERC4626 {
      * @dev Only curator can trigger shutdown
      */
     function triggerShutdown() external {
-        if (msg.sender != curator) revert Errors.OnlyCuratorCanShutdown();
-        if (shutdown) revert Errors.AlreadyShutdown();
+        require(msg.sender == guardian, Errors.OnlyGuardianCanShutdown());
+        require(!shutdown, Errors.AlreadyShutdown());
         
         shutdown = true;
         shutdownTime = block.timestamp;
         
-        emit Shutdown(curator);
+        emit Shutdown(msg.sender);
     }
 
     // ========== TIMELOCK GOVERNANCE ==========
@@ -661,15 +632,15 @@ contract Box is IERC4626 {
      * @param data Encoded function call
      */
     function submit(bytes calldata data) external {
-        if (msg.sender != curator) revert Errors.OnlyCurator();
-        if (executableAt[data] != 0) revert Errors.DataNotTimelocked();
-        if (data.length < 4) revert InvalidAmount();
+        require(msg.sender == curator, Errors.OnlyCurator());
+        require(executableAt[data] == 0, Errors.DataNotTimelocked());
+        require(data.length >= 4, InvalidAmount());
         
         bytes4 selector = bytes4(data);
         uint256 delay = timelock[selector];
         
         executableAt[data] = block.timestamp + delay;
-        emit TimelockSubmitted(selector, data, executableAt[data]);
+        emit TimelockSubmitted(selector, data, executableAt[data], msg.sender);
     }
 
     /**
@@ -677,39 +648,41 @@ contract Box is IERC4626 {
      * @param data Encoded function call to revoke
      */
     function revoke(bytes calldata data) external {
-        if (msg.sender != curator) revert Errors.OnlyCurator();
-        if (executableAt[data] == 0) revert Errors.DataNotTimelocked();
+        require(msg.sender == curator || msg.sender == guardian, Errors.OnlyCuratorOrGuardian());
         
         executableAt[data] = 0;
-        emit TimelockRevoked(bytes4(data), data);
+        emit TimelockRevoked(bytes4(data), data, msg.sender);
     }
 
     /**
-     * @notice Increases timelock duration for a function
+     * @notice Increases timelock duration for a function, doesn't require a timelock
      * @param selector Function selector
      * @param newDuration New timelock duration
      */
     function increaseTimelock(bytes4 selector, uint256 newDuration) external {
-        if (msg.sender != curator) revert Errors.OnlyCurator();
-        if (newDuration > TIMELOCK_CAP) revert InvalidTimelock();
-        if (newDuration < timelock[selector]) revert TimelockDecrease();
+        require(msg.sender == curator, Errors.OnlyCurator());
+        require(newDuration <= TIMELOCK_CAP, InvalidTimelock());
+        require(newDuration > timelock[selector], TimelockDecrease());
         
         timelock[selector] = newDuration;
-        emit TimelockIncreased(selector, newDuration);
+        emit TimelockIncreased(selector, newDuration, msg.sender);
+    }
+
+    /**
+     * @notice Decrease timelock duration for a function requires a timelock
+     * @param selector Function selector
+     * @param newDuration New timelock duration
+     */
+    function decreaseTimelock(bytes4 selector, uint256 newDuration) external timelocked {
+        require(msg.sender == curator, Errors.OnlyCurator());
+        require(newDuration <= TIMELOCK_CAP, InvalidTimelock());
+        require(newDuration < timelock[selector], TimelockIncrease());
+        
+        timelock[selector] = newDuration;
+        emit TimelockDecreased(selector, newDuration, msg.sender);
     }
 
     // ========== TIMELOCKED FUNCTIONS ==========
-
-    /**
-     * @notice Updates allocator status for an account
-     * @param account Address to update
-     * @param newIsAllocator New allocator status
-     */
-    function setIsAllocator(address account, bool newIsAllocator) external timelocked {
-        if (account == address(0)) revert InvalidAddress();
-        isAllocator[account] = newIsAllocator;
-        emit RoleUpdated(account, newIsAllocator, isFeeder[account]);
-    }
 
     /**
      * @notice Updates feeder status for an account
@@ -741,13 +714,12 @@ contract Box is IERC4626 {
      * @param oracle Price oracle for the token
      */
     function addInvestmentToken(IERC20 token, IOracle oracle) external timelocked {
-        if (address(token) == address(0)) revert InvalidAddress();
-        if (address(oracle) == address(0)) revert InvalidAddress();
-        if (isInvestmentToken[token]) revert Errors.TokenNotWhitelisted();
+        require(address(token) != address(0), InvalidAddress());
+        require(address(oracle) != address(0), InvalidAddress());
+        require(!isInvestmentToken(token), Errors.TokenNotWhitelisted());
         
         investmentTokens.push(token);
         oracles[token] = oracle;
-        isInvestmentToken[token] = true;
         
         emit InvestmentTokenAdded(token, oracle);
     }
@@ -757,8 +729,8 @@ contract Box is IERC4626 {
      * @param token Token to remove
      */
     function removeInvestmentToken(IERC20 token) external timelocked {
-        if (!isInvestmentToken[token]) revert Errors.TokenNotWhitelisted();
-        if (token.balanceOf(address(this)) != 0) revert Errors.TokenBalanceMustBeZero();
+        require(isInvestmentToken(token), Errors.TokenNotWhitelisted());
+        require(token.balanceOf(address(this)) == 0, Errors.TokenBalanceMustBeZero());
         
         uint256 length = investmentTokens.length;
         for (uint256 i; i < length;) {
@@ -771,12 +743,34 @@ contract Box is IERC4626 {
         }
 
         delete oracles[token];
-        delete isInvestmentToken[token];
         
         emit InvestmentTokenRemoved(token);
     }
 
+        /**
+     * @notice Change the oracle of an investment token
+     * @param token Token that is already allowed
+     * @param oracle New oracle
+     */
+    function changeInvestmentTokenOracle(IERC20 token, IOracle oracle) external timelocked {
+        require(address(oracle) != address(0), InvalidAddress());
+        require(isInvestmentToken(token), Errors.TokenNotWhitelisted());
+        
+        oracles[token] = oracle;
+        
+        emit InvestmentTokenOracleChanged(token, oracle);
+    }
+
+
     // ========== VIEW FUNCTIONS ==========
+    /**
+     * @notice Returns true if token is an investment token
+     * @return true if it is a whitelisted investment token
+     */
+    function isInvestmentToken(IERC20 token) public view returns (bool) {
+        return this.oracles(token) != IOracle(address(0));
+    }
+    
 
     /**
      * @notice Returns number of investment tokens

@@ -39,7 +39,11 @@ contract PeatyBaseTest is Test {
     MetaMorphoAdapter adapter2;
     MetaMorphoAdapter bbqusdcAdapter;
 
-    address user = address(0x123);
+    address owner = address(0x1);
+    address curator = address(0x2);
+    address guardian = address(0x3);
+    address allocator = address(0x4);
+    address user = address(0x5);
 
     IERC20 usdc = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
 
@@ -54,7 +58,7 @@ contract PeatyBaseTest is Test {
     ISwapper swapper = ISwapper(0xFFF5082CE0E7C04BCc645984A94d4e4C0687Aa60);
 
     /// @notice Will setup Peaty Base investing in bbqUSDC, box1 (stUSD) and box2 (PTs)
-    function setUp() public {
+   function setUp() public {
         // Fork base on June 12th, 2025
         uint256 forkId = vm.createFork(vm.rpcUrl("base"), 31463931);
         vm.selectFork(forkId);
@@ -63,19 +67,28 @@ contract PeatyBaseTest is Test {
 
         MockSwapper backupSwapper = new MockSwapper();
 
-        vault = new VaultV2(address(this), address(usdc));
+        vault = new VaultV2(address(owner), address(usdc));
 
-        vault.setCurator(address(this));
-        vault.addAllocator(address(this)); 
+        vm.prank(owner);
+        vault.setCurator(address(curator));
+
+        vm.prank(curator);
+        vault.addAllocator(address(allocator)); 
 
         // Setting the vault to use bbqUSDC as the asset
         bbqusdcAdapter = new MetaMorphoAdapter(
             address(vault), 
             address(bbqusdc)
         );
+
+        vm.startPrank(curator);
         vault.addCollateral(address(bbqusdcAdapter), bbqusdcAdapter.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vm.stopPrank();
+
+        vm.startPrank(allocator);
         vault.setLiquidityAdapter(address(bbqusdcAdapter));
         vault.setLiquidityData("");
+        vm.stopPrank();
 
         // Creating Box 1 which will invest in stUSD
         string memory name = "Box 1";
@@ -83,44 +96,30 @@ contract PeatyBaseTest is Test {
         uint256 maxSlippage = 0.01 ether; // 1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
-        uint256[5] memory timelockDurations = [
-            uint256(0 days), // setMaxSlippage
-            uint256(0 days), // addInvestmentToken
-            uint256(0 days), // removeInvestmentToken
-            uint256(0 days), // setIsAllocator
-            uint256(0 days)  // setIsFeeder
-        ];
         box1 = new Box(
             usdc, 
-            backupSwapper, 
-            address(this), 
-            address(this), 
+            address(owner), 
+            address(curator), 
             name,
             symbol,
             maxSlippage,
             slippageEpochDuration,
-            shutdownSlippageDuration,
-            timelockDurations
+            shutdownSlippageDuration
         );
-
-        // Allow box 1 to invest in stUSD
-        data = abi.encodeWithSelector(
-            box1.addInvestmentToken.selector,
-            address(stusd),
-            address(stusdOracle)
-        );
-        box1.submit(data);
-        box1.addInvestmentToken(stusd, stusdOracle);
 
         // Creating the ERC4626 adapter between the vault and box1
         adapter1 = new MetaMorphoAdapter(
             address(vault), 
             address(box1)
         );
-        vault.addCollateral(address(adapter1), adapter1.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
 
-        // Allowing the adapter to invest in box 1
+        // Allow box 1 to invest in stUSD
+        vm.startPrank(curator);
+        box1.addCollateral(stusd, stusdOracle);
+        box1.setIsAllocator(address(allocator), true);
         box1.addFeeder(address(adapter1));
+        vault.addCollateral(address(adapter1), adapter1.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        vm.stopPrank();
 
 
         // Creating Box 2 which will invest in PT-USR-25SEP
@@ -129,41 +128,30 @@ contract PeatyBaseTest is Test {
         maxSlippage = 0.01 ether; // 1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
-        timelockDurations = [
-            uint256(0 days), // setMaxSlippage
-            uint256(0 days), // addInvestmentToken
-            uint256(0 days), // removeInvestmentToken
-            uint256(0 days), // setIsAllocator
-            uint256(0 days)  // setIsFeeder
-        ];
         box2 = new Box(
             usdc, 
-            backupSwapper, 
-            address(this), 
-            address(this), 
+            address(owner), 
+            address(curator), 
             name,
             symbol,
             maxSlippage,
             slippageEpochDuration,
-            shutdownSlippageDuration,
-            timelockDurations
+            shutdownSlippageDuration
         );
-
-        // Allow box 2 to invest in PT-USR-25SEP
-        box2.addCollateral(ptusr25sep, ptusr25sepOracle);
-
         // Creating the ERC4626 adapter between the vault and box2
         adapter2 = new MetaMorphoAdapter(
             address(vault), 
             address(box2)
         );
-        vault.addCollateral(address(adapter2), adapter2.data(), 1_000_000 * 10**6, 0.5 ether); // 1,000,000 USDC absolute cap and 50% relative cap
 
-        // Allowing the adapter to invest in box 1
+        // Allow box 2 to invest in PT-USR-25SEP
+        vm.startPrank(curator);
+        box2.addCollateral(ptusr25sep, ptusr25sepOracle);
+        box2.setIsAllocator(address(allocator), true);
         box2.addFeeder(address(adapter2));
-
-        // Set a 2% penalty on force withdraw on the box1 adaopter
+        vault.addCollateral(address(adapter2), adapter2.data(), 1_000_000 * 10**6, 0.5 ether); // 1,000,000 USDC absolute cap and 50% relative cap
         vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
+        vm.stopPrank();
     }
 
     /////////////////////////////
@@ -202,6 +190,8 @@ contract PeatyBaseTest is Test {
         //////////////////////////////////////////////////////
         // Allocating 500 USDC to stUSD in Box1
         //////////////////////////////////////////////////////
+        vm.startPrank(allocator);
+
         vault.deallocate(address(bbqusdcAdapter), "", USDC_500);
         vault.allocate(address(adapter1), "", USDC_500);
 
@@ -218,10 +208,14 @@ contract PeatyBaseTest is Test {
         assertEq(stusd.previewRedeem(stusd.balanceOf(address(box1))), 500 ether - 2,
             "Almost 500 USDA equivalent of stUSD (2 round down)");
 
+        vm.stopPrank();
+
 
         //////////////////////////////////////////////////////
         // Allocating 500 USDC to Box2
         //////////////////////////////////////////////////////
+
+        vm.startPrank(allocator);
 
         uint256 remainingUSDC = bbqusdc.previewRedeem(bbqusdc.balanceOf(address(bbqusdcAdapter)));
 
@@ -230,6 +224,8 @@ contract PeatyBaseTest is Test {
 
         assertEq(usdc.balanceOf(address(box2)), remainingUSDC,
             "All USDC in bbqUSDC is now is Box2");
+
+        vm.stopPrank();
         
 
         //////////////////////////////////////////////////////
@@ -241,13 +237,18 @@ contract PeatyBaseTest is Test {
         vault.withdraw(10 * 10**6, address(this), address(this));
 
         // We exit stUSD but leave it in box1 for now
+        vm.startPrank(allocator);
         box1.deallocate(stusd, stusd.balanceOf(address(box1)), swapper);
+        vm.stopPrank();
+
         vm.expectRevert();
         vault.withdraw(10 * 10**6, address(this), address(this));
 
         // We deallocate from box 1 to the vault liquidity sleeve
         uint256 box1Balance = usdc.balanceOf(address(box1));
+        vm.prank(allocator);
         vault.deallocate(address(adapter1), "", box1Balance);
+        vm.prank(allocator);
         vault.allocate(address(bbqusdcAdapter), "", box1Balance);
         vault.withdraw(USDC_500 - 2, address(this), address(this));
         assertEq(usdc.balanceOf(address(this)), USDC_500 - 2);
@@ -284,6 +285,54 @@ contract PeatyBaseTest is Test {
 
         assertEq(vault.totalSupply(), 0, "Vault should have no shares left after redeeming all");
 
+        vm.stopPrank();
+    }
+
+
+
+    /// @notice Test guardian controlled shutdown
+    function testGuardianControlledShutdown() public {
+        uint256 USDC_1000 = 1000 * 10**6;
+        uint256 USDC_500 = 500 * 10**6;
+        uint256 USDC_250 = 250 * 10**6;
+
+        // Cleaning the balance of USDC in case of
+        usdc.transfer(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb, usdc.balanceOf(address(this))); 
+
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        usdc.transfer(address(user), USDC_1000); // Transfer 1000 USDC to this contract
+        assertEq(usdc.balanceOf(address(user)), USDC_1000);
+        assertEq(vault.balanceOf(address(user)), 0);
+
+        //////////////////////////////////////////////////////
+        // Setting up the stage
+        //////////////////////////////////////////////////////
+
+        // Depositing 1000 USDC into the vault
+        vm.startPrank(user);
+        usdc.approve(address(vault), USDC_1000); // Approve the vault to spend USDC
+        vault.deposit(USDC_1000, address(user)); // Deposit 1000 USDC into the vault
+        vm.stopPrank();
+
+        // Accrue some interest to compensate the rounding down
+        vm.warp(block.timestamp + 1 days);
+
+        vm.startPrank(allocator);
+        vault.deallocate(address(bbqusdcAdapter), "", USDC_1000);   
+        // Dirty hack because the Angleswapper use a expiry
+        vm.warp(block.timestamp - 1 days);  
+        vault.allocate(address(adapter1), "", USDC_1000);     
+        box1.allocate(stusd, USDC_1000, swapper);
+        assertEq(stusd.previewRedeem(stusd.balanceOf(address(box1))), 1000 ether - 1,
+            "Almost 1000 USDA equivalent of stUSD (1 round down)");
+
+        vm.stopPrank();
+
+
+        //////////////////////////////////////////////////////
+        // Now the guardian need to clean up the mess
+        //////////////////////////////////////////////////////
+        vm.startPrank(guardian);
         vm.stopPrank();
     }
 

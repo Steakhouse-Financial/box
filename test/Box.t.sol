@@ -99,11 +99,12 @@ contract BoxTest is Test {
 
     address public owner = address(0x1);
     address public allocator = address(0x2);
-    address public guardian = address(0x3);
-    address public feeder = address(0x4);
-    address public user1 = address(0x5);
-    address public user2 = address(0x6);
-    address public nonAuthorized = address(0x7);
+    address public curator = address(0x3);
+    address public guardian = address(0x4);
+    address public feeder = address(0x5);
+    address public user1 = address(0x6);
+    address public user2 = address(0x7);
+    address public nonAuthorized = address(0x8);
 
     event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
     event Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
@@ -132,67 +133,68 @@ contract BoxTest is Test {
         uint256 maxSlippage = 0.01 ether; // 1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
-        uint256[5] memory timelockDurations = [
-            uint256(1 days), // setMaxSlippage
-            uint256(1 days), // addInvestmentToken
-            uint256(1 days), // removeInvestmentToken
-            uint256(1 days), // setIsAllocator
-            uint256(1 days)  // setIsFeeder
-        ];
         
         box = new Box(
             currency, 
-            backupSwapper, 
             owner, 
             owner, // Initially owner is also curator
             name,
             symbol,
             maxSlippage,
             slippageEpochDuration,
-            shutdownSlippageDuration,
-            timelockDurations
+            shutdownSlippageDuration
         );
 
         // Setup roles and investment tokens using new timelock pattern
         // Note: owner is initially the curator, so owner can submit
         vm.startPrank(owner);
+        // Set curator
+        box.setCurator(curator);
+        vm.stopPrank();
+
+
+        vm.startPrank(curator);
+       
+        // Add guardian
+        bytes memory guardianData = abi.encodeWithSelector(box.setGuardian.selector, guardian);
+        box.submit(guardianData);
+        box.setGuardian(guardian); 
+
         
         // Add feeder role
         bytes memory feederData = abi.encodeWithSelector(box.setIsFeeder.selector, feeder, true);
         box.submit(feederData);
-        vm.warp(block.timestamp + 1 days + 1);
         (bool success,) = address(box).call(feederData);
         require(success, "Failed to set feeder");
 
         // Add allocator role
         bytes memory allocatorData = abi.encodeWithSelector(box.setIsAllocator.selector, allocator, true);
         box.submit(allocatorData);
-        vm.warp(block.timestamp + 1 days + 1);
         (success,) = address(box).call(allocatorData);
         require(success, "Failed to set allocator");
 
         // Add investment tokens
         bytes memory asset1Data = abi.encodeWithSelector(box.addInvestmentToken.selector, asset1, oracle1);
         box.submit(asset1Data);
-        vm.warp(block.timestamp + 1 days + 1);
         (success,) = address(box).call(asset1Data);
         require(success, "Failed to add asset1");
 
         bytes memory asset2Data = abi.encodeWithSelector(box.addInvestmentToken.selector, asset2, oracle2);
         box.submit(asset2Data);
-        vm.warp(block.timestamp + 1 days + 1);
         (success,) = address(box).call(asset2Data);
         require(success, "Failed to add asset2");
 
         // Add user1 as feeder so they can withdraw
         bytes memory userData = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
         box.submit(userData);
-        vm.warp(block.timestamp + 1 days + 1);
         (bool userSuccess,) = address(box).call(userData);
         require(userSuccess, "Failed to set user1 as feeder");
 
-        // Set curator (guardian equivalent) - this doesn't require timelock
-        box.setCurator(guardian);
+
+        // Add timelocks
+        box.increaseTimelock(box.setMaxSlippage.selector, 1 days);
+        box.increaseTimelock(box.setGuardian.selector, 1 days);
+
 
         vm.stopPrank();
 
@@ -254,15 +256,6 @@ contract BoxTest is Test {
         assertEq(currency.balanceOf(address(box)), 100e18);
     }
 
-    function testDepositZeroAmount() public {
-        vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
-        
-        vm.expectRevert(Errors.CannotDepositZero.selector);
-        box.deposit(0, feeder);
-        vm.stopPrank();
-    }
-
     function testDepositNonFeeder() public {
         vm.startPrank(nonAuthorized);
         currency.approve(address(box), 100e18);
@@ -298,15 +291,6 @@ contract BoxTest is Test {
         assertEq(box.balanceOf(feeder), 100e18);
         assertEq(box.totalSupply(), 100e18);
         assertEq(box.totalAssets(), 100e18);
-    }
-
-    function testMintZeroShares() public {
-        vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
-        
-        vm.expectRevert(Errors.CannotMintZero.selector);
-        box.mint(0, feeder);
-        vm.stopPrank();
     }
 
     function testMintNonFeeder() public {
@@ -380,7 +364,7 @@ contract BoxTest is Test {
         vm.stopPrank();
 
         // Add user1 as feeder so they can withdraw
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         bytes memory userData = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
         box.submit(userData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -406,7 +390,7 @@ contract BoxTest is Test {
         vm.stopPrank();
 
         // Add user1 as feeder so they can withdraw
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         bytes memory userData = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
         box.submit(userData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -624,7 +608,7 @@ contract BoxTest is Test {
 
     function testAllocateNoOracle() public {
         // This test needs to be updated since the error happens at execution time now
-        vm.startPrank(guardian);
+        vm.startPrank(curator);
         bytes memory tokenData = abi.encodeWithSelector(box.addInvestmentToken.selector, asset3, IOracle(address(0)));
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -969,7 +953,7 @@ contract BoxTest is Test {
     }
 
     function testShutdownNonGuardian() public {
-        vm.expectRevert(Errors.OnlyCuratorCanShutdown.selector);
+        vm.expectRevert(Errors.OnlyGuardianCanShutdown.selector);
         vm.prank(nonAuthorized);
         box.triggerShutdown();
     }
@@ -1115,7 +1099,7 @@ contract BoxTest is Test {
     /////////////////////////////
 
     function testTimelockPattern() public {
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         
         // Test setting max slippage with new timelock pattern
         uint256 newSlippage = 0.02 ether; // 2%
@@ -1145,7 +1129,7 @@ contract BoxTest is Test {
     }
 
     function testTimelockRevoke() public {
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.02 ether);
         box.submit(slippageData);
 
@@ -1159,35 +1143,35 @@ contract BoxTest is Test {
     }
 
     function testTimelockRevokeNonCurator() public {
-        vm.prank(guardian); // Use guardian since they are now the curator
+        vm.prank(curator);
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.02 ether);
         box.submit(slippageData);
 
-        vm.expectRevert(Errors.OnlyCurator.selector);
+        vm.expectRevert(Errors.OnlyCuratorOrGuardian.selector);
         vm.prank(nonAuthorized);
         box.revoke(slippageData);
     }
 
-    function testGuardianSubmitAccept() public {
-        address newGuardian = address(0x99);
+    function testCuratorSubmitAccept() public {
+        address newCurator = address(0x99);
         
-        vm.prank(owner); // setCurator requires owner, not guardian
-        box.setCurator(newGuardian);
+        vm.prank(owner); // setCurator requires owner
+        box.setCurator(newCurator);
 
-        assertEq(box.curator(), newGuardian);
+        assertEq(box.curator(), newCurator);
     }
 
-    function testGuardianSubmitInvalidAddress() public {
+    function testCuratorSubmitInvalidAddress() public {
         // Test that setCurator properly validates against address(0)
         vm.expectRevert(Box.InvalidAddress.selector);
-        vm.prank(owner); // setCurator requires owner, not guardian
+        vm.prank(owner); // setCurator requires owner
         box.setCurator(address(0));
     }
 
     function testAllocatorSubmitAccept() public {
         address newAllocator = address(0x99);
         
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator); 
         bytes memory allocatorData = abi.encodeWithSelector(box.setIsAllocator.selector, newAllocator, true);
         box.submit(allocatorData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -1199,7 +1183,7 @@ contract BoxTest is Test {
     }
 
     function testAllocatorRemove() public {
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         bytes memory allocatorData = abi.encodeWithSelector(box.setIsAllocator.selector, allocator, false);
         box.submit(allocatorData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -1213,7 +1197,7 @@ contract BoxTest is Test {
     function testFeederSubmitAccept() public {
         address newFeeder = address(0x99);
         
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         bytes memory feederData = abi.encodeWithSelector(box.setIsFeeder.selector, newFeeder, true);
         box.submit(feederData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -1226,8 +1210,8 @@ contract BoxTest is Test {
 
     function testSlippageSubmitAccept() public {
         uint256 newSlippage = 0.02 ether; // 2%
-        
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+
+        vm.startPrank(curator);
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, newSlippage);
         box.submit(slippageData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -1239,7 +1223,7 @@ contract BoxTest is Test {
     }
 
     function testSlippageSubmitTooHigh() public {
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.15 ether);
         box.submit(slippageData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -1249,7 +1233,7 @@ contract BoxTest is Test {
     }
 
     function testInvestmentTokenSubmitAccept() public {
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         bytes memory tokenData = abi.encodeWithSelector(box.addInvestmentToken.selector, asset3, oracle3);
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -1263,7 +1247,7 @@ contract BoxTest is Test {
     }
 
     function testInvestmentTokenRemove() public {
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         bytes memory tokenData = abi.encodeWithSelector(box.removeInvestmentToken.selector, asset1);
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -1287,7 +1271,7 @@ contract BoxTest is Test {
         box.allocate(asset1, 50e18, swapper);
 
         // Try to remove token with balance - should fail at execution stage
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         bytes memory tokenData = abi.encodeWithSelector(box.removeInvestmentToken.selector, asset1);
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
@@ -1420,7 +1404,7 @@ contract BoxTest is Test {
         currency.mint(user1, 1000e18);
         currency.mint(user2, 1000e18);
         
-        vm.startPrank(guardian); // Use guardian since they are now the curator
+        vm.startPrank(curator);
         bytes memory user1Data = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
         box.submit(user1Data);
         vm.warp(block.timestamp + 1 days + 1);

@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Script, console} from "forge-std/Script.sol";
 import {Box} from "../src/Box.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import {Errors} from "../src/lib/Errors.sol";
@@ -25,7 +26,7 @@ contract MockSwapper is ISwapper {
 }
 
 contract BoxScript is Script {
-    using BoxLib for Box;
+  using BoxLib for Box;
     using VaultV2Lib for VaultV2;
     using MetaMorphoAdapterLib for MetaMorphoAdapter;
     
@@ -36,11 +37,17 @@ contract BoxScript is Script {
     MetaMorphoAdapter adapter2;
     MetaMorphoAdapter bbqusdcAdapter;
 
+    address owner = address(0x1);
+    address curator = address(0x2);
+    address guardian = address(0x3);
+    address allocator = address(0x4);
+    address user = address(0x5);
+
     IERC20 usdc = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
 
-    address bbqusdc = 0xBeeFa74640a5f7c28966cbA82466EED5609444E0; // bbqUSDC on Base
+    IERC4626 bbqusdc = IERC4626(0xBeeFa74640a5f7c28966cbA82466EED5609444E0); // bbqUSDC on Base
     
-    IERC20 stusd = IERC20(0x0022228a2cc5E7eF0274A7Baa600d44da5aB5776);
+    IERC4626 stusd = IERC4626(0x0022228a2cc5E7eF0274A7Baa600d44da5aB5776);
     IOracle stusdOracle = IOracle(0x2eede25066af6f5F2dfc695719dB239509f69915);
     
     IERC20 ptusr25sep = IERC20(0xa6F0A4D18B6f6DdD408936e81b7b3A8BEFA18e77);
@@ -49,7 +56,7 @@ contract BoxScript is Script {
     ISwapper swapper = ISwapper(0xFFF5082CE0E7C04BCc645984A94d4e4C0687Aa60);
 
     /// @notice Will setup Peaty Base investing in bbqUSDC, box1 (stUSD) and box2 (PTs)
-    function setUp() public {
+   function setUp() public {
         // Fork base on June 12th, 2025
         uint256 forkId = vm.createFork(vm.rpcUrl("base"), 31463931);
         vm.selectFork(forkId);
@@ -58,17 +65,28 @@ contract BoxScript is Script {
 
         MockSwapper backupSwapper = new MockSwapper();
 
-        vault = new VaultV2(address(this), address(usdc));
+        vault = new VaultV2(address(owner), address(usdc));
 
-        vault.setCurator(address(this));
-        vault.addAllocator(address(this)); 
+        vm.prank(owner);
+        vault.setCurator(address(curator));
+
+        vm.prank(curator);
+        vault.addAllocator(address(allocator)); 
 
         // Setting the vault to use bbqUSDC as the asset
         bbqusdcAdapter = new MetaMorphoAdapter(
             address(vault), 
-            bbqusdc
+            address(bbqusdc)
         );
+
+        vm.startPrank(curator);
         vault.addCollateral(address(bbqusdcAdapter), bbqusdcAdapter.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vm.stopPrank();
+
+        vm.startPrank(allocator);
+        vault.setLiquidityAdapter(address(bbqusdcAdapter));
+        vault.setLiquidityData("");
+        vm.stopPrank();
 
         // Creating Box 1 which will invest in stUSD
         string memory name = "Box 1";
@@ -76,44 +94,30 @@ contract BoxScript is Script {
         uint256 maxSlippage = 0.01 ether; // 1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
-        uint256[5] memory timelockDurations = [
-            uint256(0 days), // setMaxSlippage
-            uint256(0 days), // addInvestmentToken
-            uint256(0 days), // removeInvestmentToken
-            uint256(0 days), // setIsAllocator
-            uint256(0 days)  // setIsFeeder
-        ];
         box1 = new Box(
             usdc, 
-            backupSwapper, 
-            address(this), 
-            address(this), 
+            address(owner), 
+            address(curator), 
             name,
             symbol,
             maxSlippage,
             slippageEpochDuration,
-            shutdownSlippageDuration,
-            timelockDurations
+            shutdownSlippageDuration
         );
-
-        // Allow box 1 to invest in stUSD
-        data = abi.encodeWithSelector(
-            box1.addInvestmentToken.selector,
-            address(stusd),
-            address(stusdOracle)
-        );
-        box1.submit(data);
-        box1.addInvestmentToken(stusd, stusdOracle);
 
         // Creating the ERC4626 adapter between the vault and box1
         adapter1 = new MetaMorphoAdapter(
             address(vault), 
             address(box1)
         );
-        vault.addCollateral(address(adapter1), adapter1.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
 
-        // Allowing the adapter to invest in box 1
+        // Allow box 1 to invest in stUSD
+        vm.startPrank(curator);
+        box1.addCollateral(stusd, stusdOracle);
+        box1.setIsAllocator(address(allocator), true);
         box1.addFeeder(address(adapter1));
+        vault.addCollateral(address(adapter1), adapter1.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        vm.stopPrank();
 
 
         // Creating Box 2 which will invest in PT-USR-25SEP
@@ -122,69 +126,62 @@ contract BoxScript is Script {
         maxSlippage = 0.01 ether; // 1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
-        timelockDurations = [
-            uint256(0 days), // setMaxSlippage
-            uint256(0 days), // addInvestmentToken
-            uint256(0 days), // removeInvestmentToken
-            uint256(0 days), // setIsAllocator
-            uint256(0 days)  // setIsFeeder
-        ];
         box2 = new Box(
             usdc, 
-            backupSwapper, 
-            address(this), 
-            address(this), 
+            address(owner), 
+            address(curator), 
             name,
             symbol,
             maxSlippage,
             slippageEpochDuration,
-            shutdownSlippageDuration,
-            timelockDurations
+            shutdownSlippageDuration
         );
-
-        // Allow box 2 to invest in PT-USR-25SEP
-        box2.addCollateral(ptusr25sep, ptusr25sepOracle);
-
         // Creating the ERC4626 adapter between the vault and box2
         adapter2 = new MetaMorphoAdapter(
             address(vault), 
             address(box2)
         );
-        vault.addCollateral(address(adapter2), adapter2.data(), 1_000_000 * 10**6, 0.5 ether); // 1,000,000 USDC absolute cap and 50% relative cap
 
-        // Allowing the adapter to invest in box 1
+        // Allow box 2 to invest in PT-USR-25SEP
+        vm.startPrank(curator);
+        box2.addCollateral(ptusr25sep, ptusr25sepOracle);
+        box2.setIsAllocator(address(allocator), true);
         box2.addFeeder(address(adapter2));
-
-        // Set a 2% penalty on force withdraw on the box1 adaopter
+        vault.addCollateral(address(adapter2), adapter2.data(), 1_000_000 * 10**6, 0.5 ether); // 1,000,000 USDC absolute cap and 50% relative cap
         vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
+        vm.stopPrank();
     }
-
+    
     function run() public {
         uint256 _1000 = 1000 * 10**6;
 
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
-        usdc.transfer(address(this), _1000); // Transfer 1000 USDC to this contract
+        usdc.transfer(address(user), _1000); // Transfer 1000 USDC to this contract
 
 
         // Depositing 1000 USDC into the vault
+        vm.startPrank(user);
         usdc.approve(address(vault), _1000); // Approve the vault to spend USDC
-        vault.deposit(_1000, address(this)); // Deposit 1000 USDC into the vault
+        vault.deposit(_1000, address(user)); // Deposit 1000 USDC into the vault
         console.log(box1.totalAssets());
+        vm.stopPrank();
 
         // Allocating 1000 USDC to the box1
-        vault.allocate(address(adapter1), "", _1000);
+        vm.startPrank(allocator);
+        vault.deallocate(address(bbqusdcAdapter), "", _1000 - 1);
+        vault.allocate(address(adapter1), "", _1000 -1);
         console.log(box1.totalAssets());
 
         // Deallocating 1000 USDC from the box1
         // At this stage it wasn't invested so it is possible
-        vault.deallocate(address(adapter1), "", _1000);
+        vault.deallocate(address(adapter1), "", _1000 -1);
         console.log(box1.totalAssets());
 
 
         // Alloctin 1000 USDC from the box1
         // And box 1 invest those in stUSD
-        vault.allocate(address(adapter1), "", _1000);
-        box1.allocate(stusd, _1000, swapper);
+        vault.allocate(address(adapter1), "", _1000 -1);
+        box1.allocate(stusd, _1000 -1, swapper);
 
         console.log(box1.totalAssets());
         console.log(stusd.balanceOf(address(box1))); // Check stUSD balance after swap
@@ -197,9 +194,10 @@ contract BoxScript is Script {
         console.log(usdc.balanceOf(address(box1))); // Check stUSD balance after swap
 
 
-        console.log(usdc.balanceOf(address(this))); // Check stUSD balance after swap
+        vm.stopPrank();
 
 
+        vm.startPrank(user);
         address[] memory adapters = new address[](1);
         adapters[0] = address(adapter1);
         bytes[] memory data = new bytes[](1);
@@ -208,17 +206,17 @@ contract BoxScript is Script {
         amounts[0] = box1.previewRedeem(box1.balanceOf(address(adapter1)));
         console.log("AMount that will be force deallocated");
         console.log(amounts[0]);
-        vault.forceDeallocate(adapters, data, amounts, address(this));
+        vault.forceDeallocate(adapters, data, amounts, address(user));
 
+        // doesn't work because vault is underwater due to rounding down
+        //vault.redeem(vault.balanceOf(address(user)), address(user), address(user));
 
-        vault.redeem(vault.balanceOf(address(this)), address(this), address(this));
-
-        console.log(usdc.balanceOf(address(this))); // Check stUSD balance after swap
+        console.log(usdc.balanceOf(address(user))); // Check stUSD balance after swap
 
 
         console.log(box1.totalAssets());
         console.log(usdc.balanceOf(address(box1))); // Check stUSD balance after swap
-
+        vm.stopPrank();
         
     }
 }
