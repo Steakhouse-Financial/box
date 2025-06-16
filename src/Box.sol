@@ -24,6 +24,9 @@ contract Box is IERC4626 {
     
     /// @notice Maximum timelock duration (2 weeks)
     uint256 public constant TIMELOCK_CAP = 2 weeks;
+
+    /// @notice Delay from start of a shutdown to possible liquidations
+    uint256 public constant SHUTDOWN_WARMUP = 2 weeks;
     
     /// @notice Precision for oracle prices
     uint256 private constant ORACLE_PRECISION = 1e36;
@@ -153,12 +156,12 @@ contract Box is IERC4626 {
         uint256 _slippageEpochDuration,
         uint256 _shutdownSlippageDuration
     ) {
-        if (address(_currency) == address(0)) revert InvalidAddress();
-        if (_owner == address(0)) revert InvalidAddress();
-        if (_curator == address(0)) revert InvalidAddress();
-        if (_maxSlippage > MAX_SLIPPAGE_LIMIT) revert Errors.SlippageTooHigh();
-        if (_slippageEpochDuration == 0) revert InvalidAmount();
-        if (_shutdownSlippageDuration == 0) revert InvalidAmount();
+        require(address(_currency) != address(0), InvalidAddress());
+        require(_owner != address(0), InvalidAddress());
+        require(_curator != address(0), InvalidAddress());
+        require(_maxSlippage <= MAX_SLIPPAGE_LIMIT, Errors.SlippageTooHigh());
+        require(_slippageEpochDuration != 0, InvalidAmount());
+        require(_shutdownSlippageDuration != 0, InvalidAmount());
         
         currency = _currency;
         owner = _owner;
@@ -465,28 +468,29 @@ contract Box is IERC4626 {
      * @notice Deallocates investment tokens to get currency
      * @param token Investment token to sell
      * @param tokensAmount Amount of tokens to sell
-     * @param swapper Swapper contract to use (ignored during shutdown)
+     * @param swapper Swapper contract to use
      */
     function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper) external {
-        if (!isAllocator[msg.sender] && !shutdown) revert Errors.OnlyAllocatorsOrShutdown();
-        if (tokensAmount == 0) revert InvalidAmount();
+        require(isAllocator[msg.sender] 
+            || block.timestamp > shutdownTime + SHUTDOWN_WARMUP, Errors.OnlyAllocatorsOrShutdown());
+        require(tokensAmount > 0, InvalidAmount());     
+        require(address(swapper) != address(0), InvalidAddress());
         
         IOracle oracle = oracles[token];
-        if (address(oracle) == address(0)) revert Errors.NoOracleForToken();
+        require(address(oracle) != address(0), Errors.NoOracleForToken());
 
-        uint256 currencyBefore = currency.balanceOf(address(this));
-        
-        if (address(swapper) == address(0)) revert InvalidAddress();
+        uint256 currencyBefore = currency.balanceOf(address(this));   
 
         token.approve(address(swapper), tokensAmount);
         swapper.sell(token, currency, tokensAmount);
 
         uint256 currencyReceived = currency.balanceOf(address(this)) - currencyBefore;
 
-        // Calculate slippage tolerance
+        // Calculate slippage tolerance, default to allocator slippage
         uint256 slippageTolerance = maxSlippage;
-        if (shutdown) {
-            uint256 timeElapsed = block.timestamp - shutdownTime;
+        // For non-allocators during shutdown, calculate slippage based on elapsed time
+        if (!isAllocator[msg.sender]) {
+            uint256 timeElapsed = block.timestamp - SHUTDOWN_WARMUP - shutdownTime;
             if (timeElapsed < shutdownSlippageDuration) {
                 slippageTolerance = (timeElapsed * MAX_SLIPPAGE_LIMIT) / shutdownSlippageDuration;
             } else {
@@ -498,10 +502,10 @@ contract Box is IERC4626 {
         uint256 expectedCurrency = (tokensAmount * oracle.price()) / ORACLE_PRECISION;
         uint256 minCurrency = (expectedCurrency * (PRECISION - slippageTolerance)) / PRECISION;
 
-        if (currencyReceived < minCurrency) revert Errors.TokenSaleNotGeneratingEnoughCurrency();
+        require(currencyReceived >= minCurrency, Errors.TokenSaleNotGeneratingEnoughCurrency());
 
         // Track slippage (only in normal operation)
-        if (!shutdown && expectedCurrency > currencyReceived) {
+        if (isAllocator[msg.sender] && expectedCurrency > currencyReceived) {
             uint256 slippage = expectedCurrency - currencyReceived;
             _increaseSlippage((slippage * PRECISION) / totalAssets());
         }

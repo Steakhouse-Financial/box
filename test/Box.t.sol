@@ -980,8 +980,16 @@ contract BoxTest is Test {
         box.triggerShutdown();
 
         // Anyone should be able to deallocate after shutdown
-        vm.prank(nonAuthorized);
+        vm.startPrank(nonAuthorized);
+
+        // But need to wait SHUTDOWN_WARMUP before deallocation
+        vm.expectRevert(Errors.OnlyAllocatorsOrShutdown.selector);
         box.deallocate(asset1, 25e18, swapper);
+
+        // After warmup it should work
+        vm.warp(block.timestamp + box.SHUTDOWN_WARMUP() + 1);
+        box.deallocate(asset1, 25e18, swapper);
+
 
         assertEq(asset1.balanceOf(address(box)), 25e18);
     }
@@ -1129,16 +1137,38 @@ contract BoxTest is Test {
     }
 
     function testTimelockRevoke() public {
+        // Curator should be able to revoke a submitted action
         vm.startPrank(curator);
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.02 ether);
         box.submit(slippageData);
+        assertEq(box.executableAt(slippageData), block.timestamp + 1 days);
 
         box.revoke(slippageData);
+        assertEq(box.executableAt(slippageData), 0);
         
         // Should fail to execute after revoke
         vm.warp(block.timestamp + 1 days + 1);
         vm.expectRevert(Errors.DataNotTimelocked.selector);
         (bool success,) = address(box).call(slippageData);
+        vm.stopPrank();
+
+
+        // Curator should also be able to revoke a submitted action
+        vm.startPrank(curator);
+        box.submit(slippageData);
+        assertEq(box.executableAt(slippageData), block.timestamp + 1 days);
+        vm.stopPrank();
+
+        vm.startPrank(guardian);
+        box.revoke(slippageData);
+        assertEq(box.executableAt(slippageData), 0);
+        vm.stopPrank();
+        
+        // Should fail to execute after revoke
+        vm.startPrank(curator);
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.expectRevert(Errors.DataNotTimelocked.selector);
+        (success,) = address(box).call(slippageData);
         vm.stopPrank();
     }
 
@@ -1159,6 +1189,20 @@ contract BoxTest is Test {
         box.setCurator(newCurator);
 
         assertEq(box.curator(), newCurator);
+    }
+
+    function testGuardianSubmitAccept() public {
+        address newGuardian = address(0x99);        
+        
+        vm.startPrank(curator);
+        bytes memory guardianData = abi.encodeWithSelector(box.setGuardian.selector, newGuardian);
+        box.submit(guardianData);
+        vm.warp(block.timestamp + 1 days + 1);
+        (bool success,) = address(box).call(guardianData);
+        require(success, "Failed to set guardian");
+        vm.stopPrank();
+
+        assertEq(box.guardian(), newGuardian);
     }
 
     function testCuratorSubmitInvalidAddress() public {
