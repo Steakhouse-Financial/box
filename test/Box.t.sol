@@ -334,17 +334,6 @@ contract BoxTest is Test {
         assertEq(currency.balanceOf(feeder), 9950e18);
     }
 
-    function testWithdrawNonFeeder() public {
-        vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
-        box.deposit(100e18, feeder);
-        vm.stopPrank();
-
-        vm.expectRevert(Errors.OnlyFeeders.selector);
-        vm.prank(nonAuthorized);
-        box.withdraw(50e18, nonAuthorized, feeder);
-    }
-
     function testWithdrawInsufficientShares() public {
         vm.startPrank(feeder);
         currency.approve(address(box), 100e18);
@@ -420,17 +409,6 @@ contract BoxTest is Test {
         assertEq(box.balanceOf(feeder), 50e18);
         assertEq(box.totalSupply(), 50e18);
         assertEq(currency.balanceOf(feeder), 9950e18);
-    }
-
-    function testRedeemNonFeeder() public {
-        vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
-        box.deposit(100e18, feeder);
-        vm.stopPrank();
-
-        vm.expectRevert(Errors.OnlyFeeders.selector);
-        vm.prank(nonAuthorized);
-        box.redeem(50e18, nonAuthorized, feeder);
     }
 
     function testRedeemInsufficientShares() public {
@@ -817,8 +795,8 @@ contract BoxTest is Test {
         assertEq(asset2.balanceOf(address(box)), 50e18);
         assertEq(box.totalAssets(), 200e18); // 100 USDC + 50 asset1 + 50 asset2
         assertEq(box.getInvestmentTokensLength(), 2);
-        assertEq(address(box.getInvestmentToken(0)), address(asset1));
-        assertEq(address(box.getInvestmentToken(1)), address(asset2));
+        assertEq(address(box.investmentTokens(0)), address(asset1));
+        assertEq(address(box.investmentTokens(1)), address(asset2));
     }
 
     function testTotalAssetsWithDifferentPrices() public {

@@ -93,8 +93,6 @@ contract Box is IERC4626 {
     event CuratorUpdated(address indexed previousCurator, address indexed newCurator);
     event GuardianUpdated(address indexed previousGuardian, address indexed newGuardian);
     event RoleUpdated(address indexed account, bool isAllocator, bool isFeeder);
-    event Paused(address indexed account);
-    event Unpaused(address indexed account);
     
     event Allocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
     event Deallocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
@@ -123,7 +121,6 @@ contract Box is IERC4626 {
     error InvalidTimelock();
     error TimelockDecrease();
     error TimelockIncrease();
-    error ContractPaused();
     error ArrayLengthMismatch();
 
     // ========== MODIFIERS ==========
@@ -278,7 +275,6 @@ contract Box is IERC4626 {
 
     /// @inheritdoc IERC4626
     function withdraw(uint256 assets, address receiver, address owner_) public returns (uint256 shares) {
-        if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
         if (receiver == address(0)) revert InvalidAddress();
         
         shares = previewWithdraw(assets);
@@ -312,7 +308,6 @@ contract Box is IERC4626 {
 
     /// @inheritdoc IERC4626
     function redeem(uint256 shares, address receiver, address owner_) external returns (uint256 assets) {
-        if (!isFeeder[msg.sender]) revert Errors.OnlyFeeders();
         if (receiver == address(0)) revert InvalidAddress();
         
         if (msg.sender != owner_) {
@@ -772,7 +767,7 @@ contract Box is IERC4626 {
      * @return true if it is a whitelisted investment token
      */
     function isInvestmentToken(IERC20 token) public view returns (bool) {
-        return this.oracles(token) != IOracle(address(0));
+        return address(this.oracles(token)) != address(0);
     }
     
 
@@ -782,23 +777,6 @@ contract Box is IERC4626 {
      */
     function getInvestmentTokensLength() external view returns (uint256) {
         return investmentTokens.length;
-    }
-
-    /**
-     * @notice Returns investment token at index
-     * @param index Token index
-     * @return token Investment token address
-     */
-    function getInvestmentToken(uint256 index) external view returns (IERC20) {
-        return investmentTokens[index];
-    }
-
-    /**
-     * @notice Returns all investment tokens
-     * @return tokens Array of investment token addresses
-     */
-    function getAllInvestmentTokens() external view returns (IERC20[] memory) {
-        return investmentTokens;
     }
 
     /**
