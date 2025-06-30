@@ -126,10 +126,10 @@ contract Box is IERC4626 {
     // ========== MODIFIERS ==========
         
     modifier timelocked() {
-        // if (executableAt[msg.data] == 0) revert Errors.DataNotTimelocked();
-        // if (block.timestamp < executableAt[msg.data]) revert Errors.TimelockNotExpired();
-        // executableAt[msg.data] = 0;
-        // emit TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
+        if (executableAt[msg.data] == 0) revert Errors.DataNotTimelocked();
+        if (block.timestamp < executableAt[msg.data]) revert Errors.TimelockNotExpired();
+        executableAt[msg.data] = 0;
+        emit TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
         _;
     }
 
