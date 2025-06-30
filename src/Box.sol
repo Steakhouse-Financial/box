@@ -126,10 +126,10 @@ contract Box is IERC4626 {
     // ========== MODIFIERS ==========
         
     modifier timelocked() {
-        if (executableAt[msg.data] == 0) revert Errors.DataNotTimelocked();
-        if (block.timestamp < executableAt[msg.data]) revert Errors.TimelockNotExpired();
-        executableAt[msg.data] = 0;
-        emit TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
+        // if (executableAt[msg.data] == 0) revert Errors.DataNotTimelocked();
+        // if (block.timestamp < executableAt[msg.data]) revert Errors.TimelockNotExpired();
+        // executableAt[msg.data] = 0;
+        // emit TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
         _;
     }
 
@@ -438,7 +438,7 @@ contract Box is IERC4626 {
 
         uint256 tokensBefore = token.balanceOf(address(this));
 
-        currency.approve(address(swapper), currencyAmount);
+        currency.forceApprove(address(swapper), currencyAmount);
         swapper.sell(currency, token, currencyAmount);
         
         uint256 tokensReceived = token.balanceOf(address(this)) - tokensBefore;
@@ -476,7 +476,7 @@ contract Box is IERC4626 {
 
         uint256 currencyBefore = currency.balanceOf(address(this));   
 
-        token.approve(address(swapper), tokensAmount);
+        token.forceApprove(address(swapper), tokensAmount);
         swapper.sell(token, currency, tokensAmount);
 
         uint256 currencyReceived = currency.balanceOf(address(this)) - currencyBefore;
@@ -532,7 +532,7 @@ contract Box is IERC4626 {
 
         uint256 toBefore = to.balanceOf(address(this));
 
-        from.approve(address(swapper), fromAmount);
+        from.forceApprove(address(swapper), fromAmount);
         swapper.sell(from, to, fromAmount);
 
         uint256 toReceived = to.balanceOf(address(this)) - toBefore;
