@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IOracle.sol";
@@ -14,7 +15,7 @@ import "./lib/Errors.sol";
  * @notice An ERC4626 vault that holds a base currency and can invest in other ERC20 assets
  * @dev Features role-based access control, timelocked governance, and slippage protection
  */
-contract Box is IERC4626 {
+contract Box is IERC4626, ERC20 {
     using SafeERC20 for IERC20;
     
     // ========== CONSTANTS ==========
@@ -65,14 +66,6 @@ contract Box is IERC4626 {
     // Role mappings
     mapping(address => bool) public isAllocator;
     mapping(address => bool) public isFeeder;
-
-    // ERC20 state
-    string public name;
-    string public symbol;
-    uint8 public constant decimals = 18;
-    uint256 public totalSupply;
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
 
     // Investment management
     IERC20[] public investmentTokens;
@@ -152,7 +145,7 @@ contract Box is IERC4626 {
         uint256 _maxSlippage,
         uint256 _slippageEpochDuration,
         uint256 _shutdownSlippageDuration
-    ) {
+    ) ERC20(_name, _symbol) {
         require(address(_currency) != address(0), InvalidAddress());
         require(_owner != address(0), InvalidAddress());
         require(_curator != address(0), InvalidAddress());
@@ -163,8 +156,6 @@ contract Box is IERC4626 {
         currency = _currency;
         owner = _owner;
         curator = _curator;
-        name = _name;
-        symbol = _symbol;
         maxSlippage = _maxSlippage;
         slippageEpochDuration = _slippageEpochDuration;
         shutdownSlippageDuration = _shutdownSlippageDuration;
@@ -203,13 +194,13 @@ contract Box is IERC4626 {
 
     /// @inheritdoc IERC4626
     function convertToShares(uint256 assets) public view returns (uint256) {
-        uint256 supply = totalSupply;
+        uint256 supply = totalSupply();
         return supply == 0 ? assets : (assets * supply) / totalAssets();
     }
 
     /// @inheritdoc IERC4626
     function convertToAssets(uint256 shares) public view returns (uint256) {
-        uint256 supply = totalSupply;
+        uint256 supply = totalSupply();
         return supply == 0 ? shares : (shares * totalAssets()) / supply;
     }
 
@@ -244,7 +235,7 @@ contract Box is IERC4626 {
 
     /// @inheritdoc IERC4626
     function previewMint(uint256 shares) public view returns (uint256) {
-        uint256 supply = totalSupply;
+        uint256 supply = totalSupply();
         return supply == 0 ? shares : (shares * totalAssets() + supply - 1) / supply;
     }
 
@@ -264,12 +255,12 @@ contract Box is IERC4626 {
 
     /// @inheritdoc IERC4626
     function maxWithdraw(address owner_) external view returns (uint256) {
-        return convertToAssets(balanceOf[owner_]);
+        return convertToAssets(balanceOf(owner_));
     }
 
     /// @inheritdoc IERC4626
     function previewWithdraw(uint256 assets) public view returns (uint256) {
-        uint256 supply = totalSupply;
+        uint256 supply = totalSupply();
         return supply == 0 ? assets : (assets * supply + totalAssets() - 1) / totalAssets();
     }
 
@@ -280,14 +271,14 @@ contract Box is IERC4626 {
         shares = previewWithdraw(assets);
         
         if (msg.sender != owner_) {
-            uint256 allowed = allowance[owner_][msg.sender];
+            uint256 allowed = allowance(owner_, msg.sender);
             if (allowed < shares) revert Errors.InsufficientAllowance();
             if (allowed != type(uint256).max) {
-                allowance[owner_][msg.sender] = allowed - shares;
+                _approve(owner_, msg.sender, allowed - shares);
             }
         }
         
-        if (balanceOf[owner_] < shares) revert Errors.InsufficientShares();
+        if (balanceOf(owner_) < shares) revert Errors.InsufficientShares();
         if (currency.balanceOf(address(this)) < assets) revert Errors.InsufficientLiquidity();
 
         _burn(owner_, shares);
@@ -298,7 +289,7 @@ contract Box is IERC4626 {
 
     /// @inheritdoc IERC4626
     function maxRedeem(address owner_) external view returns (uint256) {
-        return balanceOf[owner_];
+        return balanceOf(owner_);
     }
 
     /// @inheritdoc IERC4626
@@ -311,14 +302,14 @@ contract Box is IERC4626 {
         if (receiver == address(0)) revert InvalidAddress();
         
         if (msg.sender != owner_) {
-            uint256 allowed = allowance[owner_][msg.sender];
+            uint256 allowed = allowance(owner_, msg.sender);
             if (allowed < shares) revert Errors.InsufficientAllowance();
             if (allowed != type(uint256).max) {
-                allowance[owner_][msg.sender] = allowed - shares;
+                _approve(owner_, msg.sender, allowed - shares);
             }
         }
         
-        if (balanceOf[owner_] < shares) revert Errors.InsufficientShares();
+        if (balanceOf(owner_) < shares) revert Errors.InsufficientShares();
 
         assets = previewRedeem(shares);
         if (currency.balanceOf(address(this)) < assets) revert Errors.InsufficientLiquidity();
@@ -327,62 +318,6 @@ contract Box is IERC4626 {
         currency.safeTransfer(receiver, assets);
 
         emit Withdraw(msg.sender, receiver, owner_, assets, shares);
-    }
-
-    // ========== ERC20 IMPLEMENTATION ==========
-
-    /**
-     * @notice Transfers shares to another address
-     * @param to Recipient address
-     * @param amount Amount of shares to transfer
-     * @return success Always returns true
-     */
-    function transfer(address to, uint256 amount) external returns (bool) {
-        if (to == address(0)) revert InvalidAddress();
-        
-        balanceOf[msg.sender] -= amount;
-        unchecked {
-            balanceOf[to] += amount;
-        }
-        
-        emit Transfer(msg.sender, to, amount);
-        return true;
-    }
-
-    /**
-     * @notice Transfers shares from one address to another
-     * @param from Sender address
-     * @param to Recipient address
-     * @param amount Amount of shares to transfer
-     * @return success Always returns true
-     */
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
-        if (to == address(0)) revert InvalidAddress();
-        
-        uint256 allowed = allowance[from][msg.sender];
-        if (allowed != type(uint256).max) {
-            allowance[from][msg.sender] = allowed - amount;
-        }
-        
-        balanceOf[from] -= amount;
-        unchecked {
-            balanceOf[to] += amount;
-        }
-        
-        emit Transfer(from, to, amount);
-        return true;
-    }
-
-    /**
-     * @notice Approves another address to spend shares
-     * @param spender Address to approve
-     * @param amount Amount of shares to approve
-     * @return success Always returns true
-     */
-    function approve(address spender, uint256 amount) external returns (bool) {
-        allowance[msg.sender][spender] = amount;
-        emit Approval(msg.sender, spender, amount);
-        return true;
     }
 
     // ========== EMERGENCY EXIT ==========
@@ -394,9 +329,9 @@ contract Box is IERC4626 {
      */
     function unbox(uint256 shares) external {
         if (shares == 0) revert Errors.CannotUnboxZeroShares();
-        if (balanceOf[msg.sender] < shares) revert Errors.InsufficientShares();
+        if (balanceOf(msg.sender) < shares) revert Errors.InsufficientShares();
 
-        uint256 supply = totalSupply;
+        uint256 supply = totalSupply();
         uint256 currencyAmount = (currency.balanceOf(address(this)) * shares) / supply;
         
         _burn(msg.sender, shares);
@@ -789,28 +724,6 @@ contract Box is IERC4626 {
     }
 
     // ========== INTERNAL FUNCTIONS ==========
-
-    /**
-     * @dev Mints shares to an account
-     */
-    function _mint(address to, uint256 amount) internal {
-        totalSupply += amount;
-        unchecked {
-            balanceOf[to] += amount;
-        }
-        emit Transfer(address(0), to, amount);
-    }
-
-    /**
-     * @dev Burns shares from an account
-     */
-    function _burn(address from, uint256 amount) internal {
-        balanceOf[from] -= amount;
-        unchecked {
-            totalSupply -= amount;
-        }
-        emit Transfer(from, address(0), amount);
-    }
 
     /**
      * @dev Increases accumulated slippage and checks against maximum
