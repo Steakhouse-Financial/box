@@ -307,14 +307,16 @@ contract PeatyBaseTest is Test {
         vault.deposit(USDC_1000, address(user)); // Deposit 1000 USDC into the vault
         vm.stopPrank();
 
-        // Accrue some interest to compensate the rounding down
-        vm.warp(block.timestamp + 1 days);
+        assertEq(bbqusdc.balanceOf(address(bbqusdcAdapter)), 985763304395789692531);
+
+        // Compensate for rounding errors and keep things clean
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        usdc.transfer(address(vault), 1); // Transfer 1 to convert the conversion loss
 
         vm.startPrank(allocator);
-        vault.deallocate(address(bbqusdcAdapter), "", USDC_1000);   
-        // Dirty hack because the Angleswapper use a expiry
-        vm.warp(block.timestamp - 1 days);  
-        vault.allocate(address(adapter1), "", USDC_1000);     
+        vault.deallocate(address(bbqusdcAdapter), "", bbqusdc.previewRedeem(985763304395789692531)); 
+        assertEq(usdc.balanceOf(address(vault)), USDC_1000);
+        vault.allocate(address(adapter1), "", USDC_1000);  
         box1.allocate(stusd, USDC_1000, swapper);
         assertEq(stusd.previewRedeem(stusd.balanceOf(address(box1))), 1000 ether - 1,
             "Almost 1000 USDA equivalent of stUSD (1 round down)");
