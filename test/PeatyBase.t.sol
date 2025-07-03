@@ -179,7 +179,7 @@ contract PeatyBaseTest is Test {
         usdc.approve(address(vault), USDC_1000); // Approve the vault to spend USDC
         vault.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
         assertEq(usdc.balanceOf(address(this)), 0);
-        assertEq(vault.balanceOf(address(this)), USDC_1000);
+        assertEq(vault.balanceOf(address(this)), 1000 ether);
 
         // Allocating 1000 USDC to the box1 as it is the liquidity adapter
         assertEq(bbqusdc.balanceOf(address(bbqusdcAdapter)), 

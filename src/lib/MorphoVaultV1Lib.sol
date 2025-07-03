@@ -6,11 +6,11 @@ import {MorphoVaultV1Adapter} from "@vault-v2/src/adapters/MorphoVaultV1Adapter.
 library MorphoVaultV1AdapterLib {
     /// @notice Returns the data to be used in the VaultV2 for the MetaMorpho adapter
     function data(MorphoVaultV1Adapter adapter) internal pure returns (bytes memory) {
-        return abi.encode("adapter", adapter);
+        return abi.encode("this", adapter);
     }
 
     /// @notice Returns the id to be used in the VaultV2 for the MetaMorpho adapter
     function id(MorphoVaultV1Adapter adapter) internal pure returns (bytes32) {
-        return keccak256(abi.encode("adapter", adapter));
+        return keccak256(abi.encode("this", adapter));
     }
 }
