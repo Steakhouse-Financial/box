@@ -9,11 +9,11 @@ import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import {Errors} from "../src/lib/Errors.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
-import {MetaMorphoAdapter} from "@vault-v2/src/adapters/MetaMorphoAdapter.sol";
+import {MorphoVaultV1Adapter} from "@vault-v2/src/adapters/MorphoVaultV1Adapter.sol";
 
 import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
-import {MetaMorphoAdapterLib} from "../src/lib/MetaMorphoAdapterLib.sol";
+import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 
 
 
@@ -28,14 +28,14 @@ contract MockSwapper is ISwapper {
 contract BoxScript is Script {
   using BoxLib for Box;
     using VaultV2Lib for VaultV2;
-    using MetaMorphoAdapterLib for MetaMorphoAdapter;
+    using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
     
     VaultV2 vault;
     Box box1;
     Box box2;
-    MetaMorphoAdapter adapter1;
-    MetaMorphoAdapter adapter2;
-    MetaMorphoAdapter bbqusdcAdapter;
+    MorphoVaultV1Adapter adapter1;
+    MorphoVaultV1Adapter adapter2;
+    MorphoVaultV1Adapter bbqusdcAdapter;
 
     address owner = address(0x1);
     address curator = address(0x2);
@@ -74,7 +74,7 @@ contract BoxScript is Script {
         vault.addAllocator(address(allocator)); 
 
         // Setting the vault to use bbqUSDC as the asset
-        bbqusdcAdapter = new MetaMorphoAdapter(
+        bbqusdcAdapter = new MorphoVaultV1Adapter(
             address(vault), 
             address(bbqusdc)
         );
@@ -84,8 +84,7 @@ contract BoxScript is Script {
         vm.stopPrank();
 
         vm.startPrank(allocator);
-        vault.setLiquidityAdapter(address(bbqusdcAdapter));
-        vault.setLiquidityData("");
+        vault.setLiquidityMarket(address(bbqusdcAdapter), "");
         vm.stopPrank();
 
         // Creating Box 1 which will invest in stUSD
@@ -106,7 +105,7 @@ contract BoxScript is Script {
         );
 
         // Creating the ERC4626 adapter between the vault and box1
-        adapter1 = new MetaMorphoAdapter(
+        adapter1 = new MorphoVaultV1Adapter(
             address(vault), 
             address(box1)
         );
@@ -137,7 +136,7 @@ contract BoxScript is Script {
             shutdownSlippageDuration
         );
         // Creating the ERC4626 adapter between the vault and box2
-        adapter2 = new MetaMorphoAdapter(
+        adapter2 = new MorphoVaultV1Adapter(
             address(vault), 
             address(box2)
         );
@@ -198,15 +197,10 @@ contract BoxScript is Script {
 
 
         vm.startPrank(user);
-        address[] memory adapters = new address[](1);
-        adapters[0] = address(adapter1);
-        bytes[] memory data = new bytes[](1);
-        data[0] = "";
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = box1.previewRedeem(box1.balanceOf(address(adapter1)));
-        console.log("AMount that will be force deallocated");
-        console.log(amounts[0]);
-        vault.forceDeallocate(adapters, data, amounts, address(user));
+        uint256 amount = box1.previewRedeem(box1.balanceOf(address(adapter1)));
+        console.log("Amount that will be force deallocated");
+        console.log(amount);
+        vault.forceDeallocate(address(adapter1), "", amount, address(user));
 
         // doesn't work because vault is underwater due to rounding down
         //vault.redeem(vault.balanceOf(address(user)), address(user), address(user));
