@@ -8,8 +8,12 @@ remappings = [
 ]
 optimizer = true
 optimizer_runs = 1000000
+via_ir = true
+
 
 [rpc_endpoints]
 base = "${BASE_RPC_URL}"
+eth = "${ETH_RPC_URL}"
+local = "${LOCAL_RPC_URL}"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
