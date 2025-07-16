@@ -85,12 +85,14 @@ contract Box is IERC4626, ERC20 {
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event CuratorUpdated(address indexed previousCurator, address indexed newCurator);
     event GuardianUpdated(address indexed previousGuardian, address indexed newGuardian);
-    event RoleUpdated(address indexed account, bool isAllocator, bool isFeeder);
+    event AllocatorUpdated(address indexed account, bool isAllocator);
+    event FeederUpdated(address indexed account, bool isFeeder);
     
     event Allocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
     event Deallocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
     event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 amount, ISwapper indexed swapper);
-    event Shutdown(address indexed curator);
+    event Shutdown(address indexed guardian);
+    event Recover(address indexed guardian);
     event Unbox(address indexed user, uint256 shares);
     
     event SlippageAccumulated(uint256 amount, uint256 total);
@@ -163,7 +165,6 @@ contract Box is IERC4626, ERC20 {
                 
         emit OwnershipTransferred(address(0), _owner);
         emit CuratorUpdated(address(0), _curator);
-        emit RoleUpdated(_owner, true, true);
     }
 
     // ========== ERC4626 IMPLEMENTATION ==========
@@ -525,7 +526,6 @@ contract Box is IERC4626, ERC20 {
      */
     function setGuardian(address newGuardian) external timelocked {
         if (msg.sender != curator) revert Errors.OnlyCurator();
-        if (newGuardian == address(0)) revert InvalidAddress();
         
         address oldGuardian = guardian;
         guardian = newGuardian;
@@ -542,12 +542,12 @@ contract Box is IERC4626, ERC20 {
         if (msg.sender != curator) revert Errors.OnlyCurator();
         if (account == address(0)) revert InvalidAddress();
         isAllocator[account] = newIsAllocator;
-        emit RoleUpdated(account, newIsAllocator, isFeeder[account]);
+        emit AllocatorUpdated(account, newIsAllocator);
     }
 
     /**
      * @notice Triggers emergency shutdown
-     * @dev Only curator can trigger shutdown
+     * @dev Only guardian can trigger shutdown
      */
     function triggerShutdown() external {
         require(msg.sender == guardian, Errors.OnlyGuardianCanShutdown());
@@ -557,6 +557,20 @@ contract Box is IERC4626, ERC20 {
         shutdownTime = block.timestamp;
         
         emit Shutdown(msg.sender);
+    }
+
+    /**
+     * @notice Recover from shutdown
+     * @dev Only guardian can recover from shutdown
+     */
+    function recover() external {
+        require(msg.sender == guardian, Errors.OnlyGuardianCanRecover());
+        require(shutdown, Errors.NotShutdown());
+        
+        shutdown = false;
+        shutdownTime = 0;
+        
+        emit Recover(msg.sender);
     }
 
     // ========== TIMELOCK GOVERNANCE ==========
@@ -626,7 +640,7 @@ contract Box is IERC4626, ERC20 {
     function setIsFeeder(address account, bool newIsFeeder) external timelocked {
         if (account == address(0)) revert InvalidAddress();
         isFeeder[account] = newIsFeeder;
-        emit RoleUpdated(account, isAllocator[account], newIsFeeder);
+        emit AllocatorUpdated(account, newIsFeeder);
     }
 
     /**

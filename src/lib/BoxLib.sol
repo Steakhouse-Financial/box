@@ -10,13 +10,12 @@ library BoxLib {
     function addFeeder(Box box, address feeder) internal {
         bytes memory encoding = abi.encodeWithSelector(
             box.setIsFeeder.selector,
-            address(feeder),
+            feeder,
             true
         );
         box.submit(encoding);
         box.setIsFeeder(address(feeder), true);
     }
-
 
     function addCollateral(Box box, IERC20 token, IOracle oracle) internal {
         bytes memory encoding = abi.encodeWithSelector(
@@ -26,5 +25,15 @@ library BoxLib {
         );
         box.submit(encoding);
         box.addInvestmentToken(token, oracle);
+    }
+
+    /// @notice Adds a feeder to a Box instance, assume 0-day timelocks
+    function changeGuardian(Box box, address guardian) internal {
+        bytes memory encoding = abi.encodeWithSelector(
+            box.setGuardian.selector,
+            guardian
+        );
+        box.submit(encoding);
+        box.setGuardian(guardian);
     }
 }

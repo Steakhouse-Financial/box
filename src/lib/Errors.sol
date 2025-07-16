@@ -38,12 +38,14 @@ library Errors {
     error TooMuchAccumulatedSlippage();
     error SlippageTooHigh();
     
-    // Shutdown errors
+    // Shutdown/Recover errors
     error OnlyGuardianCanShutdown();
+    error OnlyGuardianCanRecover();
     error AlreadyShutdown();
+    error NotShutdown();
     error CannotAllocateIfShutdown();
     error CannotReallocateIfShutdown();
-    
+
     // Timelock errors
     error TimelockNotExpired();
     error DataNotTimelocked();

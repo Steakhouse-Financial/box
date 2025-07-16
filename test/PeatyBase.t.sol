@@ -12,6 +12,10 @@ import {Errors} from "../src/lib/Errors.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
 import {MorphoVaultV1Adapter} from "@vault-v2/src/adapters/MorphoVaultV1Adapter.sol";
 
+import {IBoxAdapter} from "../src/interfaces/IBoxAdapter.sol";
+import {IBoxAdapterFactory} from "../src/interfaces/IBoxAdapterFactory.sol";
+import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
+import {BoxAdapter} from "../src/BoxAdapter.sol";
 import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
@@ -35,8 +39,8 @@ contract PeatyBaseTest is Test {
     VaultV2 vault;
     Box box1;
     Box box2;
-    MorphoVaultV1Adapter adapter1;
-    MorphoVaultV1Adapter adapter2;
+    IBoxAdapter adapter1;
+    IBoxAdapter adapter2;
     MorphoVaultV1Adapter bbqusdcAdapter;
 
     address owner = address(0x1);
@@ -57,6 +61,8 @@ contract PeatyBaseTest is Test {
     
     ISwapper swapper = ISwapper(0xFFF5082CE0E7C04BCc645984A94d4e4C0687Aa60);
 
+    IBoxAdapterFactory boxAdapterFactory;
+
     /// @notice Will setup Peaty Base investing in bbqUSDC, box1 (stUSD) and box2 (PTs)
    function setUp() public {
         // Fork base on June 12th, 2025
@@ -66,6 +72,7 @@ contract PeatyBaseTest is Test {
         bytes memory data;
 
         MockSwapper backupSwapper = new MockSwapper();
+        boxAdapterFactory = new BoxAdapterFactory();
 
         vault = new VaultV2(address(owner), address(usdc));
 
@@ -107,13 +114,14 @@ contract PeatyBaseTest is Test {
         );
 
         // Creating the ERC4626 adapter between the vault and box1
-        adapter1 = new MorphoVaultV1Adapter(
+        adapter1 = boxAdapterFactory.createBoxAdapter(
             address(vault), 
-            address(box1)
+            box1
         );
 
         // Allow box 1 to invest in stUSD
         vm.startPrank(curator);
+        box1.changeGuardian(guardian);
         box1.addCollateral(stusd, stusdOracle);
         box1.setIsAllocator(address(allocator), true);
         box1.addFeeder(address(adapter1));
@@ -138,13 +146,14 @@ contract PeatyBaseTest is Test {
             shutdownSlippageDuration
         );
         // Creating the ERC4626 adapter between the vault and box2
-        adapter2 = new MorphoVaultV1Adapter(
+        adapter2 = boxAdapterFactory.createBoxAdapter(
             address(vault), 
-            address(box2)
+            box2
         );
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);
+        box2.changeGuardian(guardian);
         box2.addCollateral(ptusr25sep, ptusr25sepOracle);
         box2.setIsAllocator(address(allocator), true);
         box2.addFeeder(address(adapter2));
@@ -331,4 +340,82 @@ contract PeatyBaseTest is Test {
         vm.stopPrank();
     }
 
+
+    /// @notice Test impact of a loss in a Box
+    function testBoxLoss() public {
+        uint256 USDC_1000 = 1000 * 10**6;
+        uint256 USDC_500 = 500 * 10**6;
+
+
+        //////////////////////////////////////////////////////
+        // Setup 500 USDC liquid and 500 USDC in Box1
+        //////////////////////////////////////////////////////
+
+        // Disable bbqUSDC as liquidity
+        vm.prank(allocator);
+        vault.setLiquidityMarket(address(0), "");
+
+        // We invest 50 USDC
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        usdc.transfer(address(this), USDC_1000); // Transfer 1000 USDC to this contract
+        usdc.approve(address(vault), USDC_1000); // Approve the vault to spend USDC
+        vault.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
+
+        vm.prank(allocator);
+        vault.allocate(address(adapter1), "", USDC_500);
+
+        assertEq(usdc.balanceOf(address(box1)), USDC_500,
+            "500 USDC deposited in the Box1 contract but not yet invested");
+        assertEq(usdc.balanceOf(address(vault)), USDC_500,
+            "500 USDC liquid in the vault");
+        assertEq(vault.totalAssets(), USDC_1000,
+            "Vault value is 1000 USDC");
+
+        //////////////////////////////////////////////////////
+        // Simulating a loss in Box1
+        //////////////////////////////////////////////////////
+
+        vm.prank(address(box1));
+        usdc.transfer(address(this), USDC_500);
+        assertEq(usdc.balanceOf(address(box1)), 0,
+            "No more USDC in the Box1 contract");        
+        assertEq(box1.totalAssets(), 0,
+            "Total assets at Box1 level is 0");        
+        assertEq(vault.totalAssets(), USDC_1000,
+            "Vault value is still 1000 USDC");
+
+        // Loss realization doesn't work as it wasn't reciognized first
+        vault.realizeLoss(address(adapter1), "");
+        assertEq(vault.totalAssets(), USDC_1000,
+            "Vault value is still 1000 USDC");
+
+        // Not everyone can recognize the loss
+        vm.expectRevert(IBoxAdapter.NotAuthorized.selector);
+        adapter1.recognizeLoss();
+
+        // Guardian can
+        vm.startPrank(guardian);
+        // TODO: Check event
+        adapter1.recognizeLoss();
+        vm.stopPrank();
+
+        // Also make sure that curator can
+        vm.startPrank(curator);
+        // TODO: Check event
+        adapter1.recognizeLoss();
+        vm.stopPrank();
+        
+        assertEq(vault.totalAssets(), USDC_1000,
+            "Vault value is still 1000 USDC even after recognize");
+
+        vault.realizeLoss(address(adapter1), "");
+        assertEq(vault.totalAssets(), USDC_500,
+            "Vault value is 500 USDC after loss realization");
+
+        // We check that calling realizeLoss again doesn't impact anything
+        vault.realizeLoss(address(adapter1), "");        
+        assertEq(vault.totalAssets(), USDC_500,
+            "Vault value is 500 USDC after loss realization");
+
+    }
 }

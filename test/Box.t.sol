@@ -1419,6 +1419,40 @@ contract BoxTest is Test {
         assertEq(box.maxRedeem(feeder), 100e18); // Can still redeem
     }
 
+    function testRecoverFromShutdown() public {
+        vm.startPrank(feeder);
+        currency.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        assertEq(box.shutdown(), false);
+
+        vm.prank(guardian);
+        box.triggerShutdown();
+        assertEq(box.shutdown(), true);
+
+        assertEq(box.maxDeposit(feeder), 0);
+        assertEq(box.maxMint(feeder), 0);
+        assertEq(box.maxWithdraw(feeder), 100e18); // Can still withdraw
+        assertEq(box.maxRedeem(feeder), 100e18); // Can still redeem
+
+        vm.prank(guardian);
+        box.recover();
+        assertEq(box.shutdown(), false);
+    
+        assertEq(box.maxDeposit(feeder), type(uint256).max);
+        assertEq(box.maxMint(feeder), type(uint256).max);
+        assertEq(box.maxWithdraw(feeder), 100e18); // Can still withdraw
+        assertEq(box.maxRedeem(feeder), 100e18); // Can still redeem
+
+        // Test allocators functions
+        vm.startPrank(allocator);
+        box.allocate(asset1, 100e18, swapper);
+        box.reallocate(asset1, asset2, 100e18, swapper);
+        box.deallocate(asset2, 100e18, swapper);
+        vm.stopPrank();
+    }
+
     function testComplexScenario() public {
         // Complex scenario with multiple users, tokens, and operations
         
