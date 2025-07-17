@@ -94,6 +94,7 @@ contract BoxAdapter is IBoxAdapter {
         return (ids(), interest);
     }
 
+    /// @dev Realize a loss that was recognied by the guardian or the curator.
     function realizeLoss(bytes memory data, bytes4, address) external returns (bytes32[] memory, uint256) {
         require(data.length == 0, InvalidData());
         require(msg.sender == parentVault, NotAuthorized());
@@ -105,6 +106,8 @@ contract BoxAdapter is IBoxAdapter {
         return (ids(), recognizedLoss);
     }
 
+    /// @dev Recognize the loss (diff exposure vs previewRedeem) by the guardian or the curator.
+    /// @dev The vault will have to call `realizeLoss` to actually realize the loss.
     function recognizeLoss() external {
         // Only guardian or curator can recognize loss.
         require(msg.sender == box.guardian() || msg.sender == box.curator(), NotAuthorized());
