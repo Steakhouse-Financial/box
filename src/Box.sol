@@ -94,6 +94,8 @@ contract Box is IERC4626, ERC20 {
     event Shutdown(address indexed guardian);
     event Recover(address indexed guardian);
     event Unbox(address indexed user, uint256 shares);
+    event Skim(IERC20 indexed token, address indexed recipient, uint256 amount);
+    event SkimRecipientUpdated(address indexed previousRecipient, address indexed newRecipient);
     
     event SlippageAccumulated(uint256 amount, uint256 total);
     event SlippageEpochReset(uint256 newEpochStart);
@@ -357,6 +359,22 @@ contract Box is IERC4626, ERC20 {
     // ========== INVESTMENT MANAGEMENT ==========
 
     /**
+     * @notice Skims non-essential tokens from the contract
+     * @param token Token to skim
+     * @dev Token must not be the base currency or an investment token
+     */
+    function skim(IERC20 token) external {
+        require(address(token) != address(currency), Errors.CannotSkimCurrency());
+        require(!isInvestmentToken(token), Errors.CannotSkimInvestmentToken());
+
+        uint256 amount = token.balanceOf(address(this));
+        require(amount > 0, Errors.CannotSkimZero());
+
+        token.safeTransfer(skimRecipient, amount);
+        emit Skim(token, skimRecipient, amount);
+    }
+
+    /**
      * @notice Allocates currency to buy investment tokens
      * @param token Investment token to buy
      * @param currencyAmount Amount of currency to spend (should be > 0)
@@ -490,6 +508,21 @@ contract Box is IERC4626, ERC20 {
     }
 
     // ========== ADMIN FUNCTIONS ==========
+
+    /**
+     * @notice Updates the skim recipient address
+     * @param newSkimRecipient Address of new skim recipient
+     */
+    function setSkimRecipient(address newSkimRecipient) external {
+        require(msg.sender == owner, Errors.OnlyOwner());
+        require(newSkimRecipient != address(0), InvalidAddress());
+        require(newSkimRecipient != skimRecipient, Errors.AlreadySet());
+        
+        address oldRecipient = skimRecipient;
+        skimRecipient = newSkimRecipient;
+        
+        emit SkimRecipientUpdated(oldRecipient, newSkimRecipient);
+    }
 
     /**
      * @notice Transfers ownership to a new address

@@ -49,4 +49,10 @@ library Errors {
     // Timelock errors
     error TimelockNotExpired();
     error DataNotTimelocked();
+
+    // Skim errors
+    error CannotSkimCurrency();
+    error CannotSkimInvestmentToken();
+    error AlreadySet();
+    error CannotSkimZero();
 } 
