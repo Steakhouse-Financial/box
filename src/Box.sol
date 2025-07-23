@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IOracle.sol";
 import "./interfaces/ISwapper.sol";
 import "./lib/Errors.sol";
@@ -17,6 +18,7 @@ import "./lib/Errors.sol";
  */
 contract Box is IERC4626, ERC20 {
     using SafeERC20 for IERC20;
+    using Math for uint256;
     
     // ========== CONSTANTS ==========
     
@@ -62,6 +64,9 @@ contract Box is IERC4626, ERC20 {
     
     /// @notice Timestamp when shutdown was triggered
     uint256 public shutdownTime;
+
+    /// @notice Recipient of skimmed tokens
+    address public skimRecipient;
 
     // Role mappings
     mapping(address => bool) public isAllocator;
@@ -187,7 +192,7 @@ contract Box is IERC4626, ERC20 {
             if (address(oracle) != address(0)) {
                 uint256 tokenBalance = token.balanceOf(address(this));
                 if (tokenBalance > 0) {
-                    assets_ += (tokenBalance * oracle.price()) / ORACLE_PRECISION;
+                    assets_ += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
                 }
             }
             unchecked { ++i; }
@@ -197,13 +202,13 @@ contract Box is IERC4626, ERC20 {
     /// @inheritdoc IERC4626
     function convertToShares(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? assets : (assets * supply) / totalAssets();
+        return supply == 0 ? assets : assets.mulDiv(supply, totalAssets());
     }
 
     /// @inheritdoc IERC4626
     function convertToAssets(uint256 shares) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? shares : (shares * totalAssets()) / supply;
+        return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply);
     }
 
     /// @inheritdoc IERC4626
@@ -238,7 +243,7 @@ contract Box is IERC4626, ERC20 {
     /// @inheritdoc IERC4626
     function previewMint(uint256 shares) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? shares : (shares * totalAssets() + supply - 1) / supply;
+        return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply, Math.Rounding.Ceil);
     }
 
     /// @inheritdoc IERC4626
@@ -263,7 +268,7 @@ contract Box is IERC4626, ERC20 {
     /// @inheritdoc IERC4626
     function previewWithdraw(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? assets : (assets * supply + totalAssets() - 1) / totalAssets();
+        return supply == 0 ? assets : assets.mulDiv(supply, totalAssets(), Math.Rounding.Ceil);
     }
 
     /// @inheritdoc IERC4626
@@ -330,11 +335,11 @@ contract Box is IERC4626, ERC20 {
      * @dev Can be called by anyone holding shares
      */
     function unbox(uint256 shares) external {
-        if (shares == 0) revert Errors.CannotUnboxZeroShares();
+        require(shares > 0, Errors.CannotUnboxZeroShares());
         if (balanceOf(msg.sender) < shares) revert Errors.InsufficientShares();
 
         uint256 supply = totalSupply();
-        uint256 currencyAmount = (currency.balanceOf(address(this)) * shares) / supply;
+        uint256 currencyAmount = currency.balanceOf(address(this)).mulDiv(shares, supply);
         
         _burn(msg.sender, shares);
 
@@ -346,7 +351,7 @@ contract Box is IERC4626, ERC20 {
         uint256 length = investmentTokens.length;
         for (uint256 i; i < length;) {
             IERC20 token = investmentTokens[i];
-            uint256 tokenAmount = (token.balanceOf(address(this)) * shares) / supply;
+            uint256 tokenAmount = token.balanceOf(address(this)).mulDiv(shares, supply);
             if (tokenAmount > 0) {
                 token.safeTransfer(msg.sender, tokenAmount);
             }
@@ -397,16 +402,16 @@ contract Box is IERC4626, ERC20 {
         uint256 tokensReceived = token.balanceOf(address(this)) - tokensBefore;
 
         // Validate slippage
-        uint256 expectedTokens = (currencyAmount * ORACLE_PRECISION) / oracle.price();
-        uint256 minTokens = (expectedTokens * (PRECISION - maxSlippage)) / PRECISION;
+        uint256 expectedTokens = currencyAmount.mulDiv(ORACLE_PRECISION, oracle.price());
+        uint256 minTokens = expectedTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
 
         if (tokensReceived < minTokens) revert Errors.AllocationTooExpensive();
 
         // Track slippage
         if (expectedTokens > tokensReceived) {
             uint256 slippage = expectedTokens - tokensReceived;
-            uint256 slippageValue = (slippage * oracle.price()) / ORACLE_PRECISION;
-            _increaseSlippage((slippageValue * PRECISION) / totalAssets());
+            uint256 slippageValue = slippage.mulDiv(oracle.price(), ORACLE_PRECISION);
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
         emit Allocation(token, currencyAmount, swapper);
@@ -440,22 +445,22 @@ contract Box is IERC4626, ERC20 {
         if (!isAllocator[msg.sender]) {
             uint256 timeElapsed = block.timestamp - SHUTDOWN_WARMUP - shutdownTime;
             if (timeElapsed < shutdownSlippageDuration) {
-                slippageTolerance = (timeElapsed * MAX_SLIPPAGE_LIMIT) / shutdownSlippageDuration;
+                slippageTolerance = timeElapsed.mulDiv(MAX_SLIPPAGE_LIMIT, shutdownSlippageDuration);
             } else {
                 slippageTolerance = MAX_SLIPPAGE_LIMIT;
             }
         }
 
         // Validate slippage
-        uint256 expectedCurrency = (tokensAmount * oracle.price()) / ORACLE_PRECISION;
-        uint256 minCurrency = (expectedCurrency * (PRECISION - slippageTolerance)) / PRECISION;
+        uint256 expectedCurrency = tokensAmount.mulDiv(oracle.price(), ORACLE_PRECISION);
+        uint256 minCurrency = expectedCurrency.mulDiv(PRECISION - slippageTolerance, PRECISION);
 
         require(currencyReceived >= minCurrency, Errors.TokenSaleNotGeneratingEnoughCurrency());
 
         // Track slippage (only in normal operation)
         if (isAllocator[msg.sender] && expectedCurrency > currencyReceived) {
             uint256 slippage = expectedCurrency - currencyReceived;
-            _increaseSlippage((slippage * PRECISION) / totalAssets());
+            _increaseSlippage(slippage.mulDiv(PRECISION, totalAssets()));
         }
 
         emit Deallocation(token, tokensAmount, swapper);
@@ -491,17 +496,17 @@ contract Box is IERC4626, ERC20 {
         uint256 toReceived = to.balanceOf(address(this)) - toBefore;
 
         // Calculate expected amounts
-        uint256 fromValue = (fromAmount * fromOracle.price()) / ORACLE_PRECISION;
-        uint256 expectedToTokens = (fromValue * ORACLE_PRECISION) / toOracle.price();
-        uint256 minToTokens = (expectedToTokens * (PRECISION - maxSlippage)) / PRECISION;
+        uint256 fromValue = fromAmount.mulDiv(fromOracle.price(), ORACLE_PRECISION);
+        uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOracle.price());
+        uint256 minToTokens = expectedToTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
 
         if (toReceived < minToTokens) revert Errors.ReallocationSlippageTooHigh();
 
         // Track slippage
         if (expectedToTokens > toReceived) {
             uint256 slippageTokens = expectedToTokens - toReceived;
-            uint256 slippageValue = (slippageTokens * toOracle.price()) / ORACLE_PRECISION;
-            _increaseSlippage((slippageValue * PRECISION) / totalAssets());
+            uint256 slippageValue = slippageTokens.mulDiv(toOracle.price(), ORACLE_PRECISION);
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
         emit Reallocation(from, to, fromAmount, swapper);
