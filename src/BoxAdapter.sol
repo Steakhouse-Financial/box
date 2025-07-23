@@ -94,7 +94,7 @@ contract BoxAdapter is IBoxAdapter {
         return (ids(), interest);
     }
 
-    /// @dev Realize a loss that was recognied by the guardian or the curator.
+    /// @dev Realize a loss that was recognized by the guardian or the curator.
     function realizeLoss(bytes memory data, bytes4, address) external returns (bytes32[] memory, uint256) {
         require(data.length == 0, InvalidData());
         require(msg.sender == parentVault, NotAuthorized());

@@ -93,7 +93,7 @@ contract PeatyBaseTest is Test {
         vm.stopPrank();
 
         vm.startPrank(allocator);
-        vault.setLiquidityMarket(address(bbqusdcAdapter), "");
+        vault.setLiquidityAdapterAndData(address(bbqusdcAdapter), "");
         vm.stopPrank();
 
         // Creating Box 1 which will invest in stUSD
@@ -353,7 +353,7 @@ contract PeatyBaseTest is Test {
 
         // Disable bbqUSDC as liquidity
         vm.prank(allocator);
-        vault.setLiquidityMarket(address(0), "");
+        vault.setLiquidityAdapterAndData(address(0), "");
 
         // We invest 50 USDC
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue

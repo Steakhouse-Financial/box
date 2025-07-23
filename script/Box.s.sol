@@ -84,7 +84,7 @@ contract BoxScript is Script {
         vm.stopPrank();
 
         vm.startPrank(allocator);
-        vault.setLiquidityMarket(address(bbqusdcAdapter), "");
+        vault.setLiquidityAdapterAndData(address(bbqusdcAdapter), "");
         vm.stopPrank();
 
         // Creating Box 1 which will invest in stUSD

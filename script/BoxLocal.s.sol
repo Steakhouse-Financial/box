@@ -83,7 +83,7 @@ contract BoxLocalScript is Script {
         vault.addCollateral(address(bbqusdcAdapter), bbqusdcAdapter.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
 
 
-        vault.setLiquidityMarket(address(bbqusdcAdapter), "");
+        vault.setLiquidityAdapterAndData(address(bbqusdcAdapter), "");
 
         // Creating Box 1 which will invest in stUSD
         string memory name = "Box 1";

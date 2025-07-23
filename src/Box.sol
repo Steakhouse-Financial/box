@@ -120,12 +120,11 @@ contract Box is IERC4626, ERC20 {
 
     // ========== MODIFIERS ==========
         
-    modifier timelocked() {
+    function timelocked() internal {
         if (executableAt[msg.data] == 0) revert Errors.DataNotTimelocked();
         if (block.timestamp < executableAt[msg.data]) revert Errors.TimelockNotExpired();
         executableAt[msg.data] = 0;
         emit TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
-        _;
     }
 
     // ========== CONSTRUCTOR ==========
@@ -524,7 +523,8 @@ contract Box is IERC4626, ERC20 {
      * @notice Updates the curator address
      * @param newGuardian Address of new guardian
      */
-    function setGuardian(address newGuardian) external timelocked {
+    function setGuardian(address newGuardian) external {
+        timelocked();
         if (msg.sender != curator) revert Errors.OnlyCurator();
         
         address oldGuardian = guardian;
@@ -621,7 +621,8 @@ contract Box is IERC4626, ERC20 {
      * @param selector Function selector
      * @param newDuration New timelock duration
      */
-    function decreaseTimelock(bytes4 selector, uint256 newDuration) external timelocked {
+    function decreaseTimelock(bytes4 selector, uint256 newDuration) external {
+        timelocked();
         require(msg.sender == curator, Errors.OnlyCurator());
         require(newDuration <= TIMELOCK_CAP, InvalidTimelock());
         require(newDuration < timelock[selector], TimelockIncrease());
@@ -637,7 +638,8 @@ contract Box is IERC4626, ERC20 {
      * @param account Address to update
      * @param newIsFeeder New feeder status
      */
-    function setIsFeeder(address account, bool newIsFeeder) external timelocked {
+    function setIsFeeder(address account, bool newIsFeeder) external {
+        timelocked();
         if (account == address(0)) revert InvalidAddress();
         isFeeder[account] = newIsFeeder;
         emit AllocatorUpdated(account, newIsFeeder);
@@ -647,7 +649,8 @@ contract Box is IERC4626, ERC20 {
      * @notice Updates maximum allowed slippage
      * @param newMaxSlippage New maximum slippage percentage
      */
-    function setMaxSlippage(uint256 newMaxSlippage) external timelocked {
+    function setMaxSlippage(uint256 newMaxSlippage) external {
+        timelocked();
         if (newMaxSlippage > MAX_SLIPPAGE_LIMIT) revert Errors.SlippageTooHigh();
         
         uint256 oldMaxSlippage = maxSlippage;
@@ -661,7 +664,8 @@ contract Box is IERC4626, ERC20 {
      * @param token Token to add
      * @param oracle Price oracle for the token
      */
-    function addInvestmentToken(IERC20 token, IOracle oracle) external timelocked {
+    function addInvestmentToken(IERC20 token, IOracle oracle) external {
+        timelocked();
         require(address(token) != address(0), InvalidAddress());
         require(address(oracle) != address(0), InvalidAddress());
         require(!isInvestmentToken(token), Errors.TokenNotWhitelisted());
@@ -676,7 +680,8 @@ contract Box is IERC4626, ERC20 {
      * @notice Removes an investment token
      * @param token Token to remove
      */
-    function removeInvestmentToken(IERC20 token) external timelocked {
+    function removeInvestmentToken(IERC20 token) external {
+        timelocked();
         require(isInvestmentToken(token), Errors.TokenNotWhitelisted());
         require(token.balanceOf(address(this)) == 0, Errors.TokenBalanceMustBeZero());
         
@@ -700,7 +705,8 @@ contract Box is IERC4626, ERC20 {
      * @param token Token that is already allowed
      * @param oracle New oracle
      */
-    function changeInvestmentTokenOracle(IERC20 token, IOracle oracle) external timelocked {
+    function changeInvestmentTokenOracle(IERC20 token, IOracle oracle) external {
+        timelocked();
         require(address(oracle) != address(0), InvalidAddress());
         require(isInvestmentToken(token), Errors.TokenNotWhitelisted());
         
