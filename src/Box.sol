@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IOracle.sol";
 import "./interfaces/ISwapper.sol";
 import "./lib/Errors.sol";
+import "./lib/ConstantsLib.sol";
 
 /**
  * @title Box
@@ -19,23 +20,6 @@ import "./lib/Errors.sol";
 contract Box is IERC4626, ERC20 {
     using SafeERC20 for IERC20;
     using Math for uint256;
-    
-    // ========== CONSTANTS ==========
-    
-    /// @notice Maximum allowed slippage percentage (10%)
-    uint256 public constant MAX_SLIPPAGE_LIMIT = 0.1 ether;
-    
-    /// @notice Maximum timelock duration (2 weeks)
-    uint256 public constant TIMELOCK_CAP = 2 weeks;
-
-    /// @notice Delay from start of a shutdown to possible liquidations
-    uint256 public constant SHUTDOWN_WARMUP = 2 weeks;
-    
-    /// @notice Precision for oracle prices
-    uint256 private constant ORACLE_PRECISION = 1e36;
-    
-    /// @notice Precision for percentage calculations
-    uint256 private constant PRECISION = 1 ether;
     
     // ========== IMMUTABLE STATE ==========
     

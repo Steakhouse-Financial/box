@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import {Errors} from "../src/lib/Errors.sol";
+import "../src/lib/ConstantsLib.sol";
 
 contract MockERC20 is IERC20 {
     string public name;
@@ -965,7 +966,7 @@ contract BoxTest is Test {
         box.deallocate(asset1, 25e18, swapper);
 
         // After warmup it should work
-        vm.warp(block.timestamp + box.SHUTDOWN_WARMUP() + 1);
+        vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
         box.deallocate(asset1, 25e18, swapper);
 
 
