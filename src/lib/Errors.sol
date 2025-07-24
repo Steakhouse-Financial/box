@@ -23,6 +23,7 @@ library Errors {
     error InsufficientAllowance();
     error InsufficientLiquidity();
     error CannotUnboxZeroShares();
+    error DataAlreadyTimelocked();
     
     // Investment token errors
     error TokenNotWhitelisted();

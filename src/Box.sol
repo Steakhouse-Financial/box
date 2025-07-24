@@ -603,7 +603,7 @@ contract Box is IERC4626, ERC20 {
      */
     function submit(bytes calldata data) external {
         require(msg.sender == curator, Errors.OnlyCurator());
-        require(executableAt[data] == 0, Errors.DataNotTimelocked());
+        require(executableAt[data] == 0, Errors.DataAlreadyTimelocked());
         require(data.length >= 4, InvalidAmount());
         
         bytes4 selector = bytes4(data);
