@@ -1134,8 +1134,24 @@ contract BoxTest is Test {
 
         // Curator should also be able to revoke a submitted action
         vm.startPrank(curator);
+        uint256 currentTime = block.timestamp;
+        bytes4 selector = box.setMaxSlippage.selector;
+        uint256 timelockDuration = box.timelock(selector);
+        uint256 timelockDurationExplicit = 1 days;
+        assertEq(box.timelock(selector), 1 days);
+        assertEq(timelockDuration, timelockDurationExplicit);
+        
+        console.log("=== WTF ARITHMETIC BUG ===");
+        console.log("currentTime:", currentTime);
+        console.log("timelockDuration (1 days):", timelockDuration);
+        console.log("timelockDurationExplicit (1 days):", timelockDurationExplicit);
+        console.log("currentTime + timelockDuration = ", currentTime + timelockDuration);
+        console.log("currentTime + timelockDurationExplicit =", currentTime + timelockDurationExplicit);
+        console.log("Expected result: 86402 + 86400 = 172802");
+        console.log("=====================================");
+        
         box.submit(slippageData);
-        assertEq(box.executableAt(slippageData), block.timestamp + 1 days);
+        assertEq(box.executableAt(slippageData), currentTime + timelockDuration);
         vm.stopPrank();
 
         vm.startPrank(guardian);
