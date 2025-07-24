@@ -11,6 +11,9 @@ optimizer_runs = 100000
 via_ir = true
 evm_version = "cancun"
 
+[etherscan]
+mainnet = { key = "${ETHERSCAN_API_KEY}" }
+base = { key = "${ETHERSCAN_API_KEY}" }
 
 [rpc_endpoints]
 base = "${BASE_RPC_URL}"
