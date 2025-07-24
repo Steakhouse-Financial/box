@@ -3,6 +3,8 @@ pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
 import {Box} from "../src/Box.sol";
+import {BoxAdapter} from "../src/BoxAdapter.sol";
+import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
@@ -10,10 +12,10 @@ import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import {Errors} from "../src/lib/Errors.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
 import {MorphoVaultV1Adapter} from "@vault-v2/src/adapters/MorphoVaultV1Adapter.sol";
-
+import {MorphoVaultV1AdapterFactory} from "@vault-v2/src/adapters/MorphoVaultV1AdapterFactory.sol";
+import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
-import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 
 
 
@@ -26,16 +28,18 @@ contract MockSwapper is ISwapper {
 }
 
 contract BoxLocalScript is Script {
-  using BoxLib for Box;
-    using VaultV2Lib for VaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
-    
+    using BoxLib for Box;
+    using VaultV2Lib for VaultV2;
+
     VaultV2 vault;
     Box box1;
     Box box2;
-    MorphoVaultV1Adapter adapter1;
-    MorphoVaultV1Adapter adapter2;
+    BoxAdapter adapter1;
+    BoxAdapter adapter2;
     MorphoVaultV1Adapter bbqusdcAdapter;
+    MorphoVaultV1AdapterFactory mv1AdapterFactory;
+    BoxAdapterFactory boxAdapterFactory;
 
     address owner = address(0xfeed8591997D831f89BAF1089090918E669796C9);
     address curator = address(0xfeed8591997D831f89BAF1089090918E669796C9);
@@ -70,14 +74,19 @@ contract BoxLocalScript is Script {
 
         console.log("Vault address: ", address(vault));
 
+        mv1AdapterFactory = new MorphoVaultV1AdapterFactory();
+        console.log("MorphoVaultV1AdapterFactory address: ", address(mv1AdapterFactory));
+
+        boxAdapterFactory = new BoxAdapterFactory();
+        console.log("BoxAdapterFactory address: ", address(boxAdapterFactory));
+
         vault.setCurator(address(curator));
     
         vault.addAllocator(address(allocator)); 
 
         // Setting the vault to use bbqUSDC as the asset
-        bbqusdcAdapter = new MorphoVaultV1Adapter(
-            address(vault), 
-            address(bbqusdc)
+        bbqusdcAdapter = MorphoVaultV1Adapter(
+            mv1AdapterFactory.createMorphoVaultV1Adapter(address(vault), address(bbqusdc))
         );
 
         vault.addCollateral(address(bbqusdcAdapter), bbqusdcAdapter.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
@@ -103,10 +112,7 @@ contract BoxLocalScript is Script {
         );
 
         // Creating the ERC4626 adapter between the vault and box1
-        adapter1 = new MorphoVaultV1Adapter(
-            address(vault), 
-            address(box1)
-        );
+        adapter1 = BoxAdapter(address(boxAdapterFactory.createBoxAdapter(address(vault), box1)));
 
         // Allow box 1 to invest in stUSD
         box1.addCollateral(stusd, stusdOracle);
@@ -133,10 +139,7 @@ contract BoxLocalScript is Script {
             shutdownSlippageDuration
         );
         // Creating the ERC4626 adapter between the vault and box2
-        adapter2 = new MorphoVaultV1Adapter(
-            address(vault), 
-            address(box2)
-        );
+        adapter2 = BoxAdapter(address(boxAdapterFactory.createBoxAdapter(address(vault), box2)));
 
         // Allow box 2 to invest in PT-USR-25SEP
         box2.addCollateral(ptsusdejul, ptsusdejulOracle);
