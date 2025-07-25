@@ -664,7 +664,7 @@ contract Box is IERC4626, ERC20 {
         timelocked();
         if (account == address(0)) revert InvalidAddress();
         isFeeder[account] = newIsFeeder;
-        emit AllocatorUpdated(account, newIsFeeder);
+        emit FeederUpdated(account, newIsFeeder);
     }
 
     /**
