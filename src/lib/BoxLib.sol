@@ -6,6 +6,18 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IOracle} from "src/interfaces/IOracle.sol";
 
 library BoxLib {
+
+    /// @notice Adds an allocator to a Box instance, assume 0-day timelocks
+    function addAllocator(Box box, address allocator) internal {
+        bytes memory encoding = abi.encodeWithSelector(
+            box.setIsAllocator.selector,
+            address(allocator),
+            true
+        );
+        box.submit(encoding);
+        box.setIsAllocator(address(allocator), true);
+    }
+
     /// @notice Adds a feeder to a Box instance, assume 0-day timelocks
     function addFeeder(Box box, address feeder) internal {
         bytes memory encoding = abi.encodeWithSelector(

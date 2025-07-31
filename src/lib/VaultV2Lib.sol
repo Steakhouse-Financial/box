@@ -15,6 +15,17 @@ library VaultV2Lib {
         vault.setIsAllocator(address(allocator), true);
     }
 
+    /// @notice Removes an allocator to a VaultV2 instance, assume 0-day timelocks
+    function removeAllocator(VaultV2 vault, address allocator) internal {
+        bytes memory encoding = abi.encodeWithSelector(
+            vault.setIsAllocator.selector,
+            address(allocator),
+            false
+        );
+        vault.submit(encoding);
+        vault.setIsAllocator(address(allocator), false);
+    }
+
     /// @notice Adds collateral to a VaultV2 instance, assume 0-day timelocks
     function addCollateral(VaultV2 vault, address adapter, bytes memory data,  uint256 absolute, uint256 relative) internal {
         // Accept the adapter

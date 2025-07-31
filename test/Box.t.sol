@@ -85,6 +85,34 @@ contract MockSwapper is ISwapper {
     }
 }
 
+contract MaliciousSwapper is ISwapper {
+    uint256 public step = 5; // level of recursion
+    Box public box;
+    
+    function setBox(Box _box) external {
+        box = _box;
+    }
+
+    function sell(IERC20 input, IERC20 output, uint256 amountIn) external {        
+        input.transferFrom(msg.sender, address(this), amountIn);
+        
+        step--;
+        
+        if(step > 0) {
+            // Recursively call sell to simulate reentrancy
+            box.allocate(output, amountIn, this);
+        }
+
+
+        if(step == 0) {
+            output.transfer(msg.sender, amountIn);
+        }
+
+        step++;
+
+    }
+}
+
 contract BoxTest is Test {
     Box public box;
     MockERC20 public currency;
@@ -97,6 +125,7 @@ contract BoxTest is Test {
     MockSwapper public swapper;
     MockSwapper public backupSwapper;
     MockSwapper public badSwapper;
+    MaliciousSwapper public maliciousSwapper;
 
     address public owner = address(0x1);
     address public allocator = address(0x2);
@@ -127,6 +156,7 @@ contract BoxTest is Test {
         swapper = new MockSwapper();
         backupSwapper = new MockSwapper();
         badSwapper = new MockSwapper();
+        maliciousSwapper = new MaliciousSwapper();
 
         // Configure production parameters
         string memory name = "Box Shares";
@@ -174,6 +204,12 @@ contract BoxTest is Test {
         (success,) = address(box).call(allocatorData);
         require(success, "Failed to set allocator");
 
+        // Add allocator role
+        bytes memory maliciousSwapperData = abi.encodeWithSelector(box.setIsAllocator.selector, maliciousSwapper, true);
+        box.submit(maliciousSwapperData);
+        (success,) = address(box).call(maliciousSwapperData);
+        require(success, "Failed to set allocator");
+
         // Add investment tokens
         bytes memory asset1Data = abi.encodeWithSelector(box.addInvestmentToken.selector, asset1, oracle1);
         box.submit(asset1Data);
@@ -212,6 +248,7 @@ contract BoxTest is Test {
         asset1.mint(address(badSwapper), 10000e18);
         asset2.mint(address(badSwapper), 10000e18);
         asset3.mint(address(badSwapper), 10000e18);
+        asset1.mint(address(maliciousSwapper), 10000e18);
         
         // Mint currency for swappers to provide liquidity
         currency.mint(address(swapper), 10000e18);
@@ -1537,5 +1574,26 @@ contract BoxTest is Test {
         assertEq(box.totalSupply(), box.balanceOf(user1) + box.balanceOf(user2));
         assertGt(box.totalAssets(), 0);
         assertGt(currency.balanceOf(address(box)) + asset1.balanceOf(address(box)) + asset2.balanceOf(address(box)), 0);
+    }
+
+
+
+
+    function testAllocateReentrancyAttack() public {
+        // Setup
+        vm.startPrank(feeder);
+        currency.approve(address(box), 10e18);
+        box.deposit(10e18, feeder);
+        vm.stopPrank();
+
+        maliciousSwapper.setBox(box);
+
+        // Allocate to asset1
+        vm.prank(allocator);
+        box.allocate(asset1, 1e18, maliciousSwapper);
+
+        assertEq(currency.balanceOf(address(box)), 9e18);
+        assertEq(asset1.balanceOf(address(box)), 1e18);
+        assertEq(box.totalAssets(), 10e18); // 10 USDC + 0 asset1 (1:1 price)
     }
 } 
