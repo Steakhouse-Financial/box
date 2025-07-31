@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {Box} from "../src/Box.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import {Errors} from "../src/lib/Errors.sol";
@@ -88,9 +89,17 @@ contract MockSwapper is ISwapper {
 contract MaliciousSwapper is ISwapper {
     uint256 public step = 5; // level of recursion
     Box public box;
-    
+    uint256 public scenario = ALLOCATE;
+    uint256 public constant ALLOCATE = 0;
+    uint256 public constant DEALLOCATE = 1;
+    uint256 public constant REALLOCATE = 2;
+
     function setBox(Box _box) external {
         box = _box;
+    }
+
+    function setScenario(uint256 _scenario) external {
+        scenario = _scenario;
     }
 
     function sell(IERC20 input, IERC20 output, uint256 amountIn) external {        
@@ -100,7 +109,13 @@ contract MaliciousSwapper is ISwapper {
         
         if(step > 0) {
             // Recursively call sell to simulate reentrancy
-            box.allocate(output, amountIn, this);
+            if(scenario == 0) {
+                box.allocate(output, amountIn, this);
+            } else if(scenario == 1) {
+                box.deallocate(input, amountIn, this);
+            } else if(scenario == 2) {
+                box.reallocate(input, output, amountIn, this);
+            }
         }
 
 
@@ -249,11 +264,14 @@ contract BoxTest is Test {
         asset2.mint(address(badSwapper), 10000e18);
         asset3.mint(address(badSwapper), 10000e18);
         asset1.mint(address(maliciousSwapper), 10000e18);
+        asset2.mint(address(maliciousSwapper), 10000e18);
+        asset3.mint(address(maliciousSwapper), 10000e18);
         
         // Mint currency for swappers to provide liquidity
         currency.mint(address(swapper), 10000e18);
         currency.mint(address(backupSwapper), 10000e18);
         currency.mint(address(badSwapper), 10000e18);
+        currency.mint(address(maliciousSwapper), 10000e18);
     }
 
     /////////////////////////////
@@ -1586,14 +1604,31 @@ contract BoxTest is Test {
         box.deposit(10e18, feeder);
         vm.stopPrank();
 
-        maliciousSwapper.setBox(box);
-
         // Allocate to asset1
         vm.prank(allocator);
+        box.allocate(asset1, 5e18, swapper);
+
+        maliciousSwapper.setBox(box);
+
+
+        maliciousSwapper.setScenario(maliciousSwapper.ALLOCATE());
+        vm.prank(allocator);
+        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
         box.allocate(asset1, 1e18, maliciousSwapper);
 
-        //assertEq(currency.balanceOf(address(box)), 9e18);
-        //assertEq(asset1.balanceOf(address(box)), 1e18);
-        assertEq(box.totalAssets(), 10e18); // 10 USDC + 0 asset1 (1:1 price)
+
+        maliciousSwapper.setScenario(maliciousSwapper.DEALLOCATE());
+        vm.prank(allocator);
+        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
+        box.deallocate(asset1, 1e18, maliciousSwapper);
+
+        maliciousSwapper.setScenario(maliciousSwapper.REALLOCATE());
+        vm.prank(allocator);
+        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
+        box.reallocate(asset1, asset2, 1e18, maliciousSwapper);
+
+        assertEq(box.totalAssets(), 10e18);
+        assertEq(currency.balanceOf(address(box)), 5e18);
+        assertEq(asset1.balanceOf(address(box)), 5e18);
     }
 } 

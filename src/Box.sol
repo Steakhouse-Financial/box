@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IOracle.sol";
 import "./interfaces/ISwapper.sol";
 import "./lib/Errors.sol";
@@ -17,7 +18,7 @@ import "./lib/ConstantsLib.sol";
  * @notice An ERC4626 vault that holds a base currency and can invest in other ERC20 assets
  * @dev Features role-based access control, timelocked governance, and slippage protection
  */
-contract Box is IERC4626, ERC20 {
+contract Box is IERC4626, ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Math for uint256;
     
@@ -369,7 +370,7 @@ contract Box is IERC4626, ERC20 {
      * @param currencyAmount Amount of currency to spend (should be > 0)
      * @param swapper Swapper contract to use (should not be address(0))
      */
-    function allocate(IERC20 token, uint256 currencyAmount, ISwapper swapper) external {
+    function allocate(IERC20 token, uint256 currencyAmount, ISwapper swapper) external nonReentrant {
         require(isAllocator[msg.sender], Errors.OnlyAllocators());
         require(!shutdown, Errors.CannotAllocateIfShutdown());
         require(isInvestmentToken(token), Errors.TokenNotWhitelisted());
@@ -407,7 +408,7 @@ contract Box is IERC4626, ERC20 {
      * @param tokensAmount Amount of tokens to sell
      * @param swapper Swapper contract to use
      */
-    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper) external {
+    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper) external nonReentrant {
         require(isAllocator[msg.sender] 
             || block.timestamp > shutdownTime + SHUTDOWN_WARMUP, Errors.OnlyAllocatorsOrShutdown());
         require(tokensAmount > 0, InvalidAmount());     
@@ -462,7 +463,7 @@ contract Box is IERC4626, ERC20 {
         IERC20 to, 
         uint256 fromAmount, 
         ISwapper swapper
-    ) external {
+    ) external nonReentrant {
         require(isAllocator[msg.sender], Errors.OnlyAllocators());
         require(!shutdown, Errors.CannotReallocateIfShutdown());
         require(isInvestmentToken(from) && isInvestmentToken(to), Errors.TokensNotWhitelisted());
