@@ -380,17 +380,21 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         IOracle oracle = oracles[token];
 
         uint256 tokensBefore = token.balanceOf(address(this));
+        uint256 currencyBefore = currency.balanceOf(address(this));
 
         currency.forceApprove(address(swapper), currencyAmount);
         swapper.sell(currency, token, currencyAmount);
         
         uint256 tokensReceived = token.balanceOf(address(this)) - tokensBefore;
+        uint256 currencyAfter = currency.balanceOf(address(this));
+
+        require(currencyAfter >= currencyBefore - currencyAmount, Errors.SwapperDidSpendTooMuch());
 
         // Validate slippage
         uint256 expectedTokens = currencyAmount.mulDiv(ORACLE_PRECISION, oracle.price());
         uint256 minTokens = expectedTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
 
-        if (tokensReceived < minTokens) revert Errors.AllocationTooExpensive();
+        require(tokensReceived >= minTokens, Errors.AllocationTooExpensive());
 
         // Track slippage
         if (expectedTokens > tokensReceived) {
@@ -418,11 +422,15 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         require(address(oracle) != address(0), Errors.NoOracleForToken());
 
         uint256 currencyBefore = currency.balanceOf(address(this));   
+        uint256 tokensBefore = token.balanceOf(address(this));   
 
         token.forceApprove(address(swapper), tokensAmount);
         swapper.sell(token, currency, tokensAmount);
 
         uint256 currencyReceived = currency.balanceOf(address(this)) - currencyBefore;
+        uint256 tokensAfter = token.balanceOf(address(this));
+
+        require(tokensAfter >= tokensBefore - tokensAmount, Errors.SwapperDidSpendTooMuch());
 
         // Calculate slippage tolerance, default to allocator slippage
         uint256 slippageTolerance = maxSlippage;
@@ -474,18 +482,22 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         IOracle toOracle = oracles[to];
 
         uint256 toBefore = to.balanceOf(address(this));
+        uint256 fromBefore = from.balanceOf(address(this));
 
         from.forceApprove(address(swapper), fromAmount);
         swapper.sell(from, to, fromAmount);
 
         uint256 toReceived = to.balanceOf(address(this)) - toBefore;
+        uint256 fromAfter = from.balanceOf(address(this));
+
+        require(fromAfter >= fromBefore - fromAmount, Errors.SwapperDidSpendTooMuch());
 
         // Calculate expected amounts
         uint256 fromValue = fromAmount.mulDiv(fromOracle.price(), ORACLE_PRECISION);
         uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOracle.price());
         uint256 minToTokens = expectedToTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
 
-        if (toReceived < minToTokens) revert Errors.ReallocationSlippageTooHigh();
+        require(toReceived >= minToTokens, Errors.ReallocationSlippageTooHigh());
 
         // Track slippage
         if (expectedToTokens > toReceived) {

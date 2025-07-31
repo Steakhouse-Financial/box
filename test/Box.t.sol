@@ -118,7 +118,6 @@ contract MaliciousSwapper is ISwapper {
             }
         }
 
-
         if(step == 0) {
             output.transfer(msg.sender, amountIn);
         }
@@ -1610,12 +1609,10 @@ contract BoxTest is Test {
 
         maliciousSwapper.setBox(box);
 
-
         maliciousSwapper.setScenario(maliciousSwapper.ALLOCATE());
         vm.prank(allocator);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
         box.allocate(asset1, 1e18, maliciousSwapper);
-
 
         maliciousSwapper.setScenario(maliciousSwapper.DEALLOCATE());
         vm.prank(allocator);

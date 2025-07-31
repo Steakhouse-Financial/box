@@ -33,6 +33,7 @@ library Errors {
     error TokenBalanceMustBeZero();
     
     // Slippage errors
+    error SwapperDidSpendTooMuch();
     error AllocationTooExpensive();
     error TokenSaleNotGeneratingEnoughCurrency();
     error ReallocationSlippageTooHigh();
