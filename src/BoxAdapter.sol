@@ -62,62 +62,37 @@ contract BoxAdapter is IBoxAdapter {
     /// @dev Returns the ids of the allocation and the interest accrued.
     function allocate(bytes memory data, uint256 assets, bytes4, address)
         external
-        returns (bytes32[] memory, uint256)
+        returns (bytes32[] memory, int256)
     {
         require(data.length == 0, InvalidData());
         require(msg.sender == parentVault, NotAuthorized());
 
-        // To accrue interest only one time.
-        IERC4626(box).deposit(0, address(this));
-        uint256 interest = IERC4626(box).previewRedeem(shares).zeroFloorSub(allocation());
+        if (assets > 0) IERC4626(box).deposit(assets, address(this));
+        // Safe casts because Box bounds the total supply of the underlying token, and allocation is less than the
+        // max total assets of the vault.
+        int256 change = int256(IERC4626(box).previewRedeem(IERC4626(box).balanceOf(address(this))))
+            - int256(allocation());
 
-        if (assets > 0) shares += IERC4626(box).deposit(assets, address(this));
-
-        return (ids(), interest);
+        return (ids(), change);
     }
 
     /// @dev Does not log anything because the ids (logged in the parent vault) are enough.
     /// @dev Returns the ids of the deallocation and the interest accrued.
     function deallocate(bytes memory data, uint256 assets, bytes4, address)
         external
-        returns (bytes32[] memory, uint256)
+        returns (bytes32[] memory, int256)
     {
         require(data.length == 0, InvalidData());
         require(msg.sender == parentVault, NotAuthorized());
 
-        // To accrue interest only one time.
-        IERC4626(box).deposit(0, address(this));
-        uint256 interest = IERC4626(box).previewRedeem(shares).zeroFloorSub(allocation());
+        if (assets > 0) IERC4626(box).withdraw(assets, address(this), address(this));
+        // Safe casts because Box bounds the total supply of the underlying token, and allocation is less than the
+        // max total assets of the vault.
+        int256 change = int256(IERC4626(box).previewRedeem(IERC4626(box).balanceOf(address(this))))
+            - int256(allocation());
 
-        if (assets > 0) shares -= IERC4626(box).withdraw(assets, address(this), address(this));
-
-        return (ids(), interest);
+        return (ids(), change);
     }
-
-    /// @dev Realize a loss that was recognized by the guardian or the curator.
-    function realizeLoss(bytes memory data, bytes4, address) external returns (bytes32[] memory, uint256) {
-        require(data.length == 0, InvalidData());
-        require(msg.sender == parentVault, NotAuthorized());
-
-        uint256 recognizedLoss = loss;
-
-        loss = 0;
-
-        return (ids(), recognizedLoss);
-    }
-
-    /// @dev Recognize the loss (diff exposure vs previewRedeem) by the guardian or the curator.
-    /// @dev The vault will have to call `realizeLoss` to actually realize the loss.
-    function recognizeLoss() external {
-        // Only guardian or curator can recognize loss.
-        require(msg.sender == box.guardian() || msg.sender == box.curator(), NotAuthorized());
-
-        loss = allocation() - IERC4626(box).previewRedeem(shares);
-
-        emit RecognizeLoss(loss, msg.sender);
-    }
-
-
 
     /// @dev Returns adapter's ids.
     function ids() public view returns (bytes32[] memory) {
@@ -128,6 +103,10 @@ contract BoxAdapter is IBoxAdapter {
 
     function allocation() public view returns (uint256) {
         return IVaultV2(parentVault).allocation(adapterId);
+    }
+
+    function realAssets() external view returns (uint256) {
+        return IERC4626(box).previewRedeem(IERC4626(box).balanceOf(address(this)));
     }
 
     function data() external view returns (bytes memory) {

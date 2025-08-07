@@ -28,15 +28,24 @@ contract MockSwapper is ISwapper {
     }
 }
 
+contract TestableVaultV2 is VaultV2 {
+
+    constructor(address owner, address asset) VaultV2(owner, asset) {}
+
+    function resetFirstTotalAssets() external {
+        firstTotalAssets = uint256(0);
+    }
+}
+
 /**
  * @title Peaty on Base integration test
  */
 contract PeatyBaseTest is Test {
     using BoxLib for Box;
-    using VaultV2Lib for VaultV2;
+    using VaultV2Lib for TestableVaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
     
-    VaultV2 vault;
+    TestableVaultV2 vault;
     Box box1;
     Box box2;
     IBoxAdapter adapter1;
@@ -74,7 +83,7 @@ contract PeatyBaseTest is Test {
         MockSwapper backupSwapper = new MockSwapper();
         boxAdapterFactory = new BoxAdapterFactory();
 
-        vault = new VaultV2(address(owner), address(usdc));
+        vault = new TestableVaultV2(address(owner), address(usdc));
 
         vm.prank(owner);
         vault.setCurator(address(curator));
@@ -380,42 +389,24 @@ contract PeatyBaseTest is Test {
         assertEq(usdc.balanceOf(address(box1)), 0,
             "No more USDC in the Box1 contract");        
         assertEq(box1.totalAssets(), 0,
-            "Total assets at Box1 level is 0");        
-        assertEq(vault.totalAssets(), USDC_1000,
-            "Vault value is still 1000 USDC");
+            "Total assets at Box1 level is 0"); 
 
-        // Loss realization doesn't work as it wasn't reciognized first
-        vault.realizeLoss(address(adapter1), "");
-        assertEq(vault.totalAssets(), USDC_1000,
-            "Vault value is still 1000 USDC");
-
-        // Not everyone can recognize the loss
-        vm.expectRevert(IBoxAdapter.NotAuthorized.selector);
-        adapter1.recognizeLoss();
-
-        // Guardian can
-        vm.startPrank(guardian);
-        // TODO: Check event
-        adapter1.recognizeLoss();
-        vm.stopPrank();
-
-        // Also make sure that curator can
-        vm.startPrank(curator);
-        // TODO: Check event
-        adapter1.recognizeLoss();
-        vm.stopPrank();
-        
-        assertEq(vault.totalAssets(), USDC_1000,
-            "Vault value is still 1000 USDC even after recognize");
-
-        vault.realizeLoss(address(adapter1), "");
+        // Just to allow totalAssets to work
+        vault.resetFirstTotalAssets();
         assertEq(vault.totalAssets(), USDC_500,
-            "Vault value is 500 USDC after loss realization");
+            "Vault value is 500 USDC an");
 
-        // We check that calling realizeLoss again doesn't impact anything
-        vault.realizeLoss(address(adapter1), "");        
-        assertEq(vault.totalAssets(), USDC_500,
-            "Vault value is 500 USDC after loss realization");
+        usdc.transfer(address(box1), USDC_500);
+
+        assertEq(usdc.balanceOf(address(box1)), USDC_500,
+            "500 USDC back in the Box1 contract");        
+        assertEq(box1.totalAssets(), USDC_500,
+            "Total assets at Box1 level is again 0"); 
+
+        // Just to allow totalAssets to work
+        vault.resetFirstTotalAssets();
+        assertEq(vault.totalAssets(), USDC_1000,
+            "Vault value is back to 1000 USDC an");
 
     }
 }

@@ -33,6 +33,5 @@ interface IBoxAdapter is IAdapter {
     // Added for BoxAdapter
     function adapterId() external view returns (bytes32);
     function data() external view returns (bytes memory);
-    function recognizeLoss() external;
 
 }

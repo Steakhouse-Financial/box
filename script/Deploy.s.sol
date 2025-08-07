@@ -17,7 +17,6 @@ import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
-import {ManualVicFactory} from "@vault-v2/src/vic/ManualVicFactory.sol";
 
 ///@dev This script deploys the necessary contracts for the Peaty product on Base.
 ///@dev Default factories are hardcoded, but can be overridden using run() which will deploy fresh contracts.
@@ -86,14 +85,6 @@ contract DeployScript is Script {
         console.log("VaultV2Factory deployed at:", address(vaultV2Factory));
         vm.stopBroadcast();
         return vaultV2Factory;
-    }
-
-    function deployManualVicFactory() public returns (ManualVicFactory) {
-        vm.startBroadcast();
-        ManualVicFactory manualVicFactory = new ManualVicFactory();
-        console.log("ManualVicFactory deployed at:", address(manualVicFactory));
-        vm.stopBroadcast();
-        return manualVicFactory;
     }
 
     function deployPeaty() public returns (IVaultV2) {
