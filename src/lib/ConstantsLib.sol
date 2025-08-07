@@ -12,5 +12,3 @@ uint256 constant MAX_SLIPPAGE_LIMIT = 0.1 ether;
 uint256 constant SHUTDOWN_WARMUP = 2 weeks;
 // Precision for oracle prices
 uint256 constant ORACLE_PRECISION = 1e36;
-// Maximum expiration time for total assets memoization (1 day)
-uint256 constant MAX_TOTAL_ASSETS_MEMOIZATION_EXPIRATION = 1 days;
