@@ -61,6 +61,11 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     IERC20[] public investmentTokens;
     mapping(IERC20 => IOracle) public oracles;
 
+    // Memoization for totalAssets
+    uint256 public memoizedTotalAssets;
+    uint256 public memoizedTotalAssetsLastUpdate;
+    uint256 public totalAssetsMemoizationExpiration;
+
     // Slippage tracking
     uint256 public maxSlippage;
     uint256 public accumulatedSlippage;
@@ -86,6 +91,8 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     event Unbox(address indexed user, uint256 shares);
     event Skim(IERC20 indexed token, address indexed recipient, uint256 amount);
     event SkimRecipientUpdated(address indexed previousRecipient, address indexed newRecipient);
+    event TotalAssetsMemoizationExpirationUpdated(uint256 indexed previousValue, uint256 indexed newValue);
+    event TotalAssetsUpdated(uint256 indexed newTotalAssets);
     
     event SlippageAccumulated(uint256 amount, uint256 total);
     event SlippageEpochReset(uint256 newEpochStart);
@@ -109,6 +116,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     error TimelockDecrease();
     error TimelockIncrease();
     error ArrayLengthMismatch();
+    error ExpirationTooHigh();
 
     // ========== MODIFIERS ==========
         
@@ -167,21 +175,10 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
 
     /// @inheritdoc IERC4626
     function totalAssets() public view returns (uint256 assets_) {
-        assets_ = currency.balanceOf(address(this));
-        
-        // Add value of all investment tokens
-        uint256 length = investmentTokens.length;
-        for (uint256 i; i < length;) {
-            IERC20 token = investmentTokens[i];
-            IOracle oracle = oracles[token];
-            if (address(oracle) != address(0)) {
-                uint256 tokenBalance = token.balanceOf(address(this));
-                if (tokenBalance > 0) {
-                    assets_ += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
-                }
-            }
-            unchecked { ++i; }
+        if (block.timestamp <= memoizedTotalAssetsLastUpdate + totalAssetsMemoizationExpiration) {
+            return memoizedTotalAssets;
         }
+        return _calculateTotalAssets();
     }
 
     /// @inheritdoc IERC4626
@@ -527,6 +524,20 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     }
 
     /**
+     * @notice Updates the total assets memoization expiration time
+     * @param newExpiration New expiration time
+     */
+    function setTotalAssetsMemoizationExpiration(uint256 newExpiration) external {
+        require(msg.sender == curator, Errors.OnlyCurator());
+        require(newExpiration <= MAX_TOTAL_ASSETS_MEMOIZATION_EXPIRATION, ExpirationTooHigh());
+
+        uint256 oldExpiration = totalAssetsMemoizationExpiration;
+        totalAssetsMemoizationExpiration = newExpiration;
+
+        emit TotalAssetsMemoizationExpirationUpdated(oldExpiration, newExpiration);
+    }
+
+    /**
      * @notice Transfers ownership to a new address
      * @param newOwner Address of new owner
      */
@@ -778,6 +789,15 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         return isAllocator[account] || isFeeder[account];
     }
 
+    /**
+     * @notice Updates the memoized total assets value
+     */
+    function updateMemoizedTotalAssets() external {
+        memoizedTotalAssets = _calculateTotalAssets();
+        memoizedTotalAssetsLastUpdate = block.timestamp;
+        emit TotalAssetsUpdated(memoizedTotalAssets);
+    }
+
     // ========== INTERNAL FUNCTIONS ==========
 
     /**
@@ -796,5 +816,27 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         if (accumulatedSlippage >= maxSlippage) revert Errors.TooMuchAccumulatedSlippage();
         
         emit SlippageAccumulated(slippagePct, accumulatedSlippage);
+    }
+
+    /**
+     * @dev Calculates the total value of all assets in the vault
+     * @return assets_ The total value of all assets
+     */
+    function _calculateTotalAssets() internal view returns (uint256 assets_) {
+        assets_ = currency.balanceOf(address(this));
+        
+        // Add value of all investment tokens
+        uint256 length = investmentTokens.length;
+        for (uint256 i; i < length;) {
+            IERC20 token = investmentTokens[i];
+            IOracle oracle = oracles[token];
+            if (address(oracle) != address(0)) {
+                uint256 tokenBalance = token.balanceOf(address(this));
+                if (tokenBalance > 0) {
+                    assets_ += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
+                }
+            }
+            unchecked { ++i; }
+        }
     }
 }
