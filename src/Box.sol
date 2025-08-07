@@ -181,6 +181,14 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         return _calculateTotalAssets();
     }
 
+    /**
+     * @notice Calculates and returns the total assets without using memoization
+     * @return assets_ The current total assets
+     */
+    function calculateTotalAssets() external view returns (uint256 assets_) {
+        return _calculateTotalAssets();
+    }
+
     /// @inheritdoc IERC4626
     function convertToShares(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
