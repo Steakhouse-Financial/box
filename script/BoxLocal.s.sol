@@ -18,15 +18,6 @@ import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 
 
-
-contract MockSwapper is ISwapper {
-    uint256 public slippagePercent = 0; // 0% slippage by default
-    bool public shouldRevert = false;
-
-    function sell(IERC20 input, IERC20 output, uint256 amountIn) external {
-    }
-}
-
 contract BoxLocalScript is Script {
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
     using BoxLib for Box;
@@ -67,8 +58,6 @@ contract BoxLocalScript is Script {
         vm.startBroadcast();
 
         bytes memory data;
-
-        MockSwapper backupSwapper = new MockSwapper();
 
         vault = new VaultV2(address(owner), address(usdc));
 

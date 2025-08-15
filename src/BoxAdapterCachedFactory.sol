@@ -3,11 +3,11 @@
 pragma solidity 0.8.28;
 
 import {Box} from "./Box.sol";
-import {BoxAdapter} from "./BoxAdapter.sol";
+import {BoxAdapterCached} from "./BoxAdapterCached.sol";
 import {IBoxAdapter} from "./interfaces/IBoxAdapter.sol";
 import {IBoxAdapterFactory} from "./interfaces/IBoxAdapterFactory.sol";
 
-contract BoxAdapterFactory is IBoxAdapterFactory {
+contract BoxAdapterCachedFactory is IBoxAdapterFactory {
     /* STORAGE */
 
     mapping(address parentVault => mapping(Box box => IBoxAdapter)) public boxAdapter;
@@ -17,7 +17,7 @@ contract BoxAdapterFactory is IBoxAdapterFactory {
 
     /// @dev Returns the address of the deployed BoxAdapter.
     function createBoxAdapter(address parentVault, Box box) external returns (IBoxAdapter) {
-        BoxAdapter _boxAdapter = new BoxAdapter{salt: bytes32(0)}(parentVault, box);
+        BoxAdapterCached _boxAdapter = new BoxAdapterCached{salt: bytes32(0)}(parentVault, box);
         boxAdapter[parentVault][box] = _boxAdapter;
         isBoxAdapter[address(_boxAdapter)] = true;
         emit CreateBoxAdapter(parentVault, address(box), _boxAdapter);

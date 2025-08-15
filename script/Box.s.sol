@@ -17,14 +17,6 @@ import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 
 
-contract MockSwapper is ISwapper {
-    uint256 public slippagePercent = 0; // 0% slippage by default
-    bool public shouldRevert = false;
-
-    function sell(IERC20 input, IERC20 output, uint256 amountIn) external {
-    }
-}
-
 contract BoxScript is Script {
     using BoxLib for Box;
     using VaultV2Lib for VaultV2;
@@ -65,8 +57,6 @@ contract BoxScript is Script {
 
         bytes memory data;
 
-        MockSwapper backupSwapper = new MockSwapper();
-
         vault = new VaultV2(address(owner), address(usdc));
 
         mv1AdapterFactory = new MorphoVaultV1AdapterFactory();
@@ -79,7 +69,7 @@ contract BoxScript is Script {
         vault.setCurator(address(curator));
 
         vm.prank(curator);
-        vault.setIsAllocator(address(allocator), true); 
+        vault.addAllocator(address(allocator)); 
 
         // Setting the vault to use bbqUSDC as the asset
         bbqusdcAdapter = MorphoVaultV1Adapter(
@@ -181,13 +171,13 @@ contract BoxScript is Script {
         // Alloctin 1000 USDC from the box1
         // And box 1 invest those in stUSD
         vault.allocate(address(adapter1), "", _1000 -1);
-        box1.allocate(stusd, _1000 -1, swapper);
+        box1.allocate(stusd, _1000 -1, swapper, "");
 
         console.log(box1.totalAssets());
         console.log(stusd.balanceOf(address(box1))); // Check stUSD balance after swap
 
 
-        box1.deallocate(stusd, stusd.balanceOf(address(box1)), swapper);
+        box1.deallocate(stusd, stusd.balanceOf(address(box1)), swapper, "");
 
 
         console.log(box1.totalAssets());

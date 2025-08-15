@@ -3,16 +3,19 @@
 pragma solidity 0.8.28;
 
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import "./interfaces/IBoxAdapter.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {IBoxAdapter} from "./interfaces/IBoxAdapter.sol";
 import {Box} from "./Box.sol";
 import {IVaultV2} from "../lib/vault-v2/src/interfaces/IVaultV2.sol";
 import {SafeERC20Lib} from "../lib/vault-v2/src/libraries/SafeERC20Lib.sol";
 import {MathLib} from "../lib/vault-v2/src/libraries/MathLib.sol";
 
-contract BoxAdapter is IBoxAdapter {
+contract BoxAdapterCached is IBoxAdapter {
     using MathLib for uint256;
+
+    /* EVENTS */
+    event UpdateTotalAsset(uint256 oldTotalAssets, uint256 totalAssets);
 
     /* IMMUTABLES */
 
@@ -24,6 +27,8 @@ contract BoxAdapter is IBoxAdapter {
     /* STORAGE */
 
     address public skimRecipient;
+    uint256 public totalAssets;
+    uint256 public totalAssetsTimestamp;
     
     /* FUNCTIONS */
 
@@ -66,7 +71,8 @@ contract BoxAdapter is IBoxAdapter {
         if (assets > 0) IERC4626(box).deposit(assets, address(this));
         // Safe casts because Box bounds the total supply of the underlying token, and allocation is less than the
         // max total assets of the box.
-        int256 newAllocation = int256(box.previewRedeem(box.balanceOf(address(this))));
+        _updateTotalAssets();
+        int256 newAllocation = int256(totalAssets);
         int256 oldAllocation = int256(allocation());
 
         return (ids(), newAllocation - oldAllocation);
@@ -84,7 +90,8 @@ contract BoxAdapter is IBoxAdapter {
         if (assets > 0) IERC4626(box).withdraw(assets, address(this), address(this));
         // Safe casts because Box bounds the total supply of the underlying token, and allocation is less than the
         // max total assets of the vault.
-        int256 newAllocation = int256(box.previewRedeem(box.balanceOf(address(this))));
+        _updateTotalAssets();
+        int256 newAllocation = int256(totalAssets);
         int256 oldAllocation = int256(allocation());
 
         return (ids(), newAllocation - oldAllocation);
@@ -103,8 +110,24 @@ contract BoxAdapter is IBoxAdapter {
 
     function realAssets() external view returns (uint256) {
         return allocation() != 0
-            ? box.previewRedeem(box.balanceOf(address(this)))
+            ? totalAssets
             : 0;
+    }
+
+    /// @dev Updates the cached total assets of the adapter.
+    /// @dev Allowed: Box allocator, guardian or anyone after 24 hours of inactivity
+    function updateTotalAssets() external {
+        require(box.isAllocator(msg.sender) || msg.sender == box.guardian()
+            || totalAssetsTimestamp + 1 days < block.timestamp, NotAuthorized());
+
+        uint256 oldTotalAssets = totalAssets;
+        _updateTotalAssets();
+        emit UpdateTotalAsset(oldTotalAssets, totalAssets);
+    }
+
+    function _updateTotalAssets() internal {
+        totalAssets =  box.previewRedeem(box.balanceOf(address(this)));
+        totalAssetsTimestamp = block.timestamp;
     }
 
     function data() external view returns (bytes memory) {

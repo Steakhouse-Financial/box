@@ -10,6 +10,7 @@ optimizer = true
 optimizer_runs = 100000
 via_ir = true
 evm_version = "cancun"
+gas_reports = ["*"]
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}" }

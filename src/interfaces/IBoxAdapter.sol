@@ -10,7 +10,6 @@ interface IBoxAdapter is IAdapter {
 
     event SetSkimRecipient(address indexed newSkimRecipient);
     event Skim(address indexed token, uint256 assets);
-    event RecognizeLoss(uint256 loss, address who);
 
     /* ERRORS */
 
@@ -28,7 +27,6 @@ interface IBoxAdapter is IAdapter {
     function box() external view returns (Box);
     function skimRecipient() external view returns (address);
     function allocation() external view returns (uint256);
-    function shares() external view returns (uint256);
 
     // Added for BoxAdapter
     function adapterId() external view returns (bytes32);
