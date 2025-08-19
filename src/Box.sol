@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./interfaces/IOracle.sol";
-import "./interfaces/ISwapper.sol";
-import "./lib/Errors.sol";
+import {IOracle} from "./interfaces/IOracle.sol";
+import {ISwapper} from "./interfaces/ISwapper.sol";
+import {Errors} from "./lib/Errors.sol";
 import "./lib/ConstantsLib.sol";
 
 /**
@@ -127,7 +127,9 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
      * @param _owner Initial owner address
      * @param _curator Initial curator address  
      * @param _name ERC20 token name
-     * @param _symbol ERC20 token symboln
+     * @param _maxSlippage Max allowed slippage for a swap or aggregated over `_slippageEpochDuration`
+     * @param _slippageEpochDuration Duration for which slippage is measured
+     * @param _shutdownSlippageDuration When shutdown duration for slippage allowance to widen
      */
     constructor(
         IERC20 _currency,

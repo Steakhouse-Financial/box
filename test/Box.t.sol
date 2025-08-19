@@ -3,12 +3,15 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {Box} from "../src/Box.sol";
+import {BoxFactory} from "../src/BoxFactory.sol";
+import {IBoxFactory} from "../src/interfaces/IBoxFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import {Errors} from "../src/lib/Errors.sol";
 import "../src/lib/ConstantsLib.sol";
+import {BoxLib} from "../src/lib/BoxLib.sol";
 
 contract MockERC20 is IERC20 {
     string public name;
@@ -128,7 +131,10 @@ contract MaliciousSwapper is ISwapper {
 }
 
 contract BoxTest is Test {
+    using BoxLib for Box;
+
     Box public box;
+    IBoxFactory public boxFactory;
     MockERC20 public currency;
     MockERC20 public asset1;
     MockERC20 public asset2;
@@ -172,14 +178,17 @@ contract BoxTest is Test {
         badSwapper = new MockSwapper();
         maliciousSwapper = new MaliciousSwapper();
 
-        // Configure production parameters
+
+        boxFactory = new BoxFactory();
+
+        //  Vault parameters
         string memory name = "Box Shares";
         string memory symbol = "BOX";
         uint256 maxSlippage = 0.01 ether; // 1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
-        
-        box = new Box(
+
+        box = boxFactory.createBox(
             currency, 
             owner, 
             owner, // Initially owner is also curator
@@ -187,7 +196,8 @@ contract BoxTest is Test {
             symbol,
             maxSlippage,
             slippageEpochDuration,
-            shutdownSlippageDuration
+            shutdownSlippageDuration,
+            bytes32(0)
         );
 
         // Setup roles and investment tokens using new timelock pattern
@@ -273,6 +283,76 @@ contract BoxTest is Test {
         currency.mint(address(maliciousSwapper), 10000e18);
     }
 
+
+    /////////////////////////////
+    /// BASIC TESTS
+    /////////////////////////////
+    function testBoxCreation(address currency, address owner, address curator, string memory name, string memory symbol, 
+        uint256 maxSlippage, uint256 slippageEpochDuration, uint256 shutdownSlippageDuration, bytes32 salt) public {
+        vm.assume(currency != address(0));
+        vm.assume(owner != address(0));
+        vm.assume(curator != address(0));
+        vm.assume(maxSlippage <= MAX_SLIPPAGE_LIMIT);
+        vm.assume(slippageEpochDuration != 0);
+        vm.assume(shutdownSlippageDuration != 0);
+
+        bytes memory initCode = abi.encodePacked(
+            type(Box).creationCode,
+            abi.encode(
+                IERC20(currency),
+                owner,
+                curator,
+                name,
+                symbol,
+                maxSlippage,
+                slippageEpochDuration,
+                shutdownSlippageDuration
+            )
+        );
+
+        address predicted = vm.computeCreate2Address(
+            salt,
+            keccak256(initCode),
+            address(boxFactory) // deploying address
+        );
+
+        vm.expectEmit(true, true, false, true);
+        emit IBoxFactory.CreateBox(
+            IERC20(currency),
+            owner,
+            curator,
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            salt,
+            Box(predicted)
+        );
+
+        box = boxFactory.createBox(
+            IERC20(currency),
+            owner,
+            curator,
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            salt
+        );
+
+        assertEq(address(box), predicted, "unexpected CREATE2 address");
+        assertEq(address(box.currency()), address(currency));
+        assertEq(box.owner(), owner);
+        assertEq(box.curator(), curator);
+        assertEq(box.name(), name);
+        assertEq(box.symbol(), symbol);
+        assertEq(box.maxSlippage(), maxSlippage);
+        assertEq(box.slippageEpochDuration(), slippageEpochDuration);
+        assertEq(box.shutdownSlippageDuration(), shutdownSlippageDuration);
+    }
+
     /////////////////////////////
     /// BASIC ERC4626 TESTS
     /////////////////////////////
@@ -292,6 +372,24 @@ contract BoxTest is Test {
         assertEq(box.maxMint(feeder), type(uint256).max);
         assertEq(box.maxWithdraw(feeder), 0); // No shares yet
         assertEq(box.maxRedeem(feeder), 0); // No shares yet
+    }
+
+
+    function testERC4626SharesNoAssets() public {
+        assertEq(box.convertToShares(100e18), 100e18); // 1:1 when empty
+
+        vm.startPrank(feeder);
+        currency.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Simulate the loss to get totalAsset = 0
+        vm.prank(address(box));
+        currency.transfer(address(0xdead), 100e18);
+
+        // Will revert if there is at least a share an no more assets
+        vm.expectRevert();
+        box.convertToShares(100e18); 
     }
 
     function testDeposit() public {
@@ -1596,9 +1694,6 @@ contract BoxTest is Test {
         assertGt(box.totalAssets(), 0);
         assertGt(currency.balanceOf(address(box)) + asset1.balanceOf(address(box)) + asset2.balanceOf(address(box)), 0);
     }
-
-
-
 
     function testAllocateReentrancyAttack() public {
         // Setup

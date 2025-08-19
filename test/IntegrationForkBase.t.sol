@@ -35,7 +35,7 @@ contract TestableVaultV2 is VaultV2 {
 /**
  * @title Peaty on Base integration test
  */
-contract PeatyBaseTest is Test {
+contract IntegrationForkBaseTest is Test {
     using BoxLib for Box;
     using VaultV2Lib for TestableVaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
@@ -83,11 +83,14 @@ contract PeatyBaseTest is Test {
 
         vault = new TestableVaultV2(address(owner), address(usdc));
 
-        vm.prank(owner);
+        vm.startPrank(owner);
         vault.setCurator(address(curator));
+        vault.setIsSentinel(address(guardian), true);
+        vm.stopPrank();
 
-        vm.prank(curator);
+        vm.startPrank(curator);
         vault.addAllocator(address(allocator)); 
+        vm.stopPrank();
 
         // Setting the vault to use bbqUSDC as the asset
         bbqusdcAdapter = new MorphoVaultV1Adapter(
@@ -132,7 +135,7 @@ contract PeatyBaseTest is Test {
         box1.addCollateral(stusd, stusdOracle);
         box1.setIsAllocator(address(allocator), true);
         box1.addFeeder(address(adapter1));
-        vault.addCollateral(address(adapter1), adapter1.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        vault.addCollateral(address(adapter1), adapter1.adapterData(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
         vm.stopPrank();
 
 
@@ -165,7 +168,7 @@ contract PeatyBaseTest is Test {
         box1b.addCollateral(stusd, stusdOracle);
         box1b.setIsAllocator(address(allocator), true);
         box1b.addFeeder(address(adapter1b));
-        vault.addCollateral(address(adapter1b), adapter1b.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vault.addCollateral(address(adapter1b), adapter1b.adapterData(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
         vault.setPenaltyFee(address(adapter1b), 0.005 ether); // 0.5% penalty
         vm.stopPrank();
 
@@ -198,7 +201,7 @@ contract PeatyBaseTest is Test {
         box2.addCollateral(ptusr25sep, ptusr25sepOracle);
         box2.setIsAllocator(address(allocator), true);
         box2.addFeeder(address(adapter2));
-        vault.addCollateral(address(adapter2), adapter2.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
         vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
         vm.stopPrank();
     }
@@ -422,7 +425,7 @@ contract PeatyBaseTest is Test {
         // Test who can cache
         //////////////////////////////////////////////////////
 
-        // Guardian should be able to update (we did allocator already)
+        // Guardian (vault sentinel) should be able to update (we did allocator already)
         vm.prank(guardian);
         adapter1b.updateTotalAssets();
 

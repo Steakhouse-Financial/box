@@ -30,8 +30,9 @@ contract BoxFactory is IBoxFactory {
         string memory _symbol,
         uint256 _maxSlippage,
         uint256 _slippageEpochDuration,
-        uint256 _shutdownSlippageDuration) external returns (Box) {
-        Box _box = new Box(_currency,
+        uint256 _shutdownSlippageDuration,
+        bytes32 salt) external returns (Box) {
+        Box _box = new Box{salt:salt}(_currency,
             _owner,
             _curator,
             _name,
@@ -40,14 +41,15 @@ contract BoxFactory is IBoxFactory {
             _slippageEpochDuration,
             _shutdownSlippageDuration);
         emit CreateBox(_currency,
-            _box,
             _owner,
             _curator,
             _name,
             _symbol,
             _maxSlippage,
             _slippageEpochDuration,
-            _shutdownSlippageDuration);
+            _shutdownSlippageDuration,
+            salt,
+            _box);
         return _box;
     }
 }

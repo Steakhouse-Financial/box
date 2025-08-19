@@ -115,9 +115,9 @@ contract BoxAdapterCached is IBoxAdapter {
     }
 
     /// @dev Updates the cached total assets of the adapter.
-    /// @dev Allowed: Box allocator, guardian or anyone after 24 hours of inactivity
+    /// @dev Allowed: Vault allocator, sentinel or anyone after 24 hours of inactivity
     function updateTotalAssets() external {
-        require(box.isAllocator(msg.sender) || msg.sender == box.guardian()
+        require(IVaultV2(parentVault).isAllocator(msg.sender) || IVaultV2(parentVault).isSentinel(msg.sender)
             || totalAssetsTimestamp + 1 days < block.timestamp, NotAuthorized());
 
         uint256 oldTotalAssets = totalAssets;
@@ -130,7 +130,7 @@ contract BoxAdapterCached is IBoxAdapter {
         totalAssetsTimestamp = block.timestamp;
     }
 
-    function data() external view returns (bytes memory) {
+    function adapterData() external view returns (bytes memory) {
         return abi.encode("this", address(this));
     }
 }

@@ -10,14 +10,15 @@ interface IBoxFactory {
 
     event CreateBox(
         IERC20 indexed currency,
-        Box indexed vaultAddress,
         address indexed owner,
         address curator,
         string name,
         string symbol,
         uint256 maxSlippage,
         uint256 slippageEpochDuration,
-        uint256 shutdownSlippageDuration
+        uint256 shutdownSlippageDuration,
+        bytes32 salt,
+        Box indexed boxAddress
     );
 
     /* FUNCTIONS */
@@ -31,7 +32,6 @@ interface IBoxFactory {
         string memory _symbol,
         uint256 _maxSlippage,
         uint256 _slippageEpochDuration,
-        uint256 _shutdownSlippageDuration)
-        external
-        returns (Box box);
+        uint256 _shutdownSlippageDuration,
+        bytes32 salt) external returns (Box box);
 }

@@ -17,6 +17,8 @@ import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
+import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
+import {BoxAdapterCachedFactory} from "../src/BoxAdapterCachedFactory.sol";
 
 ///@dev This script deploys the necessary contracts for the Peaty product on Base.
 ///@dev Default factories are hardcoded, but can be overridden using run() which will deploy fresh contracts.
@@ -29,6 +31,7 @@ contract DeployScript is Script {
     MorphoVaultV1AdapterFactory mv1AdapterFactory = MorphoVaultV1AdapterFactory(0x0007cFf758DFF3492674605699748C6e36da332F);
     BoxFactory boxFactory = BoxFactory(0x7734a4b62C71B2C79aAc32fd068F35b183eC6d84);
     BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x7dDAe7412Bbc30693fc0332ca4E1078b4fC4e93C);
+    BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x7dDAe7412Bbc30693fc0332ca4E1078b4fC4e93C);
 
     address owner = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address curator = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
@@ -53,6 +56,7 @@ contract DeployScript is Script {
         mv1AdapterFactory = deployMorphoVaultV1AdapterFactory();
         boxFactory = deployBoxFactory();
         boxAdapterFactory = deployBoxAdapterFactory();
+        boxAdapterCachedFactory = deployBoxAdapterCachedFactory();
     }
 
     function deployBoxFactory() public returns (BoxFactory) {
@@ -69,6 +73,14 @@ contract DeployScript is Script {
         console.log("BoxAdapterFactory deployed at:", address(boxAdapterFactory));
         vm.stopBroadcast();
         return boxAdapterFactory;
+    }
+
+    function deployBoxAdapterCachedFactory() public returns (BoxAdapterCachedFactory) {
+        vm.startBroadcast();
+        BoxAdapterCachedFactory boxAdapterCachedFactory = new BoxAdapterCachedFactory();
+        console.log("BoxAdapterCachedFactory deployed at:", address(boxAdapterCachedFactory));
+        vm.stopBroadcast();
+        return boxAdapterCachedFactory;
     }
 
     function deployMorphoVaultV1AdapterFactory() public returns (MorphoVaultV1AdapterFactory) {
@@ -124,7 +136,8 @@ contract DeployScript is Script {
             symbol,
             maxSlippage,
             slippageEpochDuration,
-            shutdownSlippageDuration
+            shutdownSlippageDuration,
+            bytes32(0)
         );
         console.log("Box Angle deployed at:", address(box1));
 
@@ -138,7 +151,7 @@ contract DeployScript is Script {
         box1.addFeeder(address(adapter1));
         box1.setCurator(address(curator));
         box1.transferOwnership(address(owner));
-        vault.addCollateral(address(adapter1), adapter1.data(), 10_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        vault.addCollateral(address(adapter1), adapter1.adapterData(), 10_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
 
 
         // Creating Box 2 which will invest in PT-USR-25SEP
@@ -155,7 +168,8 @@ contract DeployScript is Script {
             symbol,
             maxSlippage,
             slippageEpochDuration,
-            shutdownSlippageDuration
+            shutdownSlippageDuration,
+            bytes32(0)
         );
         console.log("Box Resolv deployed at:", address(box2));
         // Creating the ERC4626 adapter between the vault and box2
@@ -168,7 +182,7 @@ contract DeployScript is Script {
         box2.addFeeder(address(adapter2));
         box2.setCurator(address(curator));
         box2.transferOwnership(address(owner));
-        vault.addCollateral(address(adapter2), adapter2.data(), 1_000_000 * 10**6, 0.5 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10**6, 0.5 ether); // 1,000,000 USDC absolute cap and 50% relative cap
         vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
         
         vault.removeAllocator(address(tx.origin));

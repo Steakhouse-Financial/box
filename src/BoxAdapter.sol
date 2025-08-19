@@ -107,7 +107,7 @@ contract BoxAdapter is IBoxAdapter {
             : 0;
     }
 
-    function data() external view returns (bytes memory) {
+    function adapterData() external view returns (bytes memory) {
         return abi.encode("this", address(this));
     }
 }

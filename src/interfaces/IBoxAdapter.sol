@@ -27,9 +27,10 @@ interface IBoxAdapter is IAdapter {
     function box() external view returns (Box);
     function skimRecipient() external view returns (address);
     function allocation() external view returns (uint256);
+    function ids() external view returns (bytes32[] memory);
 
     // Added for BoxAdapter
     function adapterId() external view returns (bytes32);
-    function data() external view returns (bytes memory);
+    function adapterData() external view returns (bytes memory);
 
 }

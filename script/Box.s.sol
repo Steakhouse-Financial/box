@@ -109,7 +109,7 @@ contract BoxScript is Script {
         box1.addCollateral(stusd, stusdOracle);
         box1.setIsAllocator(address(allocator), true);
         box1.addFeeder(address(adapter1));
-        vault.addCollateral(address(adapter1), adapter1.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        vault.addCollateral(address(adapter1), adapter1.adapterData(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
         vm.stopPrank();
 
 
@@ -137,7 +137,7 @@ contract BoxScript is Script {
         box2.addCollateral(ptusr25sep, ptusr25sepOracle);
         box2.setIsAllocator(address(allocator), true);
         box2.addFeeder(address(adapter2));
-        vault.addCollateral(address(adapter2), adapter2.data(), 1_000_000 * 10**6, 0.5 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10**6, 0.5 ether); // 1,000,000 USDC absolute cap and 50% relative cap
         vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
         vm.stopPrank();
     }
