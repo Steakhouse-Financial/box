@@ -135,10 +135,10 @@ contract BoxTest is Test {
 
     Box public box;
     IBoxFactory public boxFactory;
-    MockERC20 public currency;
-    MockERC20 public asset1;
-    MockERC20 public asset2;
-    MockERC20 public asset3;
+    MockERC20 public asset;
+    MockERC20 public token1;
+    MockERC20 public token2;
+    MockERC20 public token3;
     MockOracle public oracle1;
     MockOracle public oracle2;
     MockOracle public oracle3;
@@ -158,18 +158,18 @@ contract BoxTest is Test {
 
     event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
     event Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
-    event Allocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
-    event Deallocation(IERC20 indexed token, uint256 amount, ISwapper indexed swapper);
-    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 amount, ISwapper indexed swapper);
+    event Allocation(IERC20 indexed token, uint256 assets, uint256 tokens, ISwapper indexed swapper, bytes data);
+    event Deallocation(IERC20 indexed token, uint256 tokens, uint256 assets, ISwapper indexed swapper, bytes data);
+    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 fromAmount, uint256 toAmount, ISwapper indexed swapper, bytes data);
     event Shutdown(address indexed guardian);
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
 
     function setUp() public {
-        currency = new MockERC20("USDC", "USDC");
-        asset1 = new MockERC20("Asset1", "ASSET1");
-        asset2 = new MockERC20("Asset2", "ASSET2");
-        asset3 = new MockERC20("Asset3", "ASSET3");
+        asset = new MockERC20("USDC", "USDC");
+        token1 = new MockERC20("Token1", "TOKEN1");
+        token2 = new MockERC20("Token2", "TOKEN2");
+        token3 = new MockERC20("Token3", "TOKEN3");
         oracle1 = new MockOracle();
         oracle2 = new MockOracle();
         oracle3 = new MockOracle();
@@ -189,7 +189,7 @@ contract BoxTest is Test {
         uint256 shutdownSlippageDuration = 10 days;
 
         box = boxFactory.createBox(
-            currency, 
+            asset, 
             owner, 
             owner, // Initially owner is also curator
             name,
@@ -234,16 +234,16 @@ contract BoxTest is Test {
         (success,) = address(box).call(maliciousSwapperData);
         require(success, "Failed to set allocator");
 
-        // Add investment tokens
-        bytes memory asset1Data = abi.encodeWithSelector(box.addInvestmentToken.selector, asset1, oracle1);
-        box.submit(asset1Data);
-        (success,) = address(box).call(asset1Data);
-        require(success, "Failed to add asset1");
+        // Add tokens
+        bytes memory token1Data = abi.encodeWithSelector(box.addToken.selector, token1, oracle1);
+        box.submit(token1Data);
+        (success,) = address(box).call(token1Data);
+        require(success, "Failed to add token1");
 
-        bytes memory asset2Data = abi.encodeWithSelector(box.addInvestmentToken.selector, asset2, oracle2);
-        box.submit(asset2Data);
-        (success,) = address(box).call(asset2Data);
-        require(success, "Failed to add asset2");
+        bytes memory token2Data = abi.encodeWithSelector(box.addToken.selector, token2, oracle2);
+        box.submit(token2Data);
+        (success,) = address(box).call(token2Data);
+        require(success, "Failed to add token2");
 
         // Add user1 as feeder so they can withdraw
         bytes memory userData = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
@@ -260,36 +260,36 @@ contract BoxTest is Test {
         vm.stopPrank();
 
         // Mint tokens for testing
-        currency.mint(feeder, 10000e18);
-        currency.mint(user1, 10000e18);
-        currency.mint(user2, 10000e18);
-        asset1.mint(address(swapper), 10000e18);
-        asset2.mint(address(swapper), 10000e18);
-        asset3.mint(address(swapper), 10000e18);
-        asset1.mint(address(backupSwapper), 10000e18);
-        asset2.mint(address(backupSwapper), 10000e18);
-        asset3.mint(address(backupSwapper), 10000e18);
-        asset1.mint(address(badSwapper), 10000e18);
-        asset2.mint(address(badSwapper), 10000e18);
-        asset3.mint(address(badSwapper), 10000e18);
-        asset1.mint(address(maliciousSwapper), 10000e18);
-        asset2.mint(address(maliciousSwapper), 10000e18);
-        asset3.mint(address(maliciousSwapper), 10000e18);
-        
-        // Mint currency for swappers to provide liquidity
-        currency.mint(address(swapper), 10000e18);
-        currency.mint(address(backupSwapper), 10000e18);
-        currency.mint(address(badSwapper), 10000e18);
-        currency.mint(address(maliciousSwapper), 10000e18);
+        asset.mint(feeder, 10000e18);
+        asset.mint(user1, 10000e18);
+        asset.mint(user2, 10000e18);
+        token1.mint(address(swapper), 10000e18);
+        token2.mint(address(swapper), 10000e18);
+        token3.mint(address(swapper), 10000e18);
+        token1.mint(address(backupSwapper), 10000e18);
+        token2.mint(address(backupSwapper), 10000e18);
+        token3.mint(address(backupSwapper), 10000e18);
+        token1.mint(address(badSwapper), 10000e18);
+        token2.mint(address(badSwapper), 10000e18);
+        token3.mint(address(badSwapper), 10000e18);
+        token1.mint(address(maliciousSwapper), 10000e18);
+        token2.mint(address(maliciousSwapper), 10000e18);
+        token3.mint(address(maliciousSwapper), 10000e18);
+
+        // Mint asset for swappers to provide liquidity
+        asset.mint(address(swapper), 10000e18);
+        asset.mint(address(backupSwapper), 10000e18);
+        asset.mint(address(badSwapper), 10000e18);
+        asset.mint(address(maliciousSwapper), 10000e18);
     }
 
 
     /////////////////////////////
     /// BASIC TESTS
     /////////////////////////////
-    function testBoxCreation(address currency, address owner, address curator, string memory name, string memory symbol, 
+    function testBoxCreation(address asset, address owner, address curator, string memory name, string memory symbol, 
         uint256 maxSlippage, uint256 slippageEpochDuration, uint256 shutdownSlippageDuration, bytes32 salt) public {
-        vm.assume(currency != address(0));
+        vm.assume(asset != address(0));
         vm.assume(owner != address(0));
         vm.assume(curator != address(0));
         vm.assume(maxSlippage <= MAX_SLIPPAGE_LIMIT);
@@ -299,7 +299,7 @@ contract BoxTest is Test {
         bytes memory initCode = abi.encodePacked(
             type(Box).creationCode,
             abi.encode(
-                IERC20(currency),
+                asset,
                 owner,
                 curator,
                 name,
@@ -318,7 +318,7 @@ contract BoxTest is Test {
 
         vm.expectEmit(true, true, false, true);
         emit IBoxFactory.CreateBox(
-            IERC20(currency),
+            IERC20(asset),
             owner,
             curator,
             name,
@@ -331,7 +331,7 @@ contract BoxTest is Test {
         );
 
         box = boxFactory.createBox(
-            IERC20(currency),
+            IERC20(asset),
             owner,
             curator,
             name,
@@ -343,7 +343,7 @@ contract BoxTest is Test {
         );
 
         assertEq(address(box), predicted, "unexpected CREATE2 address");
-        assertEq(address(box.currency()), address(currency));
+        assertEq(address(box.asset()), address(asset));
         assertEq(box.owner(), owner);
         assertEq(box.curator(), curator);
         assertEq(box.name(), name);
@@ -359,7 +359,7 @@ contract BoxTest is Test {
 
     function testERC4626Compliance() public {
         // Test asset()
-        assertEq(box.asset(), address(currency));
+        assertEq(box.asset(), address(asset));
 
         // Test initial state
         assertEq(box.totalAssets(), 0);
@@ -379,13 +379,13 @@ contract BoxTest is Test {
         assertEq(box.convertToShares(100e18), 100e18); // 1:1 when empty
 
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         // Simulate the loss to get totalAsset = 0
         vm.prank(address(box));
-        currency.transfer(address(0xdead), 100e18);
+        asset.transfer(address(0xdead), 100e18);
 
         // Will revert if there is at least a share an no more assets
         vm.expectRevert();
@@ -394,8 +394,8 @@ contract BoxTest is Test {
 
     function testDeposit() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
-        
+        asset.approve(address(box), 100e18);
+
         vm.expectEmit(true, true, false, true);
         emit Deposit(feeder, feeder, 100e18, 100e18);
         
@@ -406,12 +406,12 @@ contract BoxTest is Test {
         assertEq(box.balanceOf(feeder), 100e18);
         assertEq(box.totalSupply(), 100e18);
         assertEq(box.totalAssets(), 100e18);
-        assertEq(currency.balanceOf(address(box)), 100e18);
+        assertEq(asset.balanceOf(address(box)), 100e18);
     }
 
     function testDepositNonFeeder() public {
         vm.startPrank(nonAuthorized);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         
         vm.expectRevert(Errors.OnlyFeeders.selector);
         box.deposit(100e18, nonAuthorized);
@@ -423,8 +423,8 @@ contract BoxTest is Test {
         box.shutdown();
 
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
-        
+        asset.approve(address(box), 100e18);
+
         vm.expectRevert(Errors.CannotDepositIfShutdown.selector);
         box.deposit(100e18, feeder);
         vm.stopPrank();
@@ -432,8 +432,8 @@ contract BoxTest is Test {
 
     function testMint() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
-        
+        asset.approve(address(box), 100e18);
+
         vm.expectEmit(true, true, false, true);
         emit Deposit(feeder, feeder, 100e18, 100e18);
         
@@ -448,7 +448,7 @@ contract BoxTest is Test {
 
     function testMintNonFeeder() public {
         vm.startPrank(nonAuthorized);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         
         vm.expectRevert(Errors.OnlyFeeders.selector);
         box.mint(100e18, nonAuthorized);
@@ -460,7 +460,7 @@ contract BoxTest is Test {
         box.shutdown();
 
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         
         vm.expectRevert(Errors.CannotMintIfShutdown.selector);
         box.mint(100e18, feeder);
@@ -470,7 +470,7 @@ contract BoxTest is Test {
     function testWithdraw() public {
         // First deposit
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
         // Then withdraw
@@ -484,12 +484,12 @@ contract BoxTest is Test {
         assertEq(box.balanceOf(feeder), 50e18);
         assertEq(box.totalSupply(), 50e18);
         assertEq(box.totalAssets(), 50e18);
-        assertEq(currency.balanceOf(feeder), 9950e18);
+        assertEq(asset.balanceOf(feeder), 9950e18);
     }
 
     function testWithdrawInsufficientShares() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
         vm.expectRevert(Errors.InsufficientShares.selector);
@@ -500,7 +500,7 @@ contract BoxTest is Test {
     function testWithdrawWithAllowance() public {
         // Setup: feeder deposits, user1 gets allowance
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         box.approve(user1, 50e18);
         vm.stopPrank();
@@ -521,12 +521,12 @@ contract BoxTest is Test {
         assertEq(shares, 30e18);
         assertEq(box.balanceOf(feeder), 70e18);
         assertEq(box.allowance(feeder, user1), 20e18); // 50 - 30
-        assertEq(currency.balanceOf(user1), 10030e18);
+        assertEq(asset.balanceOf(user1), 10030e18);
     }
 
     function testWithdrawInsufficientAllowance() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         box.approve(user1, 30e18);
         vm.stopPrank();
@@ -548,7 +548,7 @@ contract BoxTest is Test {
     function testRedeem() public {
         // First deposit
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
         // Then redeem
@@ -561,12 +561,12 @@ contract BoxTest is Test {
         assertEq(assets, 50e18);
         assertEq(box.balanceOf(feeder), 50e18);
         assertEq(box.totalSupply(), 50e18);
-        assertEq(currency.balanceOf(feeder), 9950e18);
+        assertEq(asset.balanceOf(feeder), 9950e18);
     }
 
     function testRedeemInsufficientShares() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
         vm.expectRevert(Errors.InsufficientShares.selector);
@@ -581,7 +581,7 @@ contract BoxTest is Test {
     function testERC20Transfer() public {
         // Setup
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
         vm.expectEmit(true, true, false, true);
@@ -597,7 +597,7 @@ contract BoxTest is Test {
 
     function testERC20TransferInsufficientBalance() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
         vm.expectRevert();
@@ -621,7 +621,7 @@ contract BoxTest is Test {
     function testERC20TransferFrom() public {
         // Setup
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         box.approve(user1, 50e18);
         vm.stopPrank();
@@ -640,7 +640,7 @@ contract BoxTest is Test {
 
     function testERC20TransferFromInsufficientAllowance() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         box.approve(user1, 30e18);
         vm.stopPrank();
@@ -652,7 +652,7 @@ contract BoxTest is Test {
 
     function testERC20TransferFromInsufficientBalance() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         box.approve(user1, 200e18);
         vm.stopPrank();
@@ -665,7 +665,7 @@ contract BoxTest is Test {
     function testERC20TransferFromMaxAllowance() public {
         // Setup with max allowance
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         box.approve(user1, type(uint256).max);
         vm.stopPrank();
@@ -682,39 +682,39 @@ contract BoxTest is Test {
     /// ALLOCATION TESTS
     /////////////////////////////
 
-    function testAllocateToInvestmentToken() public {
+    function testAllocateToToken() public {
         // Setup
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.expectEmit(true, false, true, false);
-        emit Allocation(asset1, 50e18, swapper);
+        emit Allocation(token1, 50e18, 50e18, swapper, "");
 
-        // Allocate to asset1
+        // Allocate to token1
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
-        assertEq(currency.balanceOf(address(box)), 50e18);
-        assertEq(asset1.balanceOf(address(box)), 50e18);
-        assertEq(box.totalAssets(), 100e18); // 50 USDC + 50 asset1 (1:1 price)
+        assertEq(asset.balanceOf(address(box)), 50e18);
+        assertEq(token1.balanceOf(address(box)), 50e18);
+        assertEq(box.totalAssets(), 100e18); // 50 USDC + 50 token1 (1:1 price)
     }
 
     function testAllocateNonAllocator() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.expectRevert(Errors.OnlyAllocators.selector);
         vm.prank(nonAuthorized);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
     }
 
     function testAllocateWhenShutdown() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
@@ -723,24 +723,24 @@ contract BoxTest is Test {
 
         vm.expectRevert(Errors.CannotAllocateIfShutdown.selector);
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
     }
 
     function testAllocateNonWhitelistedToken() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.expectRevert(Errors.TokenNotWhitelisted.selector);
         vm.prank(allocator);
-        box.allocate(asset3, 50e18, swapper, "");
+        box.allocate(token3, 50e18, swapper, "");
     }
 
     function testAllocateNoOracle() public {
         // This test needs to be updated since the error happens at execution time now
         vm.startPrank(curator);
-        bytes memory tokenData = abi.encodeWithSelector(box.addInvestmentToken.selector, asset3, IOracle(address(0)));
+        bytes memory tokenData = abi.encodeWithSelector(box.addToken.selector, token3, IOracle(address(0)));
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
         vm.expectRevert(Errors.OracleRequired.selector);
@@ -750,22 +750,22 @@ contract BoxTest is Test {
 
     function testAllocateSlippageProtection() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         // Set oracle price to make allocation expensive
-        oracle1.setPrice(0.5e36); // 1 currency = 2 tokens expected
+        oracle1.setPrice(0.5e36); // 1 asset = 2 tokens expected
         // But swapper gives 1:1, so we get less than expected
 
         vm.expectRevert(Errors.AllocationTooExpensive.selector);
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
     }
 
     function testAllocateWithSlippage() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
@@ -774,98 +774,101 @@ contract BoxTest is Test {
         
         // This should work as 1% is within the 1% max slippage
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
-        assertEq(currency.balanceOf(address(box)), 50e18);
-        assertEq(asset1.balanceOf(address(box)), 49.5e18); // 1% slippage
+        assertEq(asset.balanceOf(address(box)), 50e18);
+        assertEq(token1.balanceOf(address(box)), 49.5e18); // 1% slippage
     }
 
-    function testDeallocateFromInvestmentToken() public {
+    function testDeallocateFromToken() public {
         // Setup and allocate
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         vm.expectEmit(true, false, true, false);
-        emit Deallocation(asset1, 25e18, swapper);
+        emit Deallocation(token1, 25e18, 25e18, swapper, "");
 
         // Deallocate
         vm.prank(allocator);
-        box.deallocate(asset1, 25e18, swapper, "");
+        box.deallocate(token1, 25e18, swapper, "");
 
-        assertEq(currency.balanceOf(address(box)), 75e18);
-        assertEq(asset1.balanceOf(address(box)), 25e18);
-        assertEq(box.totalAssets(), 100e18); // 75 USDC + 25 asset1
+        assertEq(asset.balanceOf(address(box)), 75e18);
+        assertEq(token1.balanceOf(address(box)), 25e18);
+        assertEq(box.totalAssets(), 100e18); // 75 USDC + 25 token1
     }
 
     function testDeallocateNonAllocator() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         // make sure timestamp is realistic, setting it in August 15, 2025
         vm.warp(1755247499);
 
         vm.startPrank(nonAuthorized);
         vm.expectRevert(Errors.OnlyAllocatorsOrShutdown.selector);
-        box.deallocate(asset1, 25e18, swapper, "");
+        box.deallocate(token1, 25e18, swapper, "");
         vm.stopPrank();
     }
 
     function testDeallocateNonWhitelistedToken() public {
         vm.expectRevert(Errors.NoOracleForToken.selector);
         vm.prank(allocator);
-        box.deallocate(asset3, 25e18, swapper, "");
+        box.deallocate(token3, 25e18, swapper, "");
     }
 
     function testDeallocateSlippageProtection() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         // Set oracle price to make deallocation expensive
-        oracle1.setPrice(2e36); // 1 token = 2 currency expected
+        oracle1.setPrice(2e36); // 1 token = 2 asset expected
         // But swapper gives 1:1, so we get less than expected
 
-        vm.expectRevert(Errors.TokenSaleNotGeneratingEnoughCurrency.selector);
+        vm.expectRevert(Errors.TokenSaleNotGeneratingEnoughAssets.selector);
         vm.prank(allocator);
-        box.deallocate(asset1, 25e18, swapper, "");
+        box.deallocate(token1, 25e18, swapper, "");
     }
 
     function testReallocate() public {
-        // Setup and allocate to asset1
+        // Setup and allocate to token1
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
-        // Reallocate from asset1 to asset2
+        vm.expectEmit(true, false, true, false);
+        emit Reallocation(token1, token2, 25e18, 25e18, swapper, "");
+
+        // Reallocate from token1 to token2
         vm.prank(allocator);
-        box.reallocate(asset1, asset2, 25e18, swapper, "");
+        box.reallocate(token1, token2, 25e18, swapper, "");
 
-        assertEq(asset1.balanceOf(address(box)), 25e18);
-        assertEq(asset2.balanceOf(address(box)), 25e18);
+        assertEq(token1.balanceOf(address(box)), 25e18);
+        assertEq(token2.balanceOf(address(box)), 25e18);
     }
 
     function testReallocateNonAllocator() public {
         vm.expectRevert(Errors.OnlyAllocators.selector);
         vm.prank(nonAuthorized);
-        box.reallocate(asset1, asset2, 25e18, swapper, "");
+        box.reallocate(token1, token2, 25e18, swapper, "");
     }
 
     function testReallocateWhenShutdown() public {
@@ -874,59 +877,59 @@ contract BoxTest is Test {
 
         vm.expectRevert(Errors.CannotReallocateIfShutdown.selector);
         vm.prank(allocator);
-        box.reallocate(asset1, asset2, 25e18, swapper, "");
+        box.reallocate(token1, token2, 25e18, swapper, "");
     }
 
     function testReallocateNonWhitelistedTokens() public {
         vm.expectRevert(Errors.TokensNotWhitelisted.selector);
         vm.prank(allocator);
-        box.reallocate(asset3, asset1, 25e18, swapper, "");
+        box.reallocate(token3, token1, 25e18, swapper, "");
 
         vm.expectRevert(Errors.TokensNotWhitelisted.selector);
         vm.prank(allocator);
-        box.reallocate(asset1, asset3, 25e18, swapper, "");
+        box.reallocate(token1, token3, 25e18, swapper, "");
     }
 
     function testReallocateSlippageProtection() public {
-        // Setup and allocate to asset1
+        // Setup and allocate to token1
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         // Set oracle prices to make reallocation expensive
-        oracle1.setPrice(1e36); // 1 asset1 = 1 currency
-        oracle2.setPrice(0.5e36); // 1 asset2 = 0.5 currency (so we expect 2 asset2 for 1 asset1)
+        oracle1.setPrice(1e36); // 1 token1 = 1 asset
+        oracle2.setPrice(0.5e36); // 1 token2 = 0.5 asset (so we expect 2 token2 for 1 token1)
         
         // But swapper gives 1:1, so we get less than expected (50% slippage)
         vm.expectRevert(Errors.ReallocationSlippageTooHigh.selector);
         vm.prank(allocator);
-        box.reallocate(asset1, asset2, 25e18, swapper, "");
+        box.reallocate(token1, token2, 25e18, swapper, "");
     }
 
     function testReallocateWithAcceptableSlippage() public {
-        // Setup and allocate to asset1
+        // Setup and allocate to token1
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         // Set oracle prices with small difference
-        oracle1.setPrice(1e36); // 1 asset1 = 1 currency
-        oracle2.setPrice(0.995e36); // 1 asset2 = 0.995 currency (expect ~1.005 asset2 for 1 asset1)
+        oracle1.setPrice(1e36); // 1 token1 = 1 asset
+        oracle2.setPrice(0.995e36); // 1 token2 = 0.995 asset (expect ~1.005 token2 for 1 token1)
         
         // Swapper gives 1:1, which is within 1% slippage tolerance
         vm.prank(allocator);
-        box.reallocate(asset1, asset2, 25e18, swapper, "");
+        box.reallocate(token1, token2, 25e18, swapper, "");
 
-        assertEq(asset1.balanceOf(address(box)), 25e18);
-        assertEq(asset2.balanceOf(address(box)), 25e18);
+        assertEq(token1.balanceOf(address(box)), 25e18);
+        assertEq(token2.balanceOf(address(box)), 25e18);
     }
 
     /////////////////////////////
@@ -936,64 +939,64 @@ contract BoxTest is Test {
     function testMultipleInvestmentTokens() public {
         // Setup
         vm.startPrank(feeder);
-        currency.approve(address(box), 200e18);
+        asset.approve(address(box), 200e18);
         box.deposit(200e18, feeder);
         vm.stopPrank();
 
         // Allocate to both assets
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         vm.prank(allocator);
-        box.allocate(asset2, 50e18, swapper, "");
+        box.allocate(token2, 50e18, swapper, "");
 
-        assertEq(currency.balanceOf(address(box)), 100e18);
-        assertEq(asset1.balanceOf(address(box)), 50e18);
-        assertEq(asset2.balanceOf(address(box)), 50e18);
-        assertEq(box.totalAssets(), 200e18); // 100 USDC + 50 asset1 + 50 asset2
-        assertEq(box.getInvestmentTokensLength(), 2);
-        assertEq(address(box.investmentTokens(0)), address(asset1));
-        assertEq(address(box.investmentTokens(1)), address(asset2));
+        assertEq(asset.balanceOf(address(box)), 100e18);
+        assertEq(token1.balanceOf(address(box)), 50e18);
+        assertEq(token2.balanceOf(address(box)), 50e18);
+        assertEq(box.totalAssets(), 200e18); // 100 USDC + 50 token1 + 50 token2
+        assertEq(box.tokensLength(), 2);
+        assertEq(address(box.tokens(0)), address(token1));
+        assertEq(address(box.tokens(1)), address(token2));
     }
 
     function testTotalAssetsWithDifferentPrices() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 200e18);
+        asset.approve(address(box), 200e18);
         box.deposit(200e18, feeder);
         vm.stopPrank();
 
         // First allocate with normal prices
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         vm.prank(allocator);
-        box.allocate(asset2, 50e18, swapper, "");
+        box.allocate(token2, 50e18, swapper, "");
 
         // Then change oracle prices after allocation
-        oracle1.setPrice(2e36); // 1 asset1 = 2 currency
-        oracle2.setPrice(0.5e36); // 1 asset2 = 0.5 currency
+        oracle1.setPrice(2e36); // 1 token1 = 2 asset
+        oracle2.setPrice(0.5e36); // 1 token2 = 0.5 asset
 
-        // Total assets = 100 currency + 50 asset1 * 2 + 50 asset2 * 0.5 = 100 + 100 + 25 = 225
+        // Total assets = 100 asset + 50 token1 * 2 + 50 token2 * 0.5 = 100 + 100 + 25 = 225
         assertEq(box.totalAssets(), 225e18);
     }
 
     function testConvertToSharesWithInvestments() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 200e18);
+        asset.approve(address(box), 200e18);
         box.deposit(200e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 100e18, swapper, "");
+        box.allocate(token1, 100e18, swapper, "");
 
-        // Total assets = 100 currency + 100 asset1 = 200
+        // Total assets = 100 asset + 100 token1 = 200
         // Total supply = 200 shares
         // convertToShares(100) = 100 * 200 / 200 = 100
         assertEq(box.convertToShares(100e18), 100e18);
 
-        // Change asset1 price to 2x
+        // Change token1 price to 2x
         oracle1.setPrice(2e36);
-        // Total assets = 100 currency + 100 asset1 * 2 = 300
+        // Total assets = 100 asset + 100 token1 * 2 = 300
         // convertToShares(100) = 100 * 200 / 300 = 66.666...
         assertEq(box.convertToShares(100e18), 66666666666666666666);
     }
@@ -1004,7 +1007,7 @@ contract BoxTest is Test {
 
     function testSlippageAccumulation() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 1000e18);
+        asset.approve(address(box), 1000e18);
         box.deposit(1000e18, feeder);
         vm.stopPrank();
 
@@ -1013,18 +1016,18 @@ contract BoxTest is Test {
 
         // Multiple allocations should accumulate slippage
         vm.startPrank(allocator);
-        box.allocate(asset1, 100e18, swapper, ""); // 0.1% of total assets slippage
-        box.allocate(asset1, 100e18, swapper, ""); // Another 0.1%
-        box.allocate(asset1, 100e18, swapper, ""); // Another 0.1%
+        box.allocate(token1, 100e18, swapper, ""); // 0.1% of total assets slippage
+        box.allocate(token1, 100e18, swapper, ""); // Another 0.1%
+        box.allocate(token1, 100e18, swapper, ""); // Another 0.1%
         vm.stopPrank();
 
         // Should still work as we're under 1% total
-        assertEq(asset1.balanceOf(address(box)), 297e18); // 300 - 3% slippage
+        assertEq(token1.balanceOf(address(box)), 297e18); // 300 - 3% slippage
     }
 
     function testSlippageAccumulationLimit() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 1000e18);
+        asset.approve(address(box), 1000e18);
         box.deposit(1000e18, feeder);
         vm.stopPrank();
 
@@ -1034,25 +1037,25 @@ contract BoxTest is Test {
         vm.startPrank(allocator);
         // Multiple larger allocations that accumulate slippage faster
         // Each 100e18 allocation with 1% slippage should contribute more significantly
-        box.allocate(asset1, 100e18, swapper, ""); // ~0.1% slippage
-        box.allocate(asset1, 100e18, swapper, ""); // ~0.1% slippage  
-        box.allocate(asset1, 100e18, swapper, ""); // ~0.1% slippage
-        box.allocate(asset1, 100e18, swapper, ""); // ~0.1% slippage
-        box.allocate(asset1, 100e18, swapper, ""); // ~0.1% slippage
-        box.allocate(asset1, 100e18, swapper, ""); // ~0.1% slippage
-        box.allocate(asset1, 100e18, swapper, ""); // ~0.1% slippage
-        box.allocate(asset1, 100e18, swapper, ""); // ~0.1% slippage
-        box.allocate(asset1, 100e18, swapper, ""); // ~0.1% slippage
+        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
+        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage  
+        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
+        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
+        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
+        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
+        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
+        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
+        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
         
         // This should fail as it would exceed 1% total slippage
         vm.expectRevert(Errors.TooMuchAccumulatedSlippage.selector);
-        box.allocate(asset1, 100e18, swapper, ""); // Would push over 1% total
+        box.allocate(token1, 100e18, swapper, ""); // Would push over 1% total
         vm.stopPrank();
     }
 
     function testSlippageEpochReset() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 1000e18);
+        asset.approve(address(box), 1000e18);
         box.deposit(1000e18, feeder);
         vm.stopPrank();
 
@@ -1060,13 +1063,13 @@ contract BoxTest is Test {
 
         vm.startPrank(allocator);
         // Use up most of slippage budget
-        box.allocate(asset1, 90e18, swapper, ""); // 0.09% slippage
+        box.allocate(token1, 90e18, swapper, ""); // 0.09% slippage
         
         // Warp forward 8 days to reset epoch
         vm.warp(block.timestamp + 8 days);
         
         // Should work again as epoch reset
-        box.allocate(asset1, 90e18, swapper, "");
+        box.allocate(token1, 90e18, swapper, "");
         vm.stopPrank();
     }
 
@@ -1104,12 +1107,12 @@ contract BoxTest is Test {
 
     function testDeallocateAfterShutdown() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         vm.prank(guardian);
         box.shutdown();
@@ -1119,55 +1122,55 @@ contract BoxTest is Test {
 
         // But need to wait SHUTDOWN_WARMUP before deallocation
         vm.expectRevert(Errors.OnlyAllocatorsOrShutdown.selector);
-        box.deallocate(asset1, 25e18, swapper, "");
+        box.deallocate(token1, 25e18, swapper, "");
 
         // After warmup it should work
         vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
-        box.deallocate(asset1, 25e18, swapper, "");
+        box.deallocate(token1, 25e18, swapper, "");
 
 
-        assertEq(asset1.balanceOf(address(box)), 25e18);
+        assertEq(token1.balanceOf(address(box)), 25e18);
     }
 
     function testShutdownSlippageTolerance() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         vm.prank(guardian);
         box.shutdown();
 
         // Test that shutdown mode allows deallocation
         vm.prank(allocator);
-        box.deallocate(asset1, 25e18, swapper, "");
+        box.deallocate(token1, 25e18, swapper, "");
 
-        assertEq(asset1.balanceOf(address(box)), 25e18);
+        assertEq(token1.balanceOf(address(box)), 25e18);
     }
 
     function testWithdrawAfterShutdownWithAutoDeallocation() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 200e18);
+        asset.approve(address(box), 200e18);
         box.deposit(200e18, feeder);
         vm.stopPrank();
 
-        // Allocate some funds but leave enough currency for withdrawal
+        // Allocate some funds but leave enough asset for withdrawal
         vm.prank(allocator);
-        box.allocate(asset1, 100e18, swapper, "");
+        box.allocate(token1, 100e18, swapper, "");
 
         vm.prank(guardian);
         box.shutdown();
 
-        // Try to withdraw - should work with available currency
+        // Try to withdraw - should work with available asset
         vm.prank(feeder);
         box.withdraw(50e18, feeder, feeder);
 
         // Verify withdrawal worked
-        assertEq(currency.balanceOf(address(box)), 50e18);
-        assertEq(asset1.balanceOf(address(box)), 100e18);
+        assertEq(asset.balanceOf(address(box)), 50e18);
+        assertEq(token1.balanceOf(address(box)), 100e18);
     }
 
     /////////////////////////////
@@ -1177,15 +1180,15 @@ contract BoxTest is Test {
     function testUnboxWithMultipleTokens() public {
         // Setup and allocate to multiple tokens
         vm.startPrank(feeder);
-        currency.approve(address(box), 150e18);
+        asset.approve(address(box), 150e18);
         box.deposit(150e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         vm.prank(allocator);
-        box.allocate(asset2, 50e18, swapper, "");
+        box.allocate(token2, 50e18, swapper, "");
 
         // Unbox
         vm.prank(feeder);
@@ -1193,19 +1196,19 @@ contract BoxTest is Test {
 
         assertEq(box.balanceOf(feeder), 0);
         assertEq(box.totalSupply(), 0);
-        assertEq(currency.balanceOf(feeder), 9900e18); // 9850 + 50 from unbox
-        assertEq(asset1.balanceOf(feeder), 50e18);
-        assertEq(asset2.balanceOf(feeder), 50e18);
+        assertEq(asset.balanceOf(feeder), 9900e18); // 9850 + 50 from unbox
+        assertEq(token1.balanceOf(feeder), 50e18);
+        assertEq(token2.balanceOf(feeder), 50e18);
     }
 
     function testUnboxPartialShares() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 150e18);
+        asset.approve(address(box), 150e18);
         box.deposit(150e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 75e18, swapper, "");
+        box.allocate(token1, 75e18, swapper, "");
 
         // Unbox half the shares
         vm.prank(feeder);
@@ -1213,13 +1216,13 @@ contract BoxTest is Test {
 
         assertEq(box.balanceOf(feeder), 75e18);
         assertEq(box.totalSupply(), 75e18);
-        assertEq(currency.balanceOf(feeder), 9887.5e18); // 9850 + 37.5 from unbox
-        assertEq(asset1.balanceOf(feeder), 37.5e18);
+        assertEq(asset.balanceOf(feeder), 9887.5e18); // 9850 + 37.5 from unbox
+        assertEq(token1.balanceOf(feeder), 37.5e18);
     }
 
     function testUnboxInsufficientShares() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
         vm.expectRevert(Errors.InsufficientShares.selector);
@@ -1229,7 +1232,7 @@ contract BoxTest is Test {
 
     function testUnboxZeroShares() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
         vm.expectRevert(Errors.CannotUnboxZeroShares.selector);
@@ -1358,7 +1361,7 @@ contract BoxTest is Test {
 
     function testCuratorSubmitInvalidAddress() public {
         // Test that setCurator properly validates against address(0)
-        vm.expectRevert(Box.InvalidAddress.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         vm.prank(owner); // setCurator requires owner
         box.setCurator(address(0));
     }
@@ -1429,45 +1432,45 @@ contract BoxTest is Test {
 
     function testInvestmentTokenSubmitAccept() public {
         vm.startPrank(curator);
-        bytes memory tokenData = abi.encodeWithSelector(box.addInvestmentToken.selector, asset3, oracle3);
+        bytes memory tokenData = abi.encodeWithSelector(box.addToken.selector, token3, oracle3);
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
         (bool success,) = address(box).call(tokenData);
         require(success, "Failed to add investment token");
         vm.stopPrank();
 
-        assertTrue(box.isInvestmentToken(asset3));
-        assertEq(address(box.oracles(asset3)), address(oracle3));
-        assertEq(box.getInvestmentTokensLength(), 3);
+        assertTrue(box.isToken(token3));
+        assertEq(address(box.oracles(token3)), address(oracle3));
+        assertEq(box.tokensLength(), 3);
     }
 
     function testInvestmentTokenRemove() public {
         vm.startPrank(curator);
-        bytes memory tokenData = abi.encodeWithSelector(box.removeInvestmentToken.selector, asset1);
+        bytes memory tokenData = abi.encodeWithSelector(box.removeToken.selector, token1);
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
         (bool success,) = address(box).call(tokenData);
         require(success, "Failed to remove investment token");
         vm.stopPrank();
 
-        assertFalse(box.isInvestmentToken(asset1));
-        assertEq(address(box.oracles(asset1)), address(0));
-        assertEq(box.getInvestmentTokensLength(), 1);
+        assertFalse(box.isToken(token1));
+        assertEq(address(box.oracles(token1)), address(0));
+        assertEq(box.tokensLength(), 1);
     }
 
     function testInvestmentTokenRemoveWithBalance() public {
-        // Allocate to asset1 first
+        // Allocate to token1 first
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         // Try to remove token with balance - should fail at execution stage
         vm.startPrank(curator);
-        bytes memory tokenData = abi.encodeWithSelector(box.removeInvestmentToken.selector, asset1);
+        bytes memory tokenData = abi.encodeWithSelector(box.removeToken.selector, token1);
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
         vm.expectRevert(Errors.TokenBalanceMustBeZero.selector);
@@ -1491,7 +1494,7 @@ contract BoxTest is Test {
     }
 
     function testOwnerChangeInvalidAddress() public {
-        vm.expectRevert(Box.InvalidAddress.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         vm.prank(owner);
         box.transferOwnership(address(0));
     }
@@ -1503,13 +1506,13 @@ contract BoxTest is Test {
     function testDepositWithPriceChanges() public {
         // Initial deposit
         vm.startPrank(feeder);
-        currency.approve(address(box), 200e18);
+        asset.approve(address(box), 200e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
         // Allocate
         vm.prank(allocator);
-        box.allocate(asset1, 50e18, swapper, "");
+        box.allocate(token1, 50e18, swapper, "");
 
         // Change asset price to 2x
         oracle1.setPrice(2e36);
@@ -1519,20 +1522,20 @@ contract BoxTest is Test {
         uint256 shares = box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        // Total assets before second deposit = 50 currency + 50 asset1 * 2 = 150
-        // Shares for 100 currency = 100 * 100 / 150 = 66.666...
+        // Total assets before second deposit = 50 asset + 50 token1 * 2 = 150
+        // Shares for 100 asset = 100 * 100 / 150 = 66.666...
         assertEq(shares, 66666666666666666666);
     }
 
     function testWithdrawWithInsufficientLiquidity() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        // Allocate all currency
+        // Allocate all asset
         vm.prank(allocator);
-        box.allocate(asset1, 100e18, swapper, "");
+        box.allocate(token1, 100e18, swapper, "");
 
         // Try to withdraw - should fail due to insufficient liquidity
         vm.expectRevert(Errors.InsufficientLiquidity.selector);
@@ -1552,7 +1555,7 @@ contract BoxTest is Test {
 
     function testPreviewFunctionsConsistency() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 200e18);
+        asset.approve(address(box), 200e18);
         
         // Test preview deposit
         uint256 previewShares = box.previewDeposit(100e18);
@@ -1579,7 +1582,7 @@ contract BoxTest is Test {
 
     function testMaxFunctionsAfterShutdown() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
@@ -1594,7 +1597,7 @@ contract BoxTest is Test {
 
     function testRecoverFromShutdown() public {
         vm.startPrank(feeder);
-        currency.approve(address(box), 100e18);
+        asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
@@ -1620,9 +1623,9 @@ contract BoxTest is Test {
 
         // Test allocators functions
         vm.startPrank(allocator);
-        box.allocate(asset1, 100e18, swapper, "");
-        box.reallocate(asset1, asset2, 100e18, swapper, "");
-        box.deallocate(asset2, 100e18, swapper, "");
+        box.allocate(token1, 100e18, swapper, "");
+        box.reallocate(token1, token2, 100e18, swapper, "");
+        box.deallocate(token2, 100e18, swapper, "");
         vm.stopPrank();
     }
 
@@ -1630,9 +1633,9 @@ contract BoxTest is Test {
         // Complex scenario with multiple users, tokens, and operations
         
         // Setup multiple users
-        currency.mint(user1, 1000e18);
-        currency.mint(user2, 1000e18);
-        
+        asset.mint(user1, 1000e18);
+        asset.mint(user2, 1000e18);
+
         vm.startPrank(curator);
         bytes memory user1Data = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
         box.submit(user1Data);
@@ -1649,41 +1652,41 @@ contract BoxTest is Test {
 
         // User1 deposits
         vm.startPrank(user1);
-        currency.approve(address(box), 500e18);
+        asset.approve(address(box), 500e18);
         box.deposit(500e18, user1);
         vm.stopPrank();
 
-        // Allocate to asset1
+        // Allocate to token1
         vm.prank(allocator);
-        box.allocate(asset1, 200e18, swapper, "");
+        box.allocate(token1, 200e18, swapper, "");
 
-        // Change asset1 price
+        // Change token1 price
         oracle1.setPrice(1.5e36);
 
         // User2 deposits (should get fewer shares due to price increase)
         vm.startPrank(user2);
-        currency.approve(address(box), 300e18);
+        asset.approve(address(box), 300e18);
         uint256 user2Shares = box.deposit(300e18, user2);
         vm.stopPrank();
 
-        // Total assets = 600 currency + 200 asset1 * 1.5 = 900
+        // Total assets = 600 asset + 200 token1 * 1.5 = 900
         // User2 shares = 300 * 500 / 600 = 250 (approximately)
         // But the actual calculation is more complex due to rounding
         assertGt(user2Shares, 150e18);
         assertLt(user2Shares, 300e18);
 
-        // Allocate to asset2
+        // Allocate to token2
         vm.prank(allocator);
-        box.allocate(asset2, 150e18, swapper, "");
+        box.allocate(token2, 150e18, swapper, "");
 
         // User1 transfers some shares to user2
         vm.prank(user1);
         box.transfer(user2, 100e18);
 
         // Reallocate between assets - set compatible oracle prices first
-        oracle2.setPrice(1.5e36); // Match asset1 price to avoid slippage issues
+        oracle2.setPrice(1.5e36); // Match token1 price to avoid slippage issues
         vm.prank(allocator);
-        box.reallocate(asset1, asset2, 50e18, swapper, "");
+        box.reallocate(token1, token2, 50e18, swapper, "");
 
         // User2 redeems some shares
         vm.prank(user2);
@@ -1692,39 +1695,39 @@ contract BoxTest is Test {
         // Verify final state is consistent
         assertEq(box.totalSupply(), box.balanceOf(user1) + box.balanceOf(user2));
         assertGt(box.totalAssets(), 0);
-        assertGt(currency.balanceOf(address(box)) + asset1.balanceOf(address(box)) + asset2.balanceOf(address(box)), 0);
+        assertGt(asset.balanceOf(address(box)) + token1.balanceOf(address(box)) + token2.balanceOf(address(box)), 0);
     }
 
     function testAllocateReentrancyAttack() public {
         // Setup
         vm.startPrank(feeder);
-        currency.approve(address(box), 10e18);
+        asset.approve(address(box), 10e18);
         box.deposit(10e18, feeder);
         vm.stopPrank();
 
-        // Allocate to asset1
+        // Allocate to token1
         vm.prank(allocator);
-        box.allocate(asset1, 5e18, swapper, "");
+        box.allocate(token1, 5e18, swapper, "");
 
         maliciousSwapper.setBox(box);
 
         maliciousSwapper.setScenario(maliciousSwapper.ALLOCATE());
         vm.prank(allocator);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        box.allocate(asset1, 1e18, maliciousSwapper, "");
+        box.allocate(token1, 1e18, maliciousSwapper, "");
 
         maliciousSwapper.setScenario(maliciousSwapper.DEALLOCATE());
         vm.prank(allocator);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        box.deallocate(asset1, 1e18, maliciousSwapper, "");
+        box.deallocate(token1, 1e18, maliciousSwapper, "");
 
         maliciousSwapper.setScenario(maliciousSwapper.REALLOCATE());
         vm.prank(allocator);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        box.reallocate(asset1, asset2, 1e18, maliciousSwapper, "");
+        box.reallocate(token1, token2, 1e18, maliciousSwapper, "");
 
         assertEq(box.totalAssets(), 10e18);
-        assertEq(currency.balanceOf(address(box)), 5e18);
-        assertEq(asset1.balanceOf(address(box)), 5e18);
+        assertEq(asset.balanceOf(address(box)), 5e18);
+        assertEq(token1.balanceOf(address(box)), 5e18);
     }
 } 

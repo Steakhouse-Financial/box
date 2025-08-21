@@ -113,9 +113,9 @@ contract IntegrationForkBaseTest is Test {
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
         box1 = new Box(
-            usdc, 
-            address(owner), 
-            address(curator), 
+            address(usdc), 
+            owner, 
+            curator, 
             name,
             symbol,
             maxSlippage,
@@ -147,9 +147,9 @@ contract IntegrationForkBaseTest is Test {
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
         box1b = new Box(
-            usdc, 
-            address(owner), 
-            address(curator), 
+            address(usdc),
+            owner,
+            curator,
             name,
             symbol,
             maxSlippage,
@@ -180,9 +180,9 @@ contract IntegrationForkBaseTest is Test {
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
         box2 = new Box(
-            usdc, 
-            address(owner), 
-            address(curator), 
+            address(usdc),
+            owner,
+            curator,
             name,
             symbol,
             maxSlippage,

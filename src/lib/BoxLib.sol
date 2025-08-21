@@ -31,12 +31,12 @@ library BoxLib {
 
     function addCollateral(Box box, IERC20 token, IOracle oracle) internal {
         bytes memory encoding = abi.encodeWithSelector(
-            box.addInvestmentToken.selector,
+            box.addToken.selector,
             address(token),
             address(oracle)
         );
         box.submit(encoding);
-        box.addInvestmentToken(token, oracle);
+        box.addToken(token, oracle);
     }
 
     /// @notice Adds a feeder to a Box instance, assume 0-day timelocks

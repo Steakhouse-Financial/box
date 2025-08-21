@@ -2,6 +2,11 @@
 pragma solidity ^0.8.13;
 
 library Errors {
+
+    // General errors
+    error InvalidAddress();
+    error InvalidAmount();
+
     // Access control errors
     error OnlyOwner();
     error OnlyCurator();
@@ -25,7 +30,7 @@ library Errors {
     error CannotUnboxZeroShares();
     error DataAlreadyTimelocked();
     
-    // Investment token errors
+    // Token errors
     error TokenNotWhitelisted();
     error TokensNotWhitelisted();
     error OracleRequired();
@@ -35,7 +40,7 @@ library Errors {
     // Slippage errors
     error SwapperDidSpendTooMuch();
     error AllocationTooExpensive();
-    error TokenSaleNotGeneratingEnoughCurrency();
+    error TokenSaleNotGeneratingEnoughAssets();
     error ReallocationSlippageTooHigh();
     error TooMuchAccumulatedSlippage();
     error SlippageTooHigh();
@@ -51,10 +56,13 @@ library Errors {
     // Timelock errors
     error TimelockNotExpired();
     error DataNotTimelocked();
+    error InvalidTimelock();
+    error TimelockDecrease();
+    error TimelockIncrease();
 
     // Skim errors
-    error CannotSkimCurrency();
-    error CannotSkimInvestmentToken();
+    error CannotSkimAsset();
+    error CannotSkimToken();
     error AlreadySet();
     error CannotSkimZero();
-} 
+}

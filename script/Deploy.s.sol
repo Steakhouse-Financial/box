@@ -27,11 +27,11 @@ contract DeployScript is Script {
     using VaultV2Lib for VaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
 
-    VaultV2Factory vaultV2Factory = VaultV2Factory(0x64e648a5E1Cb95567f7711F94C73425Fe62560c0);
-    MorphoVaultV1AdapterFactory mv1AdapterFactory = MorphoVaultV1AdapterFactory(0x0007cFf758DFF3492674605699748C6e36da332F);
-    BoxFactory boxFactory = BoxFactory(0x7734a4b62C71B2C79aAc32fd068F35b183eC6d84);
-    BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x7dDAe7412Bbc30693fc0332ca4E1078b4fC4e93C);
-    BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x7dDAe7412Bbc30693fc0332ca4E1078b4fC4e93C);
+    VaultV2Factory vaultV2Factory = VaultV2Factory(0xCe2BD9abD6b79A29ed6f9dB1eec34eCAE5D1296f);
+    MorphoVaultV1AdapterFactory mv1AdapterFactory = MorphoVaultV1AdapterFactory(0xCdFc890791404841efC4685b8217E7f210fE1df4);
+    BoxFactory boxFactory = BoxFactory(0xDE01B5644CA6b176a092BC9e6316634104fd89c5);
+    BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x6cfdD0448A93D50A4A886f1ca14aef3b70D2E5E8);
+    BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0xB14b4A86aC5b80A175e1d379bf360D7A79c7e37d);
 
     address owner = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address curator = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
@@ -41,7 +41,7 @@ contract DeployScript is Script {
 
     IERC20 usdc = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
 
-    IERC4626 bbqusdc = IERC4626(0xBeeFa74640a5f7c28966cbA82466EED5609444E0); // bbqUSDC on Base
+    IERC4626 bbqusdc = IERC4626(0xBEEFA7B88064FeEF0cEe02AAeBBd95D30df3878F); // bbqUSDC on Base
     
     IERC4626 stusd = IERC4626(0x0022228a2cc5E7eF0274A7Baa600d44da5aB5776);
     IOracle stusdOracle = IOracle(0x2eede25066af6f5F2dfc695719dB239509f69915);
@@ -102,7 +102,9 @@ contract DeployScript is Script {
     function deployPeaty() public returns (IVaultV2) {
         vm.startBroadcast();
 
-        VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), "1"));
+        bytes32 salt = "2";
+
+        VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
         console.log("Peaty deployed at:", address(vault));
 
         vault.setCurator(address(tx.origin));
@@ -137,7 +139,7 @@ contract DeployScript is Script {
             maxSlippage,
             slippageEpochDuration,
             shutdownSlippageDuration,
-            bytes32(0)
+            salt
         );
         console.log("Box Angle deployed at:", address(box1));
 
@@ -169,11 +171,11 @@ contract DeployScript is Script {
             maxSlippage,
             slippageEpochDuration,
             shutdownSlippageDuration,
-            bytes32(0)
+            salt
         );
         console.log("Box Resolv deployed at:", address(box2));
         // Creating the ERC4626 adapter between the vault and box2
-        IBoxAdapter adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
+        IBoxAdapter adapter2 = boxAdapterCachedFactory.createBoxAdapter(address(vault), box2);
 
         // Allow box 2 to invest in PT-USR-25SEP
         box2.addCollateral(ptusr25sep, ptusr25sepOracle);

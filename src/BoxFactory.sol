@@ -23,7 +23,7 @@ contract BoxFactory is IBoxFactory {
 
     /// @dev Returns the address of the deployed BoxAdapter.
     function createBox(      
-        IERC20 _currency,
+        IERC20 _asset,
         address _owner,
         address _curator,
         string memory _name,
@@ -32,7 +32,7 @@ contract BoxFactory is IBoxFactory {
         uint256 _slippageEpochDuration,
         uint256 _shutdownSlippageDuration,
         bytes32 salt) external returns (Box) {
-        Box _box = new Box{salt:salt}(_currency,
+        Box _box = new Box{salt:salt}(address(_asset),
             _owner,
             _curator,
             _name,
@@ -40,7 +40,7 @@ contract BoxFactory is IBoxFactory {
             _maxSlippage,
             _slippageEpochDuration,
             _shutdownSlippageDuration);
-        emit CreateBox(_currency,
+        emit CreateBox(_asset,
             _owner,
             _curator,
             _name,

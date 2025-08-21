@@ -55,7 +55,7 @@ contract BoxAdapter is IBoxAdapter {
     }
 
     /// @dev Does not log anything because the ids (logged in the parent vault) are enough.
-    /// @dev Returns the ids of the allocation and the interest accrued.
+    /// @dev Returns the ids of the allocation and the change in allocation.
     function allocate(bytes memory data, uint256 assets, bytes4, address)
         external
         returns (bytes32[] memory, int256)
@@ -73,7 +73,7 @@ contract BoxAdapter is IBoxAdapter {
     }
 
     /// @dev Does not log anything because the ids (logged in the parent vault) are enough.
-    /// @dev Returns the ids of the deallocation and the interest accrued.
+    /// @dev Returns the ids of the deallocation and the change in allocation.
     function deallocate(bytes memory data, uint256 assets, bytes4, address)
         external
         returns (bytes32[] memory, int256)
