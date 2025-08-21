@@ -78,9 +78,9 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     event AllocatorUpdated(address indexed account, bool isAllocator);
     event FeederUpdated(address indexed account, bool isFeeder);
     
-    event Allocation(IERC20 indexed token, uint256 assets, uint256 tokens, ISwapper indexed swapper, bytes data);
-    event Deallocation(IERC20 indexed token, uint256 tokens, uint256 assets, ISwapper indexed swapper, bytes data);
-    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 tokensFrom, uint256 tokensTo, ISwapper indexed swapper, bytes data);
+    event Allocation(IERC20 indexed token, uint256 assets, uint256 tokens, int256 slippagePct, ISwapper indexed swapper, bytes data);
+    event Deallocation(IERC20 indexed token, uint256 tokens, uint256 assets, int256 slippagePct, ISwapper indexed swapper, bytes data);
+    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 tokensFrom, uint256 tokensTo, int256 slippagePct, ISwapper indexed swapper, bytes data);
     event Shutdown(address indexed guardian);
     event Recover(address indexed guardian);
     event Unbox(address indexed user, uint256 shares);
@@ -371,17 +371,18 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         // Validate slippage
         uint256 expectedTokens = assets.mulDiv(ORACLE_PRECISION, oracle.price());
         uint256 minTokens = expectedTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
+        int256 slippage = int256(expectedTokens) - int256(tokensReceived);
+        int256 slippagePct = expectedTokens == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedTokens);
 
         require(tokensReceived >= minTokens, Errors.AllocationTooExpensive());
 
         // Track slippage
-        if (expectedTokens > tokensReceived) {
-            uint256 slippage = expectedTokens - tokensReceived;
-            uint256 slippageValue = slippage.mulDiv(oracle.price(), ORACLE_PRECISION);
+        if (slippage > 0) {
+            uint256 slippageValue = uint256(slippage).mulDiv(oracle.price(), ORACLE_PRECISION);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
-        emit Allocation(token, assetsSpent, tokensReceived, swapper, data);
+        emit Allocation(token, assetsSpent, tokensReceived, slippagePct, swapper, data);
     }
 
     /**
@@ -426,16 +427,18 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         // Validate slippage
         uint256 expectedAssets = tokens.mulDiv(oracle.price(), ORACLE_PRECISION);
         uint256 minAssets = expectedAssets.mulDiv(PRECISION - slippageTolerance, PRECISION);
+        int256 slippage = int256(expectedAssets) - int256(assetsReceived);
+        int256 slippagePct = expectedAssets == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedAssets);
 
         require(assetsReceived >= minAssets, Errors.TokenSaleNotGeneratingEnoughAssets());
 
         // Track slippage (only in normal operation)
-        if (isAllocator[msg.sender] && expectedAssets > assetsReceived) {
-            uint256 slippage = expectedAssets - assetsReceived;
-            _increaseSlippage(slippage.mulDiv(PRECISION, totalAssets()));
+        if (isAllocator[msg.sender] && slippage > 0) {
+            uint256 slippageValue = uint256(slippage).mulDiv(oracle.price(), ORACLE_PRECISION);
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
-        emit Deallocation(token, tokensSpent, assetsReceived, swapper, data);
+        emit Deallocation(token, tokensSpent, assetsReceived, slippagePct, swapper, data);
     }
 
     /**
@@ -477,17 +480,18 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         uint256 fromValue = fromAmount.mulDiv(fromOracle.price(), ORACLE_PRECISION);
         uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOracle.price());
         uint256 minToTokens = expectedToTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
+        int256 slippage = int256(expectedToTokens) - int256(toReceived);
+        int256 slippagePct = expectedToTokens == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedToTokens);
 
         require(toReceived >= minToTokens, Errors.ReallocationSlippageTooHigh());
 
         // Track slippage
-        if (expectedToTokens > toReceived) {
-            uint256 slippageTokens = expectedToTokens - toReceived;
-            uint256 slippageValue = slippageTokens.mulDiv(toOracle.price(), ORACLE_PRECISION);
+        if (slippage > 0) {
+            uint256 slippageValue = uint256(slippage).mulDiv(toOracle.price(), ORACLE_PRECISION);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
-        emit Reallocation(from, to, fromSpent, toReceived, swapper, data);
+        emit Reallocation(from, to, fromSpent, toReceived, slippagePct, swapper, data);
     }
 
     // ========== ADMIN FUNCTIONS ==========

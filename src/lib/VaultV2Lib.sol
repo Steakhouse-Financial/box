@@ -63,13 +63,14 @@ library VaultV2Lib {
         bytes memory encoding = abi.encodeWithSelector(
             vault.setForceDeallocatePenalty.selector,
             address(adapter),
-            penalty // 2% penalty
+            penalty
         );
         vault.submit(encoding);
         vault.setForceDeallocatePenalty(address(adapter), penalty);
     }
 
-    /// @notice Adds a feeder to a Box instance, assume 0-day timelocks
+
+    /// @notice Update maxrate, assume 0-day timelocks
     function changeMaxRate(VaultV2 vault, uint256 newMaxRate) internal {
         bytes memory encoding = abi.encodeWithSelector(
             vault.setMaxRate.selector,

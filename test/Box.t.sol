@@ -158,9 +158,9 @@ contract BoxTest is Test {
 
     event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
     event Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
-    event Allocation(IERC20 indexed token, uint256 assets, uint256 tokens, ISwapper indexed swapper, bytes data);
-    event Deallocation(IERC20 indexed token, uint256 tokens, uint256 assets, ISwapper indexed swapper, bytes data);
-    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 fromAmount, uint256 toAmount, ISwapper indexed swapper, bytes data);
+    event Allocation(IERC20 indexed token, uint256 assets, uint256 tokens, int256 slippagePct, ISwapper indexed swapper, bytes data);
+    event Deallocation(IERC20 indexed token, uint256 tokens, uint256 assets, int256 slippagePct, ISwapper indexed swapper, bytes data);
+    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 fromAmount, uint256 toAmount, int256 slippagePct, ISwapper indexed swapper, bytes data);
     event Shutdown(address indexed guardian);
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -690,7 +690,7 @@ contract BoxTest is Test {
         vm.stopPrank();
 
         vm.expectEmit(true, false, true, false);
-        emit Allocation(token1, 50e18, 50e18, swapper, "");
+        emit Allocation(token1, 50e18, 50e18, 0, swapper, "");
 
         // Allocate to token1
         vm.prank(allocator);
@@ -791,7 +791,7 @@ contract BoxTest is Test {
         box.allocate(token1, 50e18, swapper, "");
 
         vm.expectEmit(true, false, true, false);
-        emit Deallocation(token1, 25e18, 25e18, swapper, "");
+        emit Deallocation(token1, 25e18, 25e18, 0, swapper, "");
 
         // Deallocate
         vm.prank(allocator);
@@ -855,7 +855,7 @@ contract BoxTest is Test {
         box.allocate(token1, 50e18, swapper, "");
 
         vm.expectEmit(true, false, true, false);
-        emit Reallocation(token1, token2, 25e18, 25e18, swapper, "");
+        emit Reallocation(token1, token2, 25e18, 25e18, 0, swapper, "");
 
         // Reallocate from token1 to token2
         vm.prank(allocator);

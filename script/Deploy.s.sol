@@ -19,6 +19,7 @@ import {BoxLib} from "../src/lib/BoxLib.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
 import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
 import {BoxAdapterCachedFactory} from "../src/BoxAdapterCachedFactory.sol";
+import "@vault-v2/src/libraries/ConstantsLib.sol";
 
 ///@dev This script deploys the necessary contracts for the Peaty product on Base.
 ///@dev Default factories are hardcoded, but can be overridden using run() which will deploy fresh contracts.
@@ -27,11 +28,11 @@ contract DeployScript is Script {
     using VaultV2Lib for VaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
 
-    VaultV2Factory vaultV2Factory = VaultV2Factory(0xCe2BD9abD6b79A29ed6f9dB1eec34eCAE5D1296f);
-    MorphoVaultV1AdapterFactory mv1AdapterFactory = MorphoVaultV1AdapterFactory(0xCdFc890791404841efC4685b8217E7f210fE1df4);
-    BoxFactory boxFactory = BoxFactory(0xDE01B5644CA6b176a092BC9e6316634104fd89c5);
-    BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x6cfdD0448A93D50A4A886f1ca14aef3b70D2E5E8);
-    BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0xB14b4A86aC5b80A175e1d379bf360D7A79c7e37d);
+    VaultV2Factory vaultV2Factory = VaultV2Factory(0xf7A7c8490f619e3422bA55C2CDffbEFd5e047830);
+    MorphoVaultV1AdapterFactory mv1AdapterFactory = MorphoVaultV1AdapterFactory(0x11c2Adb26F29334d1dD157CF0531A2Af6815cE2A);
+    BoxFactory boxFactory = BoxFactory(0x8F29232bC10957017b7961026734eA5035868D9C);
+    BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x808F9fcf09921a21aa5Cd71D87BE50c0F05A5203);
+    BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x09EA5EafbA623D9012124E05068ab884008f32BD);
 
     address owner = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address curator = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
@@ -116,6 +117,8 @@ contract DeployScript is Script {
         vault.setName("Peaty USDC");
         vault.setSymbol("ptUSDC");
 
+        vault.changeMaxRate(MAX_MAX_RATE);
+
         // Setting the vault to use bbqUSDC as the asset
         MorphoVaultV1Adapter bbqusdcAdapter = MorphoVaultV1Adapter(mv1AdapterFactory.createMorphoVaultV1Adapter(address(vault), address(bbqusdc)));
 
@@ -184,7 +187,7 @@ contract DeployScript is Script {
         box2.addFeeder(address(adapter2));
         box2.setCurator(address(curator));
         box2.transferOwnership(address(owner));
-        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10**6, 0.5 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10**6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
         vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
         
         vault.removeAllocator(address(tx.origin));
