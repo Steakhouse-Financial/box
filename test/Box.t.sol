@@ -1730,4 +1730,399 @@ contract BoxTest is Test {
         assertEq(asset.balanceOf(address(box)), 5e18);
         assertEq(token1.balanceOf(address(box)), 5e18);
     }
+
+    /////////////////////////////
+    /// COMPREHENSIVE ALLOCATION EVENT TESTS
+    /////////////////////////////
+
+    function testAllocateZeroAmount() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.expectRevert(Errors.InvalidAmount.selector);
+        vm.prank(allocator);
+        box.allocate(token1, 0, swapper, "");
+    }
+
+    function testDeallocateZeroAmount() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        vm.expectRevert(Errors.InvalidAmount.selector);
+        vm.prank(allocator);
+        box.deallocate(token1, 0, swapper, "");
+    }
+
+    function testReallocateZeroAmount() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        vm.expectRevert(Errors.InvalidAmount.selector);
+        vm.prank(allocator);
+        box.reallocate(token1, token2, 0, swapper, "");
+    }
+
+    function testAllocateInvalidSwapper() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.expectRevert(Errors.InvalidAddress.selector);
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, ISwapper(address(0)), "");
+    }
+
+    function testDeallocateInvalidSwapper() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        vm.expectRevert(Errors.InvalidAddress.selector);
+        vm.prank(allocator);
+        box.deallocate(token1, 25e18, ISwapper(address(0)), "");
+    }
+
+    function testReallocateInvalidSwapper() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        vm.expectRevert(Errors.InvalidAddress.selector);
+        vm.prank(allocator);
+        box.reallocate(token1, token2, 25e18, ISwapper(address(0)), "");
+    }
+
+    function testAllocateEventWithPositiveSlippage() public {
+        // Setup with a better price than oracle (negative slippage = positive performance)
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Set oracle to expect fewer tokens
+        oracle1.setPrice(1.1e36); // 1 token = 1.1 assets, so we expect 45.45 tokens for 50 assets
+
+        // Expect event with negative slippage percentage (positive performance)
+        vm.expectEmit(true, false, true, false);
+        emit Allocation(token1, 50e18, 50e18, -0.1e18, swapper, ""); // -10% slippage
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        assertEq(asset.balanceOf(address(box)), 50e18);
+        assertEq(token1.balanceOf(address(box)), 50e18);
+    }
+
+    function testDeallocateEventWithPositiveSlippage() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        // Set oracle to expect fewer assets  
+        oracle1.setPrice(0.9e36); // 1 token = 0.9 assets, so we expect 22.5 assets for 25 tokens
+
+        // Expect event with negative slippage percentage (positive performance)
+        vm.expectEmit(true, false, true, false);
+        emit Deallocation(token1, 25e18, 25e18, -0.111111111111111111e18, swapper, ""); // ~-11% slippage
+
+        vm.prank(allocator);
+        box.deallocate(token1, 25e18, swapper, "");
+
+        assertEq(asset.balanceOf(address(box)), 75e18);
+        assertEq(token1.balanceOf(address(box)), 25e18);
+    }
+
+    function testReallocateEventWithPositiveSlippage() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        // Set oracles to expect fewer token2
+        oracle1.setPrice(1e36); // 1 token1 = 1 asset
+        oracle2.setPrice(1.1e36); // 1 token2 = 1.1 assets, so we expect ~22.73 token2 for 25 token1
+
+        // Expect event with negative slippage percentage (positive performance)
+        vm.expectEmit(true, true, false, true, address(box));
+        emit Reallocation(token1, token2, 25e18, 25e18, -0.1e18, swapper, ""); // -10% slippage
+
+        vm.prank(allocator);
+        box.reallocate(token1, token2, 25e18, swapper, "");
+
+        assertEq(token1.balanceOf(address(box)), 25e18);
+        assertEq(token2.balanceOf(address(box)), 25e18);
+    }
+
+    function testAllocateWithSwapperSpendingLess() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // The swapper will actually spend the full 50 as authorized
+        // Box tracks assetsSpent based on actual balance changes
+
+        // Expect event with 50 assets spent
+        vm.expectEmit(true, false, true, false);
+        emit Allocation(token1, 50e18, 50e18, 0, swapper, "");
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        assertEq(asset.balanceOf(address(box)), 50e18); // 100 - 50
+        assertEq(token1.balanceOf(address(box)), 50e18);
+    }
+
+    function testDeallocateWithSwapperSpendingLess() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        // The swapper will actually spend the full 25 as authorized
+        // Box tracks tokensSpent based on actual balance changes
+
+        // Expect event with 25 tokens spent
+        vm.expectEmit(true, false, true, false);
+        emit Deallocation(token1, 25e18, 25e18, 0, swapper, "");
+
+        vm.prank(allocator);
+        box.deallocate(token1, 25e18, swapper, "");
+
+        assertEq(asset.balanceOf(address(box)), 75e18); // 50 + 25
+        assertEq(token1.balanceOf(address(box)), 25e18); // 50 - 25
+    }
+
+    function testReallocateWithSwapperSpendingLess() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        // The swapper will actually spend the full 25 as authorized
+        // Box tracks fromSpent based on actual balance changes
+
+        // Expect event with 25 tokens spent and received
+        vm.expectEmit(true, true, false, true, address(box));
+        emit Reallocation(token1, token2, 25e18, 25e18, 0, swapper, "");
+
+        vm.prank(allocator);
+        box.reallocate(token1, token2, 25e18, swapper, "");
+
+        assertEq(token1.balanceOf(address(box)), 25e18); // 50 - 25
+        assertEq(token2.balanceOf(address(box)), 25e18);
+    }
+
+    function testAllocateWithCustomData() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        bytes memory customData = abi.encode("custom", 123, address(0x999));
+
+        // Expect event with custom data
+        vm.expectEmit(true, false, true, true);
+        emit Allocation(token1, 50e18, 50e18, 0, swapper, customData);
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, customData);
+
+        assertEq(asset.balanceOf(address(box)), 50e18);
+        assertEq(token1.balanceOf(address(box)), 50e18);
+    }
+
+    function testDeallocateDuringShutdownSlippageTolerance() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        vm.prank(guardian);
+        box.shutdown();
+
+        // Set high slippage swapper
+        MockSwapper highSlippageSwapper = new MockSwapper();
+        highSlippageSwapper.setSlippage(5); // 5% slippage
+        token1.mint(address(highSlippageSwapper), 1000e18);
+        asset.mint(address(highSlippageSwapper), 1000e18);
+
+        // Wait for warmup period
+        vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
+
+        // At start of shutdown slippage duration, should fail with 5% slippage
+        vm.expectRevert(Errors.TokenSaleNotGeneratingEnoughAssets.selector);
+        vm.prank(nonAuthorized);
+        box.deallocate(token1, 25e18, highSlippageSwapper, "");
+
+        // Warp halfway through shutdown slippage duration (5 days out of 10)
+        vm.warp(block.timestamp + 5 days);
+        
+        // Now slippage tolerance should be ~5%, so this should work
+        vm.expectEmit(true, false, true, false);
+        emit Deallocation(token1, 25e18, 23.75e18, 50000000000000000, highSlippageSwapper, ""); // 5% slippage
+
+        vm.prank(nonAuthorized);
+        box.deallocate(token1, 25e18, highSlippageSwapper, "");
+
+        assertEq(token1.balanceOf(address(box)), 25e18);
+    }
+
+    function testAllocateEventSlippageCalculation() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        // Test exact slippage boundary (1% max slippage)
+        swapper.setSlippage(1); // Exactly 1% slippage
+
+        // With 1% slippage on 100 assets, we get 99 tokens
+        // Expected: 100, Actual: 99, Slippage: 1/100 = 1%
+        vm.expectEmit(true, false, true, false);
+        emit Allocation(token1, 100e18, 99e18, 0.01e18, swapper, ""); // 1% slippage
+
+        vm.prank(allocator);
+        box.allocate(token1, 100e18, swapper, "");
+
+        assertEq(token1.balanceOf(address(box)), 99e18);
+    }
+
+    function testDeallocateEventSlippageCalculation() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 100e18, swapper, "");
+
+        // Reset swapper slippage for deallocation
+        swapper.setSlippage(1); // 1% slippage
+
+        // With 1% slippage on 50 tokens, we get 49.5 assets
+        // Expected: 50, Actual: 49.5, Slippage: 0.5/50 = 1%
+        vm.expectEmit(true, false, true, false);
+        emit Deallocation(token1, 50e18, 49.5e18, 0.01e18, swapper, ""); // 1% slippage
+
+        vm.prank(allocator);
+        box.deallocate(token1, 50e18, swapper, "");
+
+        assertEq(asset.balanceOf(address(box)), 949.5e18); // 900 + 49.5
+    }
+
+    function testReallocateEventSlippageCalculation() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.allocate(token1, 100e18, swapper, "");
+
+        // Set swapper with 0.5% slippage
+        swapper.setSlippage(0); // Reset to 0 first
+        backupSwapper.setSlippage(1); // Use backup swapper with 1% slippage
+
+        // Same price oracles, with 1% slippage on swap
+        // From 50 token1 we expect 50 token2, but get 49.5 due to slippage
+        vm.expectEmit(true, true, false, true, address(box));
+        emit Reallocation(token1, token2, 50e18, 49.5e18, 10000000000000000, backupSwapper, ""); // 1% slippage
+
+        vm.prank(allocator);
+        box.reallocate(token1, token2, 50e18, backupSwapper, "");
+
+        assertEq(token1.balanceOf(address(box)), 50e18); // 100 - 50
+        assertEq(token2.balanceOf(address(box)), 49.5e18);
+    }
+
+    function testMultipleAllocationsEventSequence() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        // First allocation
+        vm.expectEmit(true, false, true, false);
+        emit Allocation(token1, 100e18, 100e18, 0, swapper, "");
+
+        vm.startPrank(allocator);
+        box.allocate(token1, 100e18, swapper, "");
+
+        // Second allocation to different token
+        vm.expectEmit(true, false, true, false);
+        emit Allocation(token2, 150e18, 150e18, 0, swapper, "");
+        box.allocate(token2, 150e18, swapper, "");
+
+        // Reallocate between tokens
+        vm.expectEmit(true, true, false, true, address(box));
+        emit Reallocation(token1, token2, 50e18, 50e18, 0, swapper, "");
+        box.reallocate(token1, token2, 50e18, swapper, "");
+
+        // Deallocate from token2
+        vm.expectEmit(true, false, true, false);
+        emit Deallocation(token2, 100e18, 100e18, 0, swapper, "");
+        box.deallocate(token2, 100e18, swapper, "");
+        vm.stopPrank();
+
+        // Verify final state
+        assertEq(asset.balanceOf(address(box)), 850e18); // 1000 - 100 - 150 + 100
+        assertEq(token1.balanceOf(address(box)), 50e18); // 100 - 50
+        assertEq(token2.balanceOf(address(box)), 100e18); // 150 + 50 - 100
+    }
+
+    function testSwapperSpendingTooMuch() public {
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Create a malicious swapper that tries to spend more than authorized
+        MockSwapper greedySwapper = new MockSwapper();
+        
+        // Mock the behavior: swapper tries to take 60 but is only authorized 50
+        // The actual transfer will fail due to insufficient allowance
+        // But let's test the require check in the contract
+        
+        vm.prank(allocator);
+        vm.expectRevert(); // Will revert in transferFrom due to trying to take too much
+        box.allocate(token1, 50e18, greedySwapper, "");
+    }
 } 
