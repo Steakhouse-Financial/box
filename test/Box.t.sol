@@ -353,6 +353,23 @@ contract BoxTest is Test {
         assertEq(box.shutdownSlippageDuration(), shutdownSlippageDuration);
     }
 
+    function testDefaultSkimRecipientIsOwner() public {
+        assertEq(box.skimRecipient(), owner, "skimRecipient should default to owner");
+    }
+
+    function testSkimTransfersToRecipient() public {
+        // Mint unrelated token (not the asset and not whitelisted) to the Box and skim it
+        uint256 amount = 1e18;
+        token3.mint(address(box), amount);
+        assertEq(token3.balanceOf(address(box)), amount);
+
+        uint256 beforeOwner = token3.balanceOf(owner);
+        box.skim(token3);
+
+        assertEq(token3.balanceOf(address(box)), 0);
+        assertEq(token3.balanceOf(owner), beforeOwner + amount);
+    }
+
     /////////////////////////////
     /// BASIC ERC4626 TESTS
     /////////////////////////////

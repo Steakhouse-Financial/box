@@ -144,6 +144,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         asset = _asset;
         owner = _owner;
         curator = _curator;
+        skimRecipient = _owner;
         maxSlippage = _maxSlippage;
         slippageEpochDuration = _slippageEpochDuration;
         shutdownSlippageDuration = _shutdownSlippageDuration;
@@ -336,6 +337,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
 
         uint256 amount = token.balanceOf(address(this));
         require(amount > 0, Errors.CannotSkimZero());
+        require(skimRecipient != address(0), Errors.InvalidAddress());
 
         token.safeTransfer(skimRecipient, amount);
         emit Skim(token, skimRecipient, amount);
