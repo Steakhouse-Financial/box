@@ -89,6 +89,29 @@ contract MockSwapper is ISwapper {
     }
 }
 
+contract PriceAwareSwapper is ISwapper {
+    IOracle public oracle;
+    uint256 public slippagePercent = 0;
+
+    constructor(IOracle _oracle) {
+        oracle = _oracle;
+    }
+
+    function setSlippage(uint256 _slippagePercent) external {
+        slippagePercent = _slippagePercent;
+    }
+
+    function sell(IERC20 input, IERC20 output, uint256 amountIn, bytes calldata) external {
+        // Pull input tokens
+        input.transferFrom(msg.sender, address(this), amountIn);
+
+        // Pay out assets according to oracle price, minus slippage
+        uint256 expectedOut = amountIn * oracle.price() / ORACLE_PRECISION;
+        uint256 amountOut = expectedOut * (100 - slippagePercent) / 100;
+        output.transfer(msg.sender, amountOut);
+    }
+}
+
 contract MaliciousSwapper is ISwapper {
     uint256 public step = 5; // level of recursion
     Box public box;
@@ -2101,6 +2124,84 @@ contract BoxTest is Test {
         box.deallocate(token1, 50e18, swapper, "");
 
         assertEq(asset.balanceOf(address(box)), 949.5e18); // 900 + 49.5
+    }
+
+    function testDeallocateSlippageAccountingNoDoubleConversion() public {
+        // Deposit and allocate
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        // Allocate 500 assets to token1 at price 1:1 to build a position
+        vm.prank(allocator);
+        box.allocate(token1, 500e18, swapper, "");
+
+        // Raise oracle price significantly so price != 1
+        oracle1.setPrice(5e36); // 1 token = 5 assets
+
+        // Use a price-aware swapper that pays according to oracle price with 1% slippage
+        PriceAwareSwapper pSwapper = new PriceAwareSwapper(oracle1);
+        pSwapper.setSlippage(1); // 1% slippage
+
+        // Provide liquidity to the swapper
+        asset.mint(address(pSwapper), 10000e18);
+
+        // Deallocate 40 tokens. Expected assets = 40 * 5 = 200; actual = 198; loss = 2 assets
+        vm.prank(allocator);
+        box.deallocate(token1, 40e18, pSwapper, "");
+
+        // Expected accumulated slippage is loss / totalAssetsAfter
+        uint256 totalAfter = box.totalAssets();
+        uint256 expectedLoss = 2e18; // 2 assets lost
+        uint256 expectedAccumulated = (expectedLoss * 1e18) / totalAfter;
+
+        // Ensure value matches what contract recorded (no extra price multiplication)
+        assertApproxEqAbs(box.accumulatedSlippage(), expectedAccumulated, 1); // within 1 wei
+        assertLt(box.accumulatedSlippage(), box.maxSlippage()); // should be well under 1%
+    }
+
+    function testDeallocateSlippageConversion() public {
+        // Setup: deposit and allocate
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        // Allocate 500 assets to token1 at 1:1 via simple swapper
+        vm.prank(allocator);
+        box.allocate(token1, 500e18, swapper, "");
+
+        // Set a high oracle price so the buggy double-conversion would explode
+        uint256 price = 500e36; // 1 token = 500 assets
+        oracle1.setPrice(price);
+
+        // Price-aware swapper paying per oracle with 1% slippage
+        PriceAwareSwapper pSwapper = new PriceAwareSwapper(oracle1);
+        pSwapper.setSlippage(1); // 1% slippage
+        asset.mint(address(pSwapper), 10000e18);
+
+        // Sell a small amount of tokens so true slippage is small vs total assets
+        uint256 tokensToSell = 2e18; // expects 1000 assets, loses 10 assets (1%)
+
+        // Hypothetical values under the old bug (loss converted by price again)
+        uint256 expectedAssets = tokensToSell * price / ORACLE_PRECISION; // 1000 assets
+        uint256 expectedLoss = expectedAssets / 100; // 1% loss = 10 assets
+        uint256 inflatedValue = expectedLoss * price / ORACLE_PRECISION; // 10 * 500 = 5000 assets
+
+        // Execute deallocation with fixed logic - should NOT revert
+        vm.prank(allocator);
+        box.deallocate(token1, tokensToSell, pSwapper, "");
+
+        // With the buggy logic, accumulated slippage would have been inflatedValue / totalAssets
+        uint256 totalAfter = box.totalAssets();
+        uint256 oldBugPct = inflatedValue * PRECISION / totalAfter; // in 1e18 precision
+        assertGe(oldBugPct, box.maxSlippage(), "Old buggy accounting would not have reverted as expected");
+
+        // Actual accumulated slippage must equal actual loss / totalAfter
+        uint256 expectedAccumulated = expectedLoss * PRECISION / totalAfter;
+        assertApproxEqAbs(box.accumulatedSlippage(), expectedAccumulated, 1);
+        assertLt(box.accumulatedSlippage(), box.maxSlippage());
     }
 
     function testReallocateEventSlippageCalculation() public {
