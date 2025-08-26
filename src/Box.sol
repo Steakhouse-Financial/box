@@ -758,7 +758,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
      * @return true if it is a whitelisted investment token
      */
     function isToken(IERC20 token) public view returns (bool) {
-        return address(this.oracles(token)) != address(0);
+        return address(oracles[token]) != address(0);
     }
     
 
