@@ -347,32 +347,32 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     /**
      * @notice Allocates assets to buy tokens
      * @param token Token to buy
-     * @param assets Amount of assets to spend (should be > 0)
+     * @param assetsAmount Amount of assets to spend (should be > 0)
      * @param swapper Swapper contract to use (should not be address(0))
      * @param data Additional data to pass to the swapper
      */
-    function allocate(IERC20 token, uint256 assets, ISwapper swapper, bytes calldata data) external nonReentrant {
+    function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
         require(isAllocator[msg.sender], Errors.OnlyAllocators());
         require(!isShutdown(), Errors.CannotAllocateIfShutdown());
         require(isToken(token), Errors.TokenNotWhitelisted());
         require(address(swapper) != address(0), Errors.InvalidAddress());
-        require(assets > 0, Errors.InvalidAmount());
+        require(assetsAmount > 0, Errors.InvalidAmount());
 
         IOracle oracle = oracles[token];
 
         uint256 tokensBefore = token.balanceOf(address(this));
         uint256 assetsBefore = IERC20(asset).balanceOf(address(this));
 
-        IERC20(asset).forceApprove(address(swapper), assets);
-        swapper.sell(IERC20(asset), token, assets, data);
+        IERC20(asset).forceApprove(address(swapper), assetsAmount);
+        swapper.sell(IERC20(asset), token, assetsAmount, data);
         
         uint256 tokensReceived = token.balanceOf(address(this)) - tokensBefore;
         uint256 assetsSpent = assetsBefore - IERC20(asset).balanceOf(address(this));
 
-        require(assetsSpent <= assets, Errors.SwapperDidSpendTooMuch());
+        require(assetsSpent <= assetsAmount, Errors.SwapperDidSpendTooMuch());
 
         // Validate slippage
-        uint256 expectedTokens = assets.mulDiv(ORACLE_PRECISION, oracle.price());
+        uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oracle.price());
         uint256 minTokens = expectedTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
         int256 slippage = int256(expectedTokens) - int256(tokensReceived);
         int256 slippagePct = expectedTokens == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedTokens);
@@ -394,14 +394,14 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     /**
      * @notice Deallocates investment tokens to get assets
      * @param token Investment token to sell
-     * @param tokens Amount of tokens to sell
+     * @param tokensAmount Amount of tokens to sell
      * @param swapper Swapper contract to use
      * @param data Additional data to pass to the swapper
      */
-    function deallocate(IERC20 token, uint256 tokens, ISwapper swapper, bytes calldata data) external nonReentrant {
+    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
         require(isAllocator[msg.sender] 
             || (isShutdown() && block.timestamp > shutdownTime + SHUTDOWN_WARMUP), Errors.OnlyAllocatorsOrShutdown());
-        require(tokens > 0, Errors.InvalidAmount());     
+        require(tokensAmount > 0, Errors.InvalidAmount());     
         require(address(swapper) != address(0), Errors.InvalidAddress());
         
         IOracle oracle = oracles[token];
@@ -410,13 +410,13 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         uint256 assetsBefore = IERC20(asset).balanceOf(address(this));   
         uint256 tokensBefore = token.balanceOf(address(this));   
 
-        token.forceApprove(address(swapper), tokens);
-        swapper.sell(token, IERC20(asset), tokens, data);
+        token.forceApprove(address(swapper), tokensAmount);
+        swapper.sell(token, IERC20(asset), tokensAmount, data);
 
         uint256 assetsReceived = IERC20(asset).balanceOf(address(this)) - assetsBefore;
         uint256 tokensSpent = tokensBefore - token.balanceOf(address(this));
 
-        require(tokensSpent <= tokens, Errors.SwapperDidSpendTooMuch());
+        require(tokensSpent <= tokensAmount, Errors.SwapperDidSpendTooMuch());
 
         // Revoke allowance to prevent residual approvals
         token.forceApprove(address(swapper), 0);
@@ -434,7 +434,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         }
 
         // Validate slippage
-        uint256 expectedAssets = tokens.mulDiv(oracle.price(), ORACLE_PRECISION);
+        uint256 expectedAssets = tokensAmount.mulDiv(oracle.price(), ORACLE_PRECISION);
         uint256 minAssets = expectedAssets.mulDiv(PRECISION - slippageTolerance, PRECISION);
         int256 slippage = int256(expectedAssets) - int256(assetsReceived);
         int256 slippagePct = expectedAssets == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedAssets);
@@ -443,7 +443,8 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
 
         // Track slippage (only in normal operation)
         if (isAllocator[msg.sender] && slippage > 0) {
-            uint256 slippageValue = uint256(slippage).mulDiv(oracle.price(), ORACLE_PRECISION);
+            // slippage is already in asset units
+            uint256 slippageValue = uint256(slippage);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
@@ -454,14 +455,14 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
      * @notice Reallocates from one investment token to another
      * @param from Token to sell
      * @param to Token to buy
-     * @param fromAmount Amount of 'from' token to sell
+     * @param tokensAmount Amount of 'from' token to sell
      * @param swapper Swapper contract to use
      * @param data Additional data to pass to the swapper
      */
     function reallocate(
         IERC20 from, 
         IERC20 to, 
-        uint256 fromAmount,
+        uint256 tokensAmount,
         ISwapper swapper,
         bytes calldata data
     ) external nonReentrant {
@@ -469,7 +470,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         require(!isShutdown(), Errors.CannotReallocateIfShutdown());
         require(isToken(from) && isToken(to), Errors.TokenNotWhitelisted());
         require(address(swapper) != address(0), Errors.InvalidAddress());
-        require(fromAmount > 0, Errors.InvalidAmount());
+        require(tokensAmount > 0, Errors.InvalidAmount());
 
         IOracle fromOracle = oracles[from];
         IOracle toOracle = oracles[to];
@@ -477,19 +478,19 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         uint256 toBefore = to.balanceOf(address(this));
         uint256 fromBefore = from.balanceOf(address(this));
 
-        from.forceApprove(address(swapper), fromAmount);
-        swapper.sell(from, to, fromAmount, data);
+        from.forceApprove(address(swapper), tokensAmount);
+        swapper.sell(from, to, tokensAmount, data);
 
         uint256 toReceived = to.balanceOf(address(this)) - toBefore;
         uint256 fromSpent = fromBefore - from.balanceOf(address(this));
 
-        require(fromSpent <= fromAmount, Errors.SwapperDidSpendTooMuch());
+        require(fromSpent <= tokensAmount, Errors.SwapperDidSpendTooMuch());
 
         // Revoke allowance to prevent residual approvals
         from.forceApprove(address(swapper), 0);
 
         // Calculate expected amounts
-        uint256 fromValue = fromAmount.mulDiv(fromOracle.price(), ORACLE_PRECISION);
+        uint256 fromValue = tokensAmount.mulDiv(fromOracle.price(), ORACLE_PRECISION);
         uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOracle.price());
         uint256 minToTokens = expectedToTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
         int256 slippage = int256(expectedToTokens) - int256(toReceived);
