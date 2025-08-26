@@ -716,6 +716,9 @@ contract BoxTest is Test {
         assertEq(asset.balanceOf(address(box)), 50e18);
         assertEq(token1.balanceOf(address(box)), 50e18);
         assertEq(box.totalAssets(), 100e18); // 50 USDC + 50 token1 (1:1 price)
+
+        // Approval should be revoked post-swap
+        assertEq(asset.allowance(address(box), address(swapper)), 0);
     }
 
     function testAllocateNonAllocator() public {
@@ -817,6 +820,9 @@ contract BoxTest is Test {
         assertEq(asset.balanceOf(address(box)), 75e18);
         assertEq(token1.balanceOf(address(box)), 25e18);
         assertEq(box.totalAssets(), 100e18); // 75 USDC + 25 token1
+
+        // Approval should be revoked post-swap
+        assertEq(token1.allowance(address(box), address(swapper)), 0);
     }
 
     function testDeallocateNonAllocator() public {
@@ -880,6 +886,9 @@ contract BoxTest is Test {
 
         assertEq(token1.balanceOf(address(box)), 25e18);
         assertEq(token2.balanceOf(address(box)), 25e18);
+
+        // Approval should be revoked post-swap
+        assertEq(token1.allowance(address(box), address(swapper)), 0);
     }
 
     function testReallocateNonAllocator() public {

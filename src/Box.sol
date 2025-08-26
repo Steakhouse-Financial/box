@@ -378,6 +378,9 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
 
         require(tokensReceived >= minTokens, Errors.AllocationTooExpensive());
 
+        // Revoke allowance to prevent residual approvals
+        IERC20(asset).forceApprove(address(swapper), 0);
+
         // Track slippage
         if (slippage > 0) {
             uint256 slippageValue = uint256(slippage).mulDiv(oracle.price(), ORACLE_PRECISION);
@@ -413,6 +416,9 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         uint256 tokensSpent = tokensBefore - token.balanceOf(address(this));
 
         require(tokensSpent <= tokens, Errors.SwapperDidSpendTooMuch());
+
+        // Revoke allowance to prevent residual approvals
+        token.forceApprove(address(swapper), 0);
 
         // Calculate slippage tolerance, default to allocator slippage
         uint256 slippageTolerance = maxSlippage;
@@ -477,6 +483,9 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         uint256 fromSpent = fromBefore - from.balanceOf(address(this));
 
         require(fromSpent <= fromAmount, Errors.SwapperDidSpendTooMuch());
+
+        // Revoke allowance to prevent residual approvals
+        from.forceApprove(address(swapper), 0);
 
         // Calculate expected amounts
         uint256 fromValue = fromAmount.mulDiv(fromOracle.price(), ORACLE_PRECISION);
