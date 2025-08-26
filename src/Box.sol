@@ -185,7 +185,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     }
 
     /// @inheritdoc IERC4626
-    function deposit(uint256 assets, address receiver) public returns (uint256 shares) {
+    function deposit(uint256 assets, address receiver) public nonReentrant returns (uint256 shares) {
         require(isFeeder[msg.sender], Errors.OnlyFeeders());
         require(!isShutdown(), Errors.CannotDepositIfShutdown());
         require(receiver != address(0), Errors.InvalidAddress());
@@ -210,7 +210,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     }
 
     /// @inheritdoc IERC4626
-    function mint(uint256 shares, address receiver) external returns (uint256 assets) {
+    function mint(uint256 shares, address receiver) external nonReentrant returns (uint256 assets) {
         require(isFeeder[msg.sender], Errors.OnlyFeeders());
         require(!isShutdown(), Errors.CannotMintIfShutdown());
         require(receiver != address(0), Errors.InvalidAddress());
@@ -235,7 +235,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     }
 
     /// @inheritdoc IERC4626
-    function withdraw(uint256 assets, address receiver, address owner_) public returns (uint256 shares) {
+    function withdraw(uint256 assets, address receiver, address owner_) public nonReentrant returns (uint256 shares) {
         if (receiver == address(0)) revert Errors.InvalidAddress();
         
         shares = previewWithdraw(assets);
@@ -268,7 +268,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     }
 
     /// @inheritdoc IERC4626
-    function redeem(uint256 shares, address receiver, address owner_) external returns (uint256 assets) {
+    function redeem(uint256 shares, address receiver, address owner_) external nonReentrant returns (uint256 assets) {
         if (receiver == address(0)) revert Errors.InvalidAddress();
 
         if (msg.sender != owner_) {
@@ -297,7 +297,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
      * @param shares Amount of shares to burn
      * @dev Can be called by anyone holding shares
      */
-    function unbox(uint256 shares) external {
+    function unbox(uint256 shares) external nonReentrant {
         require(shares > 0, Errors.CannotUnboxZeroShares());
         if (balanceOf(msg.sender) < shares) revert Errors.InsufficientShares();
 
@@ -331,7 +331,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
      * @param token Token to skim
      * @dev Token must not be the base currency or an investment token
      */
-    function skim(IERC20 token) external {
+    function skim(IERC20 token) external nonReentrant {
         require(address(token) != address(asset), Errors.CannotSkimAsset());
         require(!isToken(token), Errors.CannotSkimToken());
 
