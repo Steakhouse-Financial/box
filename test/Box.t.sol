@@ -922,11 +922,11 @@ contract BoxTest is Test {
     }
 
     function testReallocateNonWhitelistedTokens() public {
-        vm.expectRevert(Errors.TokensNotWhitelisted.selector);
+        vm.expectRevert(Errors.TokenNotWhitelisted.selector);
         vm.prank(allocator);
         box.reallocate(token3, token1, 25e18, swapper, "");
 
-        vm.expectRevert(Errors.TokensNotWhitelisted.selector);
+        vm.expectRevert(Errors.TokenNotWhitelisted.selector);
         vm.prank(allocator);
         box.reallocate(token1, token3, 25e18, swapper, "");
     }
@@ -1543,6 +1543,20 @@ contract BoxTest is Test {
     /////////////////////////////
     /// EDGE CASE TESTS
     /////////////////////////////
+
+
+    function testTooManyTokensAdded() public {
+        vm.startPrank(curator);
+        for (uint256 i = box.tokensLength(); i < MAX_TOKENS; i++) {
+            box.addCollateral(IERC20(address(uint160(i))), IOracle(address(uint160(i))));
+        }
+
+        bytes memory token1Data = abi.encodeWithSelector(box.addToken.selector, address(uint160(MAX_TOKENS)), address(uint160(MAX_TOKENS)));
+        box.submit(token1Data);
+        vm.expectRevert(Errors.TooManyTokens.selector);
+        box.addToken(IERC20(address(uint160(MAX_TOKENS))), IOracle(address(uint160(MAX_TOKENS))));
+        vm.stopPrank();
+    }
 
     function testDepositWithPriceChanges() public {
         // Initial deposit

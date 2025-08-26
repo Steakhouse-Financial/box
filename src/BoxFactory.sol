@@ -40,6 +40,9 @@ contract BoxFactory is IBoxFactory {
             _maxSlippage,
             _slippageEpochDuration,
             _shutdownSlippageDuration);
+
+        isBox[address(_box)] = true;
+
         emit CreateBox(_asset,
             _owner,
             _curator,

@@ -33,11 +33,12 @@ library Errors {
     
     // Token errors
     error TokenNotWhitelisted();
-    error TokensNotWhitelisted();
+    error TokenAlreadyWhitelisted();
     error OracleRequired();
     error NoOracleForToken();
     error TokenBalanceMustBeZero();
-    
+    error TooManyTokens();
+
     // Slippage errors
     error SwapperDidSpendTooMuch();
     error AllocationTooExpensive();

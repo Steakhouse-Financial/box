@@ -12,3 +12,5 @@ uint256 constant MAX_SLIPPAGE_LIMIT = 0.1 ether;
 uint256 constant SHUTDOWN_WARMUP = 2 weeks;
 // Precision for oracle prices
 uint256 constant ORACLE_PRECISION = 1e36;
+// Maximum number of tokens allowed in a box
+uint256 constant MAX_TOKENS = 20;

@@ -467,7 +467,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     ) external nonReentrant {
         require(isAllocator[msg.sender], Errors.OnlyAllocators());
         require(!isShutdown(), Errors.CannotReallocateIfShutdown());
-        require(isToken(from) && isToken(to), Errors.TokensNotWhitelisted());
+        require(isToken(from) && isToken(to), Errors.TokenNotWhitelisted());
         require(address(swapper) != address(0), Errors.InvalidAddress());
         require(fromAmount > 0, Errors.InvalidAmount());
 
@@ -705,7 +705,8 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
         timelocked();
         require(address(token) != address(0), Errors.InvalidAddress());
         require(address(oracle) != address(0), Errors.InvalidAddress());
-        require(!isToken(token), Errors.TokenNotWhitelisted());
+        require(!isToken(token), Errors.TokenAlreadyWhitelisted());
+        require(tokens.length < MAX_TOKENS, Errors.TooManyTokens());
         
         tokens.push(token);
         oracles[token] = oracle;
