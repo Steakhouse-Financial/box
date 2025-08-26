@@ -334,10 +334,10 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
     function skim(IERC20 token) external nonReentrant {
         require(address(token) != address(asset), Errors.CannotSkimAsset());
         require(!isToken(token), Errors.CannotSkimToken());
+        require(skimRecipient != address(0), Errors.InvalidAddress());
 
         uint256 amount = token.balanceOf(address(this));
         require(amount > 0, Errors.CannotSkimZero());
-        require(skimRecipient != address(0), Errors.InvalidAddress());
 
         token.safeTransfer(skimRecipient, amount);
         emit Skim(token, skimRecipient, amount);
