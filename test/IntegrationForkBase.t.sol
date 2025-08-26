@@ -76,8 +76,6 @@ contract IntegrationForkBaseTest is Test {
         uint256 forkId = vm.createFork(vm.rpcUrl("base"), 34194011);
         vm.selectFork(forkId);
 
-        bytes memory data;
-
         boxAdapterFactory = new BoxAdapterFactory();
         boxAdapterCachedFactory = new BoxAdapterCachedFactory();
 
@@ -339,7 +337,6 @@ contract IntegrationForkBaseTest is Test {
     /// @notice Test a simple flow
     function testCachedVsNonCached() public {
         uint256 USDC_1000 = 1000 * 10**6;
-        uint256 USDC_500 = 500 * 10**6;
         uint256 USDC_250 = 250 * 10**6;
         uint256 USDC_125 = 125 * 10**6;
 
@@ -456,8 +453,6 @@ contract IntegrationForkBaseTest is Test {
     function testSharedBox() public {
         uint256 USDC_1000 = 1000 * 10**6;
         uint256 USDC_500 = 500 * 10**6;
-        uint256 USDC_250 = 250 * 10**6;
-        uint256 USDC_125 = 125 * 10**6;
 
         // deactivate bbqusdc as the liquidity
         vm.prank(allocator);
@@ -498,8 +493,6 @@ contract IntegrationForkBaseTest is Test {
     function testSharedBoxCached() public {
         uint256 USDC_1000 = 1000 * 10**6;
         uint256 USDC_500 = 500 * 10**6;
-        uint256 USDC_250 = 250 * 10**6;
-        uint256 USDC_125 = 125 * 10**6;
 
         // deactivate bbqusdc as the liquidity
         vm.prank(allocator);
@@ -565,8 +558,6 @@ contract IntegrationForkBaseTest is Test {
     /// @notice Test guardian controlled shutdown
     function testGuardianControlledShutdown() public {
         uint256 USDC_1000 = 1000 * 10**6;
-        uint256 USDC_500 = 500 * 10**6;
-        uint256 USDC_250 = 250 * 10**6;
 
         // Cleaning the balance of USDC in case of
         usdc.transfer(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb, usdc.balanceOf(address(this))); 
@@ -640,6 +631,67 @@ contract IntegrationForkBaseTest is Test {
         assertApproxEqRel(usdc.balanceOf(user), 980 * 10**6, 0.005 ether, "User should have received the USDC after redeem (minus penalty and slippage)");
     }
 
+    /// @notice Test slippage events and reset in a Box
+    function testSlippage() public {
+        uint256 USDC_AMOUNT = 10_000 * 10**6;
+
+        // Disable bbqUSDC as liquidity
+        vm.prank(allocator);
+        vault.setLiquidityAdapterAndData(address(0), "");
+
+        // We invest 50 USDC
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        usdc.transfer(address(this), USDC_AMOUNT); // Transfer 1000 USDC to this contract
+        usdc.approve(address(vault), USDC_AMOUNT); // Approve the vault to spend USDC
+        vault.deposit(USDC_AMOUNT, address(this)); // Deposit 1000 USDC into the vault
+
+        //////////////////////////////////////////////////////
+        // Invest half Box1
+        //////////////////////////////////////////////////////
+        vm.startPrank(allocator);
+
+        assertEq(usdc.balanceOf(address(vault)), USDC_AMOUNT);
+        vault.allocate(address(adapter2), "", USDC_AMOUNT);  
+        
+        assertEq(box2.totalAssets(), 10000000000, "Total asset before allocate doesn't match");
+        assertEq(box2.accumulatedSlippage(), 0, "Before the start, accumulated slippage should be 0");
+
+        vm.expectEmit(true, true, true, true);
+        emit Box.SlippageAccumulated(430674700893582, 430674700893582);
+        vm.expectEmit(true, true, true, true);
+        emit Box.Allocation(IERC20(ptusr25sep), 
+            USDC_AMOUNT,
+            10098450142215613367131, 430489300239495, ISwapper(swapper), "");
+        box2.allocate(ptusr25sep, USDC_AMOUNT, swapper, "");
+
+        assertEq(box2.totalAssets(), 9995695106, "Total asset after allocate doesn't match");
+        assertEq(box2.accumulatedSlippage(), 430674700893582, "Accumulated slippage after allocate doesn't match");
+
+        vm.expectEmit(true, true, true, true);
+        emit Box.SlippageAccumulated(464070846766503, 894745547660085);
+        vm.expectEmit(true, true, true, true);
+        emit Box.Deallocation(IERC20(ptusr25sep), 
+            ptusr25sep.balanceOf(address(box2)),
+            9991058547, 463855584912435, ISwapper(swapper), "");
+        box2.deallocate(ptusr25sep, ptusr25sep.balanceOf(address(box2)), swapper, "");
+
+        assertEq(box2.totalAssets(), 9991058547, "Total asset after deallocate doesn't match");
+        assertEq(box2.accumulatedSlippage(), 894745547660085, "Accumulated slippage after deallocate doesn't match");
+
+        vm.warp(block.timestamp + 8 days);    
+
+        assertEq(box2.accumulatedSlippage(), 894745547660085, "Slippage doesn't change just by passage of time");
+
+        vm.expectEmit(true, true, true, true);
+        // August 22th, 2025 (8 days after August 14th)
+        emit Box.SlippageEpochReset(1755868569);
+        vm.expectEmit(true, true, true, true);
+        emit Box.SlippageAccumulated(64154975793433, 64154975793433);
+        box2.allocate(ptusr25sep, USDC_AMOUNT / 2, swapper, "");
+        assertEq(box2.accumulatedSlippage(), 64154975793433, "Slippage reset");
+
+        vm.stopPrank();
+    }
 
     /// @notice Test impact of a loss in a Box
     function testBoxLoss() public {

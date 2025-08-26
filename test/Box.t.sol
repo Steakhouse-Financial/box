@@ -339,7 +339,7 @@ contract BoxTest is Test {
             address(boxFactory) // deploying address
         );
 
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit IBoxFactory.CreateBox(
             IERC20(asset),
             owner,
@@ -451,7 +451,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
 
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit Deposit(feeder, feeder, 100e18, 100e18);
         
         uint256 shares = box.deposit(100e18, feeder);
@@ -489,7 +489,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
 
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit Deposit(feeder, feeder, 100e18, 100e18);
         
         uint256 assets = box.mint(100e18, feeder);
@@ -639,7 +639,7 @@ contract BoxTest is Test {
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit Transfer(feeder, user1, 50e18);
         
         bool success = box.transfer(user1, 50e18);
@@ -663,7 +663,7 @@ contract BoxTest is Test {
     function testERC20Approve() public {
         vm.startPrank(feeder);
         
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit Approval(feeder, user1, 100e18);
         
         bool success = box.approve(user1, 100e18);
@@ -681,7 +681,7 @@ contract BoxTest is Test {
         box.approve(user1, 50e18);
         vm.stopPrank();
 
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit Transfer(feeder, user2, 30e18);
         
         vm.prank(user1);
@@ -744,7 +744,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Allocation(token1, 50e18, 50e18, 0, swapper, "");
 
         // Allocate to token1
@@ -848,7 +848,7 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Deallocation(token1, 25e18, 25e18, 0, swapper, "");
 
         // Deallocate
@@ -915,7 +915,7 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Reallocation(token1, token2, 25e18, 25e18, 0, swapper, "");
 
         // Reallocate from token1 to token2
@@ -1142,7 +1142,7 @@ contract BoxTest is Test {
     /////////////////////////////
 
     function testShutdown() public {
-        vm.expectEmit(true, false, false, false);
+        vm.expectEmit(true, true, true, true);
         emit Shutdown(guardian);
         
         vm.prank(guardian);
@@ -1902,7 +1902,7 @@ contract BoxTest is Test {
         oracle1.setPrice(1.1e36); // 1 token = 1.1 assets, so we expect 45.45 tokens for 50 assets
 
         // Expect event with negative slippage percentage (positive performance)
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Allocation(token1, 50e18, 50e18, -0.1e18, swapper, ""); // -10% slippage
 
         vm.prank(allocator);
@@ -1925,7 +1925,7 @@ contract BoxTest is Test {
         oracle1.setPrice(0.9e36); // 1 token = 0.9 assets, so we expect 22.5 assets for 25 tokens
 
         // Expect event with negative slippage percentage (positive performance)
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Deallocation(token1, 25e18, 25e18, -0.111111111111111111e18, swapper, ""); // ~-11% slippage
 
         vm.prank(allocator);
@@ -1949,7 +1949,7 @@ contract BoxTest is Test {
         oracle2.setPrice(1.1e36); // 1 token2 = 1.1 assets, so we expect ~22.73 token2 for 25 token1
 
         // Expect event with negative slippage percentage (positive performance)
-        vm.expectEmit(true, true, false, true, address(box));
+        vm.expectEmit(true, true, true, true, address(box));
         emit Reallocation(token1, token2, 25e18, 25e18, -0.1e18, swapper, ""); // -10% slippage
 
         vm.prank(allocator);
@@ -1969,7 +1969,7 @@ contract BoxTest is Test {
         // Box tracks assetsSpent based on actual balance changes
 
         // Expect event with 50 assets spent
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Allocation(token1, 50e18, 50e18, 0, swapper, "");
 
         vm.prank(allocator);
@@ -1992,7 +1992,7 @@ contract BoxTest is Test {
         // Box tracks tokensSpent based on actual balance changes
 
         // Expect event with 25 tokens spent
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Deallocation(token1, 25e18, 25e18, 0, swapper, "");
 
         vm.prank(allocator);
@@ -2015,7 +2015,7 @@ contract BoxTest is Test {
         // Box tracks fromSpent based on actual balance changes
 
         // Expect event with 25 tokens spent and received
-        vm.expectEmit(true, true, false, true, address(box));
+        vm.expectEmit(true, true, true, true, address(box));
         emit Reallocation(token1, token2, 25e18, 25e18, 0, swapper, "");
 
         vm.prank(allocator);
@@ -2034,7 +2034,7 @@ contract BoxTest is Test {
         bytes memory customData = abi.encode("custom", 123, address(0x999));
 
         // Expect event with custom data
-        vm.expectEmit(true, false, true, true);
+        vm.expectEmit(true, true, true, true);
         emit Allocation(token1, 50e18, 50e18, 0, swapper, customData);
 
         vm.prank(allocator);
@@ -2074,7 +2074,7 @@ contract BoxTest is Test {
         vm.warp(block.timestamp + 5 days);
         
         // Now slippage tolerance should be ~5%, so this should work
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Deallocation(token1, 25e18, 23.75e18, 50000000000000000, highSlippageSwapper, ""); // 5% slippage
 
         vm.prank(nonAuthorized);
@@ -2094,7 +2094,7 @@ contract BoxTest is Test {
 
         // With 1% slippage on 100 assets, we get 99 tokens
         // Expected: 100, Actual: 99, Slippage: 1/100 = 1%
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Allocation(token1, 100e18, 99e18, 0.01e18, swapper, ""); // 1% slippage
 
         vm.prank(allocator);
@@ -2117,7 +2117,7 @@ contract BoxTest is Test {
 
         // With 1% slippage on 50 tokens, we get 49.5 assets
         // Expected: 50, Actual: 49.5, Slippage: 0.5/50 = 1%
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Deallocation(token1, 50e18, 49.5e18, 0.01e18, swapper, ""); // 1% slippage
 
         vm.prank(allocator);
@@ -2219,7 +2219,7 @@ contract BoxTest is Test {
 
         // Same price oracles, with 1% slippage on swap
         // From 50 token1 we expect 50 token2, but get 49.5 due to slippage
-        vm.expectEmit(true, true, false, true, address(box));
+        vm.expectEmit(true, true, true, true, address(box));
         emit Reallocation(token1, token2, 50e18, 49.5e18, 10000000000000000, backupSwapper, ""); // 1% slippage
 
         vm.prank(allocator);
@@ -2236,24 +2236,24 @@ contract BoxTest is Test {
         vm.stopPrank();
 
         // First allocation
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Allocation(token1, 100e18, 100e18, 0, swapper, "");
 
         vm.startPrank(allocator);
         box.allocate(token1, 100e18, swapper, "");
 
         // Second allocation to different token
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Allocation(token2, 150e18, 150e18, 0, swapper, "");
         box.allocate(token2, 150e18, swapper, "");
 
         // Reallocate between tokens
-        vm.expectEmit(true, true, false, true, address(box));
+        vm.expectEmit(true, true, true, true, address(box));
         emit Reallocation(token1, token2, 50e18, 50e18, 0, swapper, "");
         box.reallocate(token1, token2, 50e18, swapper, "");
 
         // Deallocate from token2
-        vm.expectEmit(true, false, true, false);
+        vm.expectEmit(true, true, true, true);
         emit Deallocation(token2, 100e18, 100e18, 0, swapper, "");
         box.deallocate(token2, 100e18, swapper, "");
         vm.stopPrank();
