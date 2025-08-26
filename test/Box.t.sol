@@ -364,10 +364,25 @@ contract BoxTest is Test {
         assertEq(token3.balanceOf(address(box)), amount);
 
         uint256 beforeOwner = token3.balanceOf(owner);
+        vm.prank(box.skimRecipient());
         box.skim(token3);
 
         assertEq(token3.balanceOf(address(box)), 0);
         assertEq(token3.balanceOf(owner), beforeOwner + amount);
+    }
+
+    function testSkimNotAuthorized(address nonAuthorized) public {
+        vm.assume(nonAuthorized != box.skimRecipient());
+        
+        // Mint unrelated token (not the asset and not whitelisted) to the Box and skim it
+        uint256 amount = 1e18;
+        token3.mint(address(box), amount);
+        assertEq(token3.balanceOf(address(box)), amount);
+
+        vm.startPrank(nonAuthorized);
+        vm.expectRevert(Errors.OnlySkimRecipient.selector);
+        box.skim(token3);
+        vm.stopPrank();
     }
 
     /////////////////////////////

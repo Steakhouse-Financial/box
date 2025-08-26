@@ -5,6 +5,10 @@ import {Script, console} from "forge-std/Script.sol";
 import {BoxFactory} from "../src/BoxFactory.sol";
 import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
 import {MorphoVaultV1AdapterFactory} from "@vault-v2/src/adapters/MorphoVaultV1AdapterFactory.sol";
+import {MorphoMarketV1AdapterFactory} from "@vault-v2/src/adapters/MorphoMarketV1AdapterFactory.sol";
+import {IMetaMorpho} from "@vault-v2/lib/metamorpho/src/interfaces/IMetaMorpho.sol";
+import {MarketParams, IMorpho, Id} from "@vault-v2/lib/morpho-blue/src/interfaces/IMorpho.sol";
+import {Id as MetaId} from "@vault-v2/lib/metamorpho/lib/morpho-blue/src/interfaces/IMorpho.sol";
 import {VaultV2Factory} from "@vault-v2/src/VaultV2Factory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -13,6 +17,7 @@ import {IVaultV2} from "@vault-v2/src/interfaces/IVaultV2.sol";
 import {IBoxAdapter} from "../src/interfaces/IBoxAdapter.sol";
 import {Box} from "../src/Box.sol";
 import {MorphoVaultV1Adapter} from "@vault-v2/src/adapters/MorphoVaultV1Adapter.sol";
+import {MorphoMarketV1Adapter} from "@vault-v2/src/adapters/MorphoMarketV1Adapter.sol";
 import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
@@ -30,6 +35,7 @@ contract DeployScript is Script {
 
     VaultV2Factory vaultV2Factory = VaultV2Factory(0xf7A7c8490f619e3422bA55C2CDffbEFd5e047830);
     MorphoVaultV1AdapterFactory mv1AdapterFactory = MorphoVaultV1AdapterFactory(0x11c2Adb26F29334d1dD157CF0531A2Af6815cE2A);
+    MorphoMarketV1AdapterFactory mm1AdapterFactory = MorphoMarketV1AdapterFactory(0x4C2166DA96e9751698B27C6c2066E0a7d46d539d);
     BoxFactory boxFactory = BoxFactory(0x8F29232bC10957017b7961026734eA5035868D9C);
     BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x808F9fcf09921a21aa5Cd71D87BE50c0F05A5203);
     BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x09EA5EafbA623D9012124E05068ab884008f32BD);
@@ -42,7 +48,8 @@ contract DeployScript is Script {
 
     IERC20 usdc = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
 
-    IERC4626 bbqusdc = IERC4626(0xBEEFA7B88064FeEF0cEe02AAeBBd95D30df3878F); // bbqUSDC on Base
+    IMorpho morpho = IMorpho(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
+    IMetaMorpho bbqusdc = IMetaMorpho(0xBEEFA7B88064FeEF0cEe02AAeBBd95D30df3878F); // bbqUSDC on Base
     
     IERC4626 stusd = IERC4626(0x0022228a2cc5E7eF0274A7Baa600d44da5aB5776);
     IOracle stusdOracle = IOracle(0x2eede25066af6f5F2dfc695719dB239509f69915);
@@ -55,6 +62,7 @@ contract DeployScript is Script {
     function run() public {
         vaultV2Factory = deployVaultV2Factory();
         mv1AdapterFactory = deployMorphoVaultV1AdapterFactory();
+        mm1AdapterFactory = deployMorphoMarketV1AdapterFactory();
         boxFactory = deployBoxFactory();
         boxAdapterFactory = deployBoxAdapterFactory();
         boxAdapterCachedFactory = deployBoxAdapterCachedFactory();
@@ -62,48 +70,83 @@ contract DeployScript is Script {
 
     function deployBoxFactory() public returns (BoxFactory) {
         vm.startBroadcast();
-        BoxFactory boxFactory = new BoxFactory();
-        console.log("BoxFactory deployed at:", address(boxFactory));
+        BoxFactory boxFactory_ = new BoxFactory();
+        console.log("BoxFactory deployed at:", address(boxFactory_));
         vm.stopBroadcast();
-        return boxFactory;
+        return boxFactory_;
     }
 
     function deployBoxAdapterFactory() public returns (BoxAdapterFactory) {
         vm.startBroadcast();
-        BoxAdapterFactory boxAdapterFactory = new BoxAdapterFactory();
-        console.log("BoxAdapterFactory deployed at:", address(boxAdapterFactory));
+        BoxAdapterFactory boxAdapterFactory_ = new BoxAdapterFactory();
+        console.log("BoxAdapterFactory deployed at:", address(boxAdapterFactory_));
         vm.stopBroadcast();
-        return boxAdapterFactory;
+        return boxAdapterFactory_;
     }
 
     function deployBoxAdapterCachedFactory() public returns (BoxAdapterCachedFactory) {
         vm.startBroadcast();
-        BoxAdapterCachedFactory boxAdapterCachedFactory = new BoxAdapterCachedFactory();
-        console.log("BoxAdapterCachedFactory deployed at:", address(boxAdapterCachedFactory));
+        BoxAdapterCachedFactory boxAdapterCachedFactory_ = new BoxAdapterCachedFactory();
+        console.log("BoxAdapterCachedFactory deployed at:", address(boxAdapterCachedFactory_));
         vm.stopBroadcast();
-        return boxAdapterCachedFactory;
+        return boxAdapterCachedFactory_;
     }
 
     function deployMorphoVaultV1AdapterFactory() public returns (MorphoVaultV1AdapterFactory) {
         vm.startBroadcast();
-        MorphoVaultV1AdapterFactory mv1AdapterFactory = new MorphoVaultV1AdapterFactory();
-        console.log("MorphoVaultV1AdapterFactory deployed at:", address(mv1AdapterFactory));
+        MorphoVaultV1AdapterFactory mv1AdapterFactory_ = new MorphoVaultV1AdapterFactory();
+        console.log("MorphoVaultV1AdapterFactory deployed at:", address(mv1AdapterFactory_));
         vm.stopBroadcast();
-        return mv1AdapterFactory;
+        return mv1AdapterFactory_;
+    }
+
+    function deployMorphoMarketV1AdapterFactory() public returns (MorphoMarketV1AdapterFactory) {
+        vm.startBroadcast();
+        MorphoMarketV1AdapterFactory mm1AdapterFactory_ = new MorphoMarketV1AdapterFactory();
+        console.log("MorphoMarketV1AdapterFactory deployed at:", address(mm1AdapterFactory_));
+        vm.stopBroadcast();
+        return mm1AdapterFactory_;
     }
 
     function deployVaultV2Factory() public returns (VaultV2Factory) {
         vm.startBroadcast();
-        VaultV2Factory vaultV2Factory = new VaultV2Factory();
-        console.log("VaultV2Factory deployed at:", address(vaultV2Factory));
+        VaultV2Factory vaultV2Factory_ = new VaultV2Factory();
+        console.log("VaultV2Factory deployed at:", address(vaultV2Factory_));
         vm.stopBroadcast();
-        return vaultV2Factory;
+        return vaultV2Factory_;
+    }
+
+    function addMarketsToAdapterFromVault(VaultV2 vault, MorphoMarketV1Adapter mm1Adapter, IMetaMorpho vaultv1) public {
+        uint256 length = vaultv1.withdrawQueueLength();
+        vault.addCollateral(
+            address(mm1Adapter),
+            abi.encode("this", address(mm1Adapter)),
+            1_000_000_000 * 10**6, // 100_000_000 USDC absolute cap
+            1 ether // 100% relative cap
+        );
+        for (uint256 i = 0; i < length; i++) {
+            Id id = Id.wrap(MetaId.unwrap(vaultv1.withdrawQueue(i)));
+            MarketParams memory marketParams = morpho.idToMarketParams(id);
+            bytes32[] memory ids = mm1Adapter.ids(marketParams);
+            vault.addCollateral(
+                address(mm1Adapter),
+                abi.encode("collateralToken", marketParams.collateralToken),
+                100_000_000 * 10**6, // 100_000_000 USDC absolute cap
+                1 ether // 100% relative cap
+            );
+            vault.addCollateral(
+                address(mm1Adapter),
+                abi.encode("this/marketParams", marketParams),
+                100_000_000 * 10**6, // 100_000_000 USDC absolute cap
+                1 ether // 100% relative cap
+            );
+        }
     }
 
     function deployPeaty() public returns (IVaultV2) {
         vm.startBroadcast();
 
-        bytes32 salt = "2";
+        bytes32 salt = "4";
 
         VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
         console.log("Peaty deployed at:", address(vault));
@@ -120,11 +163,9 @@ contract DeployScript is Script {
         vault.changeMaxRate(MAX_MAX_RATE);
 
         // Setting the vault to use bbqUSDC as the asset
-        MorphoVaultV1Adapter bbqusdcAdapter = MorphoVaultV1Adapter(mv1AdapterFactory.createMorphoVaultV1Adapter(address(vault), address(bbqusdc)));
+        MorphoMarketV1Adapter bbqusdcAdapter = MorphoMarketV1Adapter(mm1AdapterFactory.createMorphoMarketV1Adapter(address(vault), address(morpho)));
 
-        vault.addCollateral(address(bbqusdcAdapter), bbqusdcAdapter.data(), 100_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
-
-        vault.setLiquidityAdapterAndData(address(bbqusdcAdapter), "");
+        addMarketsToAdapterFromVault(vault, bbqusdcAdapter, bbqusdc);
 
 
         // Creating Box 1 which will invest in stUSD

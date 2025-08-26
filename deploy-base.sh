@@ -1,8 +1,8 @@
 source .env
 
-# --sig "deployPeaty()"
+FCT=$1
 
-forge script script/Deploy.s.sol:DeployScript  --sig "deployPeaty()" \
+forge script script/Deploy.s.sol:DeployScript  --sig "${FCT}()" \
   --rpc-url $BASE_RPC_URL \
   --private-key $PRIVATE_KEY \
   --broadcast \

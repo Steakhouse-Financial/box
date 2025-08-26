@@ -28,14 +28,17 @@ library VaultV2Lib {
 
     /// @notice Adds collateral to a VaultV2 instance, assume 0-day timelocks
     function addCollateral(VaultV2 vault, address adapter, bytes memory data,  uint256 absolute, uint256 relative) internal {
+        bytes memory encoding;
         // Accept the adapter
-        bytes memory encoding = abi.encodeWithSelector(
-            vault.setIsAdapter.selector,
-            address(adapter),
-            true
-        );
-        vault.submit(encoding);
-        vault.setIsAdapter(address(adapter), true);
+        if(!vault.isAdapter(address(adapter))) {
+            encoding = abi.encodeWithSelector(
+                vault.setIsAdapter.selector,
+                address(adapter),
+                true
+            );
+            vault.submit(encoding);
+            vault.setIsAdapter(address(adapter), true);
+        }
 
         // Absolute limit
         encoding = abi.encodeWithSelector(
@@ -55,7 +58,6 @@ library VaultV2Lib {
         vault.submit(encoding);
         vault.increaseRelativeCap(data, relative);
     }
-
 
 
     /// @notice Adds collateral to a VaultV2 instance, assume 0-day timelocks

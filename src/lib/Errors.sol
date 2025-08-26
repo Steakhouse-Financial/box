@@ -14,6 +14,7 @@ library Errors {
     error OnlyCuratorOrGuardian();
     error OnlyAllocators();
     error OnlyFeeders();
+    error OnlySkimRecipient();
     error OnlyAllocatorsOrShutdown();
     error InvalidOwner();
     

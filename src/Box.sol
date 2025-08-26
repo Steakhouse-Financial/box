@@ -332,6 +332,7 @@ contract Box is IERC4626, ERC20, ReentrancyGuard {
      * @dev Token must not be the base currency or an investment token
      */
     function skim(IERC20 token) external nonReentrant {
+        require(msg.sender == skimRecipient, Errors.OnlySkimRecipient());
         require(address(token) != address(asset), Errors.CannotSkimAsset());
         require(!isToken(token), Errors.CannotSkimToken());
         require(skimRecipient != address(0), Errors.InvalidAddress());
