@@ -127,7 +127,6 @@ contract DeployBaseScript is Script {
         for (uint256 i = 0; i < length; i++) {
             Id id = Id.wrap(MetaId.unwrap(vaultv1.withdrawQueue(i)));
             MarketParams memory marketParams = morpho.idToMarketParams(id);
-            bytes32[] memory ids = mm1Adapter.ids(marketParams);
             vault.addCollateral(
                 address(mm1Adapter),
                 abi.encode("collateralToken", marketParams.collateralToken),

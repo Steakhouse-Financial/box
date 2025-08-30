@@ -671,7 +671,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function addToken(IERC20 token, IOracle oracle) external {
         timelocked();
         require(address(token) != address(0), InvalidAddress());
-        require(address(oracle) != address(0), InvalidAddress());
+        require(address(oracle) != address(0), OracleRequired());
         require(!isToken(token), TokenAlreadyWhitelisted());
         require(tokens.length < MAX_TOKENS, TooManyTokens());
         

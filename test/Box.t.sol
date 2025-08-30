@@ -78,7 +78,7 @@ contract MockSwapper is ISwapper {
         shouldRevert = _shouldRevert;
     }
 
-    function sell(IERC20 input, IERC20 output, uint256 amountIn, bytes calldata data) external {
+    function sell(IERC20 input, IERC20 output, uint256 amountIn, bytes calldata) external {
         require(!shouldRevert, "Swapper: Forced revert");
         
         input.transferFrom(msg.sender, address(this), amountIn);
@@ -310,26 +310,26 @@ contract BoxTest is Test {
     /////////////////////////////
     /// BASIC TESTS
     /////////////////////////////
-    function testBoxCreation(address asset, address owner, address curator, string memory name, string memory symbol, 
-        uint256 maxSlippage, uint256 slippageEpochDuration, uint256 shutdownSlippageDuration, bytes32 salt) public {
-        vm.assume(asset != address(0));
-        vm.assume(owner != address(0));
-        vm.assume(curator != address(0));
-        vm.assume(maxSlippage <= MAX_SLIPPAGE_LIMIT);
-        vm.assume(slippageEpochDuration != 0);
-        vm.assume(shutdownSlippageDuration != 0);
+    function testBoxCreation(address asset_, address owner_, address curator_, string memory name_, string memory symbol_, 
+        uint256 maxSlippage_, uint256 slippageEpochDuration_, uint256 shutdownSlippageDuration_, bytes32 salt) public {
+        vm.assume(asset_ != address(0));
+        vm.assume(owner_ != address(0));
+        vm.assume(curator_ != address(0));
+        vm.assume(maxSlippage_ <= MAX_SLIPPAGE_LIMIT);
+        vm.assume(slippageEpochDuration_ != 0);
+        vm.assume(shutdownSlippageDuration_ != 0);
 
         bytes memory initCode = abi.encodePacked(
             type(Box).creationCode,
             abi.encode(
-                asset,
-                owner,
-                curator,
-                name,
-                symbol,
-                maxSlippage,
-                slippageEpochDuration,
-                shutdownSlippageDuration
+                asset_,
+                owner_,
+                curator_,
+                name_,
+                symbol_,
+                maxSlippage_,
+                slippageEpochDuration_,
+                shutdownSlippageDuration_
             )
         );
 
@@ -341,42 +341,42 @@ contract BoxTest is Test {
 
         vm.expectEmit(true, true, true, true);
         emit IBoxFactory.CreateBox(
-            IERC20(asset),
-            owner,
-            curator,
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
+            IERC20(asset_),
+            owner_,
+            curator_,
+            name_,
+            symbol_,
+            maxSlippage_,
+            slippageEpochDuration_,
+            shutdownSlippageDuration_,
             salt,
             Box(predicted)
         );
 
         box = boxFactory.createBox(
-            IERC20(asset),
-            owner,
-            curator,
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
+            IERC20(asset_),
+            owner_,
+            curator_,
+            name_,
+            symbol_,
+            maxSlippage_,
+            slippageEpochDuration_,
+            shutdownSlippageDuration_,
             salt
         );
 
         assertEq(address(box), predicted, "unexpected CREATE2 address");
-        assertEq(address(box.asset()), address(asset));
-        assertEq(box.owner(), owner);
-        assertEq(box.curator(), curator);
-        assertEq(box.name(), name);
-        assertEq(box.symbol(), symbol);
-        assertEq(box.maxSlippage(), maxSlippage);
-        assertEq(box.slippageEpochDuration(), slippageEpochDuration);
-        assertEq(box.shutdownSlippageDuration(), shutdownSlippageDuration);
+        assertEq(address(box.asset()), address(asset_));
+        assertEq(box.owner(), owner_);
+        assertEq(box.curator(), curator_);
+        assertEq(box.name(), name_);
+        assertEq(box.symbol(), symbol_);
+        assertEq(box.maxSlippage(), maxSlippage_);
+        assertEq(box.slippageEpochDuration(), slippageEpochDuration_);
+        assertEq(box.shutdownSlippageDuration(), shutdownSlippageDuration_);
     }
 
-    function testDefaultSkimRecipientIsOwner() public {
+    function testDefaultSkimRecipientIsOwner() public view {
         assertEq(box.skimRecipient(), owner, "skimRecipient should default to owner");
     }
 
@@ -394,15 +394,15 @@ contract BoxTest is Test {
         assertEq(token3.balanceOf(owner), beforeOwner + amount);
     }
 
-    function testSkimNotAuthorized(address nonAuthorized) public {
-        vm.assume(nonAuthorized != box.skimRecipient());
-        
+    function testSkimNotAuthorized(address nonAuthorized_) public {
+        vm.assume(nonAuthorized_ != box.skimRecipient());
+
         // Mint unrelated token (not the asset and not whitelisted) to the Box and skim it
         uint256 amount = 1e18;
         token3.mint(address(box), amount);
         assertEq(token3.balanceOf(address(box)), amount);
 
-        vm.startPrank(nonAuthorized);
+        vm.startPrank(nonAuthorized_);
         vm.expectRevert(IBox.OnlySkimRecipient.selector);
         box.skim(token3);
         vm.stopPrank();
@@ -412,7 +412,7 @@ contract BoxTest is Test {
     /// BASIC ERC4626 TESTS
     /////////////////////////////
 
-    function testERC4626Compliance() public {
+    function testERC4626Compliance() public view {
         // Test asset()
         assertEq(box.asset(), address(asset));
 
@@ -802,7 +802,7 @@ contract BoxTest is Test {
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
         vm.expectRevert(IBox.OracleRequired.selector);
-        (bool success,) = address(box).call(tokenData);
+        box.addToken(token3, IOracle(address(0)));
         vm.stopPrank();
     }
 
@@ -1490,7 +1490,7 @@ contract BoxTest is Test {
         box.submit(slippageData);
         vm.warp(block.timestamp + 1 days + 1);
         vm.expectRevert(IBox.SlippageTooHigh.selector);
-        (bool success,) = address(box).call(slippageData);
+        box.setMaxSlippage(0.15 ether);
         vm.stopPrank();
     }
 
@@ -1538,7 +1538,7 @@ contract BoxTest is Test {
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
         vm.expectRevert(IBox.TokenBalanceMustBeZero.selector);
-        (bool success,) = address(box).call(tokenData);
+        box.removeToken(token1);
         vm.stopPrank();
     }
 
@@ -1621,7 +1621,7 @@ contract BoxTest is Test {
         box.withdraw(50e18, feeder, feeder);
     }
 
-    function testConvertFunctionsEdgeCases() public {
+    function testConvertFunctionsEdgeCases() public view {
         // Test with zero total supply
         assertEq(box.convertToShares(100e18), 100e18);
         assertEq(box.convertToAssets(100e18), 100e18);
