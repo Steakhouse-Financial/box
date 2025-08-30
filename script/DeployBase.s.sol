@@ -28,7 +28,7 @@ import "@vault-v2/src/libraries/ConstantsLib.sol";
 
 ///@dev This script deploys the necessary contracts for the Peaty product on Base.
 ///@dev Default factories are hardcoded, but can be overridden using run() which will deploy fresh contracts.
-contract DeployScript is Script {
+contract DeployBaseScript is Script {
     using BoxLib for Box;
     using VaultV2Lib for VaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;

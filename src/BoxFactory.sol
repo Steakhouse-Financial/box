@@ -8,11 +8,10 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./interfaces/IBox.sol";
 import "./interfaces/IOracle.sol";
 import "./interfaces/ISwapper.sol";
 import "./interfaces/IBoxFactory.sol";
-import "./lib/Errors.sol";
-import "./lib/ConstantsLib.sol";
 
 contract BoxFactory is IBoxFactory {
     /* STORAGE */

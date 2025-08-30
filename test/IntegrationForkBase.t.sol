@@ -6,9 +6,9 @@ import {Test, console} from "forge-std/Test.sol";
 import {Box} from "../src/Box.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {IBox} from "../src/interfaces/IBox.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
-import {Errors} from "../src/lib/Errors.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
 import {MorphoVaultV1Adapter} from "@vault-v2/src/adapters/MorphoVaultV1Adapter.sol";
 
@@ -603,7 +603,7 @@ contract IntegrationForkBaseTest is Test {
 
         vm.startPrank(user);
         uint256 dealloc = ptusr25sep.balanceOf(address(box2));
-        vm.expectRevert(Errors.OnlyAllocatorsOrShutdown.selector);
+        vm.expectRevert(IBox.OnlyAllocatorsOrShutdown.selector);
         box2.deallocate(ptusr25sep, dealloc, swapper, "");
         vm.stopPrank();
 
@@ -612,7 +612,7 @@ contract IntegrationForkBaseTest is Test {
         box2.shutdown();
 
         dealloc = ptusr25sep.balanceOf(address(box1));
-        vm.expectRevert(Errors.OnlyAllocatorsOrShutdown.selector);
+        vm.expectRevert(IBox.OnlyAllocatorsOrShutdown.selector);
         box2.deallocate(ptusr25sep, dealloc, swapper, "");
 
 
@@ -657,9 +657,9 @@ contract IntegrationForkBaseTest is Test {
         assertEq(box2.accumulatedSlippage(), 0, "Before the start, accumulated slippage should be 0");
 
         vm.expectEmit(true, true, true, true);
-        emit Box.SlippageAccumulated(430674700893582, 430674700893582);
+        emit IBox.SlippageAccumulated(430674700893582, 430674700893582);
         vm.expectEmit(true, true, true, true);
-        emit Box.Allocation(IERC20(ptusr25sep), 
+        emit IBox.Allocation(IERC20(ptusr25sep), 
             USDC_AMOUNT,
             10098450142215613367131, 430489300239495, ISwapper(swapper), "");
         box2.allocate(ptusr25sep, USDC_AMOUNT, swapper, "");
@@ -668,9 +668,9 @@ contract IntegrationForkBaseTest is Test {
         assertEq(box2.accumulatedSlippage(), 430674700893582, "Accumulated slippage after allocate doesn't match");
 
         vm.expectEmit(true, true, true, true);
-        emit Box.SlippageAccumulated(464070846766503, 894745547660085);
+        emit IBox.SlippageAccumulated(464070846766503, 894745547660085);
         vm.expectEmit(true, true, true, true);
-        emit Box.Deallocation(IERC20(ptusr25sep), 
+        emit IBox.Deallocation(IERC20(ptusr25sep), 
             ptusr25sep.balanceOf(address(box2)),
             9991058547, 463855584912435, ISwapper(swapper), "");
         box2.deallocate(ptusr25sep, ptusr25sep.balanceOf(address(box2)), swapper, "");
@@ -684,9 +684,9 @@ contract IntegrationForkBaseTest is Test {
 
         vm.expectEmit(true, true, true, true);
         // August 22th, 2025 (8 days after August 14th)
-        emit Box.SlippageEpochReset(1755868569);
+        emit IBox.SlippageEpochReset(1755868569);
         vm.expectEmit(true, true, true, true);
-        emit Box.SlippageAccumulated(64154975793433, 64154975793433);
+        emit IBox.SlippageAccumulated(64154975793433, 64154975793433);
         box2.allocate(ptusr25sep, USDC_AMOUNT / 2, swapper, "");
         assertEq(box2.accumulatedSlippage(), 64154975793433, "Slippage reset");
 
