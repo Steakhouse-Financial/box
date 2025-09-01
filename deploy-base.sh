@@ -2,7 +2,7 @@ source .env
 
 FCT=$1
 
-forge script script/Deploy.s.sol:DeployScript  --sig "${FCT}()" \
+forge script script/DeployBase.s.sol:DeployBaseScript  --sig "${FCT}()" \
   --rpc-url $BASE_RPC_URL \
   --private-key $PRIVATE_KEY \
   --broadcast \

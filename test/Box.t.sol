@@ -12,6 +12,7 @@ import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import "../src/lib/Constants.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
+import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
 
 contract MockERC20 is IERC20 {
     string public name;
@@ -403,7 +404,7 @@ contract BoxTest is Test {
         assertEq(token3.balanceOf(address(box)), amount);
 
         vm.startPrank(nonAuthorized_);
-        vm.expectRevert(IBox.OnlySkimRecipient.selector);
+        vm.expectRevert(ErrorsLib.OnlySkimRecipient.selector);
         box.skim(token3);
         vm.stopPrank();
     }
@@ -468,7 +469,7 @@ contract BoxTest is Test {
         vm.startPrank(nonAuthorized);
         asset.approve(address(box), 100e18);
         
-        vm.expectRevert(IBox.OnlyFeeders.selector);
+        vm.expectRevert(ErrorsLib.OnlyFeeders.selector);
         box.deposit(100e18, nonAuthorized);
         vm.stopPrank();
     }
@@ -480,7 +481,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
 
-        vm.expectRevert(IBox.CannotDepositIfShutdown.selector);
+        vm.expectRevert(ErrorsLib.CannotDepositIfShutdown.selector);
         box.deposit(100e18, feeder);
         vm.stopPrank();
     }
@@ -505,7 +506,7 @@ contract BoxTest is Test {
         vm.startPrank(nonAuthorized);
         asset.approve(address(box), 100e18);
         
-        vm.expectRevert(IBox.OnlyFeeders.selector);
+        vm.expectRevert(ErrorsLib.OnlyFeeders.selector);
         box.mint(100e18, nonAuthorized);
         vm.stopPrank();
     }
@@ -517,7 +518,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
         
-        vm.expectRevert(IBox.CannotMintIfShutdown.selector);
+        vm.expectRevert(ErrorsLib.CannotMintIfShutdown.selector);
         box.mint(100e18, feeder);
         vm.stopPrank();
     }
@@ -547,7 +548,7 @@ contract BoxTest is Test {
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
-        vm.expectRevert(IBox.InsufficientShares.selector);
+        vm.expectRevert(ErrorsLib.InsufficientShares.selector);
         box.withdraw(200e18, feeder, feeder);
         vm.stopPrank();
     }
@@ -595,7 +596,7 @@ contract BoxTest is Test {
         require(userSuccess, "Failed to set user1 as feeder");
         vm.stopPrank();
 
-        vm.expectRevert(IBox.InsufficientAllowance.selector);
+        vm.expectRevert(ErrorsLib.InsufficientAllowance.selector);
         vm.prank(user1);
         box.withdraw(50e18, user1, feeder);
     }
@@ -624,7 +625,7 @@ contract BoxTest is Test {
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
-        vm.expectRevert(IBox.InsufficientShares.selector);
+        vm.expectRevert(ErrorsLib.InsufficientShares.selector);
         box.redeem(200e18, feeder, feeder);
         vm.stopPrank();
     }
@@ -765,7 +766,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectRevert(IBox.OnlyAllocators.selector);
+        vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
         vm.prank(nonAuthorized);
         box.allocate(token1, 50e18, swapper, "");
     }
@@ -779,7 +780,7 @@ contract BoxTest is Test {
         vm.prank(guardian);
         box.shutdown();
 
-        vm.expectRevert(IBox.CannotAllocateIfShutdown.selector);
+        vm.expectRevert(ErrorsLib.CannotAllocateIfShutdown.selector);
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
     }
@@ -790,7 +791,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectRevert(IBox.TokenNotWhitelisted.selector);
+        vm.expectRevert(ErrorsLib.TokenNotWhitelisted.selector);
         vm.prank(allocator);
         box.allocate(token3, 50e18, swapper, "");
     }
@@ -801,7 +802,7 @@ contract BoxTest is Test {
         bytes memory tokenData = abi.encodeWithSelector(box.addToken.selector, token3, IOracle(address(0)));
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
-        vm.expectRevert(IBox.OracleRequired.selector);
+        vm.expectRevert(ErrorsLib.OracleRequired.selector);
         box.addToken(token3, IOracle(address(0)));
         vm.stopPrank();
     }
@@ -816,7 +817,7 @@ contract BoxTest is Test {
         oracle1.setPrice(0.5e36); // 1 asset = 2 tokens expected
         // But swapper gives 1:1, so we get less than expected
 
-        vm.expectRevert(IBox.AllocationTooExpensive.selector);
+        vm.expectRevert(ErrorsLib.AllocationTooExpensive.selector);
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
     }
@@ -876,13 +877,13 @@ contract BoxTest is Test {
         vm.warp(1755247499);
 
         vm.startPrank(nonAuthorized);
-        vm.expectRevert(IBox.OnlyAllocatorsOrShutdown.selector);
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrShutdown.selector);
         box.deallocate(token1, 25e18, swapper, "");
         vm.stopPrank();
     }
 
     function testDeallocateNonWhitelistedToken() public {
-        vm.expectRevert(IBox.NoOracleForToken.selector);
+        vm.expectRevert(ErrorsLib.NoOracleForToken.selector);
         vm.prank(allocator);
         box.deallocate(token3, 25e18, swapper, "");
     }
@@ -900,7 +901,7 @@ contract BoxTest is Test {
         oracle1.setPrice(2e36); // 1 token = 2 asset expected
         // But swapper gives 1:1, so we get less than expected
 
-        vm.expectRevert(IBox.TokenSaleNotGeneratingEnoughAssets.selector);
+        vm.expectRevert(ErrorsLib.TokenSaleNotGeneratingEnoughAssets.selector);
         vm.prank(allocator);
         box.deallocate(token1, 25e18, swapper, "");
     }
@@ -930,7 +931,7 @@ contract BoxTest is Test {
     }
 
     function testReallocateNonAllocator() public {
-        vm.expectRevert(IBox.OnlyAllocators.selector);
+        vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
         vm.prank(nonAuthorized);
         box.reallocate(token1, token2, 25e18, swapper, "");
     }
@@ -939,17 +940,17 @@ contract BoxTest is Test {
         vm.prank(guardian);
         box.shutdown();
 
-        vm.expectRevert(IBox.CannotReallocateIfShutdown.selector);
+        vm.expectRevert(ErrorsLib.CannotReallocateIfShutdown.selector);
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, swapper, "");
     }
 
     function testReallocateNonWhitelistedTokens() public {
-        vm.expectRevert(IBox.TokenNotWhitelisted.selector);
+        vm.expectRevert(ErrorsLib.TokenNotWhitelisted.selector);
         vm.prank(allocator);
         box.reallocate(token3, token1, 25e18, swapper, "");
 
-        vm.expectRevert(IBox.TokenNotWhitelisted.selector);
+        vm.expectRevert(ErrorsLib.TokenNotWhitelisted.selector);
         vm.prank(allocator);
         box.reallocate(token1, token3, 25e18, swapper, "");
     }
@@ -969,7 +970,7 @@ contract BoxTest is Test {
         oracle2.setPrice(0.5e36); // 1 token2 = 0.5 asset (so we expect 2 token2 for 1 token1)
         
         // But swapper gives 1:1, so we get less than expected (50% slippage)
-        vm.expectRevert(IBox.ReallocationSlippageTooHigh.selector);
+        vm.expectRevert(ErrorsLib.ReallocationSlippageTooHigh.selector);
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, swapper, "");
     }
@@ -1112,7 +1113,7 @@ contract BoxTest is Test {
         box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
         
         // This should fail as it would exceed 1% total slippage
-        vm.expectRevert(IBox.TooMuchAccumulatedSlippage.selector);
+        vm.expectRevert(ErrorsLib.TooMuchAccumulatedSlippage.selector);
         box.allocate(token1, 100e18, swapper, ""); // Would push over 1% total
         vm.stopPrank();
     }
@@ -1155,7 +1156,7 @@ contract BoxTest is Test {
     }
 
     function testShutdownNonGuardian() public {
-        vm.expectRevert(IBox.OnlyGuardianCanShutdown.selector);
+        vm.expectRevert(ErrorsLib.OnlyGuardianCanShutdown.selector);
         vm.prank(nonAuthorized);
         box.shutdown();
     }
@@ -1164,7 +1165,7 @@ contract BoxTest is Test {
         vm.prank(guardian);
         box.shutdown();
 
-        vm.expectRevert(IBox.AlreadyShutdown.selector);
+        vm.expectRevert(ErrorsLib.AlreadyShutdown.selector);
         vm.prank(guardian);
         box.shutdown();
     }
@@ -1185,7 +1186,7 @@ contract BoxTest is Test {
         vm.startPrank(nonAuthorized);
 
         // But need to wait SHUTDOWN_WARMUP before deallocation
-        vm.expectRevert(IBox.OnlyAllocatorsOrShutdown.selector);
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrShutdown.selector);
         box.deallocate(token1, 25e18, swapper, "");
 
         // After warmup it should work
@@ -1289,7 +1290,7 @@ contract BoxTest is Test {
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
-        vm.expectRevert(IBox.InsufficientShares.selector);
+        vm.expectRevert(ErrorsLib.InsufficientShares.selector);
         box.unbox(200e18);
         vm.stopPrank();
     }
@@ -1299,7 +1300,7 @@ contract BoxTest is Test {
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
         
-        vm.expectRevert(IBox.CannotUnboxZeroShares.selector);
+        vm.expectRevert(ErrorsLib.CannotUnboxZeroShares.selector);
         box.unbox(0);
         vm.stopPrank();
     }
@@ -1317,7 +1318,7 @@ contract BoxTest is Test {
         box.submit(slippageData);
         
         // Try to execute too early - should fail
-        vm.expectRevert(IBox.TimelockNotExpired.selector);
+        vm.expectRevert(ErrorsLib.TimelockNotExpired.selector);
         (bool success,) = address(box).call(slippageData);
         
         // Warp to after timelock
@@ -1333,7 +1334,7 @@ contract BoxTest is Test {
 
     function testTimelockSubmitNonCurator() public {
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.02 ether);
-        vm.expectRevert(IBox.OnlyCurator.selector);
+        vm.expectRevert(ErrorsLib.OnlyCurator.selector);
         vm.prank(nonAuthorized);
         box.submit(slippageData);
     }
@@ -1350,7 +1351,7 @@ contract BoxTest is Test {
         
         // Should fail to execute after revoke
         vm.warp(block.timestamp + 1 days + 1);
-        vm.expectRevert(IBox.DataNotTimelocked.selector);
+        vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
         (bool success,) = address(box).call(slippageData);
         vm.stopPrank();
 
@@ -1385,7 +1386,7 @@ contract BoxTest is Test {
         // Should fail to execute after revoke
         vm.startPrank(curator);
         vm.warp(block.timestamp + 1 days + 1);
-        vm.expectRevert(IBox.DataNotTimelocked.selector);
+        vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
         (success,) = address(box).call(slippageData);
         vm.stopPrank();
     }
@@ -1395,7 +1396,7 @@ contract BoxTest is Test {
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.02 ether);
         box.submit(slippageData);
 
-        vm.expectRevert(IBox.OnlyCuratorOrGuardian.selector);
+        vm.expectRevert(ErrorsLib.OnlyCuratorOrGuardian.selector);
         vm.prank(nonAuthorized);
         box.revoke(slippageData);
     }
@@ -1425,7 +1426,7 @@ contract BoxTest is Test {
 
     function testCuratorSubmitInvalidAddress() public {
         // Test that setCurator properly validates against address(0)
-        vm.expectRevert(IBox.InvalidAddress.selector);
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
         vm.prank(owner); // setCurator requires owner
         box.setCurator(address(0));
     }
@@ -1489,7 +1490,7 @@ contract BoxTest is Test {
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.15 ether);
         box.submit(slippageData);
         vm.warp(block.timestamp + 1 days + 1);
-        vm.expectRevert(IBox.SlippageTooHigh.selector);
+        vm.expectRevert(ErrorsLib.SlippageTooHigh.selector);
         box.setMaxSlippage(0.15 ether);
         vm.stopPrank();
     }
@@ -1537,7 +1538,7 @@ contract BoxTest is Test {
         bytes memory tokenData = abi.encodeWithSelector(box.removeToken.selector, token1);
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
-        vm.expectRevert(IBox.TokenBalanceMustBeZero.selector);
+        vm.expectRevert(ErrorsLib.TokenBalanceMustBeZero.selector);
         box.removeToken(token1);
         vm.stopPrank();
     }
@@ -1552,13 +1553,13 @@ contract BoxTest is Test {
     }
 
     function testOwnerChangeNonOwner() public {
-        vm.expectRevert(IBox.OnlyOwner.selector);
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
         vm.prank(nonAuthorized);
         box.transferOwnership(address(0x99));
     }
 
     function testOwnerChangeInvalidAddress() public {
-        vm.expectRevert(IBox.InvalidAddress.selector);
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
         vm.prank(owner);
         box.transferOwnership(address(0));
     }
@@ -1576,7 +1577,7 @@ contract BoxTest is Test {
 
         bytes memory token1Data = abi.encodeWithSelector(box.addToken.selector, address(uint160(MAX_TOKENS)), address(uint160(MAX_TOKENS)));
         box.submit(token1Data);
-        vm.expectRevert(IBox.TooManyTokens.selector);
+        vm.expectRevert(ErrorsLib.TooManyTokens.selector);
         box.addToken(IERC20(address(uint160(MAX_TOKENS))), IOracle(address(uint160(MAX_TOKENS))));
         vm.stopPrank();
     }
@@ -1616,7 +1617,7 @@ contract BoxTest is Test {
         box.allocate(token1, 100e18, swapper, "");
 
         // Try to withdraw - should fail due to insufficient liquidity
-        vm.expectRevert(IBox.InsufficientLiquidity.selector);
+        vm.expectRevert(ErrorsLib.InsufficientLiquidity.selector);
         vm.prank(feeder);
         box.withdraw(50e18, feeder, feeder);
     }
@@ -1819,7 +1820,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectRevert(IBox.InvalidAmount.selector);
+        vm.expectRevert(ErrorsLib.InvalidAmount.selector);
         vm.prank(allocator);
         box.allocate(token1, 0, swapper, "");
     }
@@ -1833,7 +1834,7 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
-        vm.expectRevert(IBox.InvalidAmount.selector);
+        vm.expectRevert(ErrorsLib.InvalidAmount.selector);
         vm.prank(allocator);
         box.deallocate(token1, 0, swapper, "");
     }
@@ -1847,7 +1848,7 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
-        vm.expectRevert(IBox.InvalidAmount.selector);
+        vm.expectRevert(ErrorsLib.InvalidAmount.selector);
         vm.prank(allocator);
         box.reallocate(token1, token2, 0, swapper, "");
     }
@@ -1858,7 +1859,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectRevert(IBox.InvalidAddress.selector);
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
         vm.prank(allocator);
         box.allocate(token1, 50e18, ISwapper(address(0)), "");
     }
@@ -1872,7 +1873,7 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
-        vm.expectRevert(IBox.InvalidAddress.selector);
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
         vm.prank(allocator);
         box.deallocate(token1, 25e18, ISwapper(address(0)), "");
     }
@@ -1886,7 +1887,7 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
-        vm.expectRevert(IBox.InvalidAddress.selector);
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, ISwapper(address(0)), "");
     }
@@ -2066,7 +2067,7 @@ contract BoxTest is Test {
         vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
 
         // At start of shutdown slippage duration, should fail with 5% slippage
-        vm.expectRevert(IBox.TokenSaleNotGeneratingEnoughAssets.selector);
+        vm.expectRevert(ErrorsLib.TokenSaleNotGeneratingEnoughAssets.selector);
         vm.prank(nonAuthorized);
         box.deallocate(token1, 25e18, highSlippageSwapper, "");
 

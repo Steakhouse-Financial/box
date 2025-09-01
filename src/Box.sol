@@ -12,6 +12,8 @@ import {IBox} from "./interfaces/IBox.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ISwapper} from "./interfaces/ISwapper.sol";
 import "./lib/Constants.sol";
+import {ErrorsLib} from "./lib/ErrorsLib.sol";
+import {EventsLib} from "./lib/EventsLib.sol";
 
 /**
  * @title Box
@@ -71,10 +73,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== MODIFIERS ==========
         
     function timelocked() internal {
-        if (executableAt[msg.data] == 0) revert DataNotTimelocked();
-        if (block.timestamp < executableAt[msg.data]) revert TimelockNotExpired();
+        if (executableAt[msg.data] == 0) revert ErrorsLib.DataNotTimelocked();
+        if (block.timestamp < executableAt[msg.data]) revert ErrorsLib.TimelockNotExpired();
         executableAt[msg.data] = 0;
-        emit TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
+        emit EventsLib.TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
     }
 
     // ========== CONSTRUCTOR ==========
@@ -100,12 +102,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 _slippageEpochDuration,
         uint256 _shutdownSlippageDuration
     ) ERC20(_name, _symbol) {
-        require(_asset != address(0), InvalidAddress());
-        require(_owner != address(0), InvalidAddress());
-        require(_curator != address(0), InvalidAddress());
-        require(_maxSlippage <= MAX_SLIPPAGE_LIMIT, SlippageTooHigh());
-        require(_slippageEpochDuration != 0, InvalidAmount());
-        require(_shutdownSlippageDuration != 0, InvalidAmount());
+        require(_asset != address(0), ErrorsLib.InvalidAddress());
+        require(_owner != address(0), ErrorsLib.InvalidAddress());
+        require(_curator != address(0), ErrorsLib.InvalidAddress());
+        require(_maxSlippage <= MAX_SLIPPAGE_LIMIT, ErrorsLib.SlippageTooHigh());
+        require(_slippageEpochDuration != 0, ErrorsLib.InvalidAmount());
+        require(_shutdownSlippageDuration != 0, ErrorsLib.InvalidAmount());
 
         asset = _asset;
         owner = _owner;
@@ -116,9 +118,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         shutdownSlippageDuration = _shutdownSlippageDuration;
         slippageEpochStart = block.timestamp;
 
-        emit BoxCreated(address(this), asset, owner, curator, _name, _symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
-        emit OwnershipTransferred(address(0), _owner);
-        emit CuratorUpdated(address(0), _curator);
+        emit EventsLib.BoxCreated(address(this), asset, owner, curator, _name, _symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
+        emit EventsLib.OwnershipTransferred(address(0), _owner);
+        emit EventsLib.CuratorUpdated(address(0), _curator);
     }
 
     // ========== ERC4626 IMPLEMENTATION ==========
@@ -152,9 +154,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @inheritdoc IERC4626
     function deposit(uint256 assets, address receiver) public nonReentrant returns (uint256 shares) {
-        require(isFeeder[msg.sender], OnlyFeeders());
-        require(!isShutdown(), CannotDepositIfShutdown());
-        require(receiver != address(0), InvalidAddress());
+        require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
+        require(!isShutdown(), ErrorsLib.CannotDepositIfShutdown());
+        require(receiver != address(0), ErrorsLib.InvalidAddress());
 
         shares = previewDeposit(assets);
 
@@ -177,9 +179,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @inheritdoc IERC4626
     function mint(uint256 shares, address receiver) external nonReentrant returns (uint256 assets) {
-        require(isFeeder[msg.sender], OnlyFeeders());
-        require(!isShutdown(), CannotMintIfShutdown());
-        require(receiver != address(0), InvalidAddress());
+        require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
+        require(!isShutdown(), ErrorsLib.CannotMintIfShutdown());
+        require(receiver != address(0), ErrorsLib.InvalidAddress());
 
         assets = previewMint(shares);
 
@@ -202,20 +204,20 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @inheritdoc IERC4626
     function withdraw(uint256 assets, address receiver, address owner_) public nonReentrant returns (uint256 shares) {
-        if (receiver == address(0)) revert InvalidAddress();
+        if (receiver == address(0)) revert ErrorsLib.InvalidAddress();
         
         shares = previewWithdraw(assets);
         
         if (msg.sender != owner_) {
             uint256 allowed = allowance(owner_, msg.sender);
-            if (allowed < shares) revert InsufficientAllowance();
+            if (allowed < shares) revert ErrorsLib.InsufficientAllowance();
             if (allowed != type(uint256).max) {
                 _approve(owner_, msg.sender, allowed - shares);
             }
         }
-        
-        if (balanceOf(owner_) < shares) revert InsufficientShares();
-        if (IERC20(asset).balanceOf(address(this)) < assets) revert InsufficientLiquidity();
+
+        if (balanceOf(owner_) < shares) revert ErrorsLib.InsufficientShares();
+        if (IERC20(asset).balanceOf(address(this)) < assets) revert ErrorsLib.InsufficientLiquidity();
 
         _burn(owner_, shares);
         IERC20(asset).safeTransfer(receiver, assets);
@@ -235,20 +237,20 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @inheritdoc IERC4626
     function redeem(uint256 shares, address receiver, address owner_) external nonReentrant returns (uint256 assets) {
-        if (receiver == address(0)) revert InvalidAddress();
+        if (receiver == address(0)) revert ErrorsLib.InvalidAddress();
 
         if (msg.sender != owner_) {
             uint256 allowed = allowance(owner_, msg.sender);
-            if (allowed < shares) revert InsufficientAllowance();
+            if (allowed < shares) revert ErrorsLib.InsufficientAllowance();
             if (allowed != type(uint256).max) {
                 _approve(owner_, msg.sender, allowed - shares);
             }
         }
-        
-        if (balanceOf(owner_) < shares) revert InsufficientShares();
+
+        if (balanceOf(owner_) < shares) revert ErrorsLib.InsufficientShares();
 
         assets = previewRedeem(shares);
-        if (IERC20(asset).balanceOf(address(this)) < assets) revert InsufficientLiquidity();
+        if (IERC20(asset).balanceOf(address(this)) < assets) revert ErrorsLib.InsufficientLiquidity();
 
         _burn(owner_, shares);
         IERC20(asset).safeTransfer(receiver, assets);
@@ -264,8 +266,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Can be called by anyone holding shares
      */
     function unbox(uint256 shares) external nonReentrant {
-        require(shares > 0, CannotUnboxZeroShares());
-        if (balanceOf(msg.sender) < shares) revert InsufficientShares();
+        require(shares > 0, ErrorsLib.CannotUnboxZeroShares());
+        if (balanceOf(msg.sender) < shares) revert ErrorsLib.InsufficientShares();
 
         uint256 supply = totalSupply();
         uint256 assetsAmount = IERC20(asset).balanceOf(address(this)).mulDiv(shares, supply);
@@ -287,7 +289,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             unchecked { ++i; }
         }
         
-        emit Unbox(msg.sender, shares);
+        emit EventsLib.Unbox(msg.sender, shares);
     }
     
     // ========== INVESTMENT MANAGEMENT ==========
@@ -298,16 +300,16 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Token must not be the base currency or an investment token
      */
     function skim(IERC20 token) external nonReentrant {
-        require(msg.sender == skimRecipient, OnlySkimRecipient());
-        require(address(token) != address(asset), CannotSkimAsset());
-        require(!isToken(token), CannotSkimToken());
-        require(skimRecipient != address(0), InvalidAddress());
+        require(msg.sender == skimRecipient, ErrorsLib.OnlySkimRecipient());
+        require(address(token) != address(asset), ErrorsLib.CannotSkimAsset());
+        require(!isToken(token), ErrorsLib.CannotSkimToken());
+        require(skimRecipient != address(0), ErrorsLib.InvalidAddress());
 
         uint256 amount = token.balanceOf(address(this));
-        require(amount > 0, CannotSkimZero());
+        require(amount > 0, ErrorsLib.CannotSkimZero());
 
         token.safeTransfer(skimRecipient, amount);
-        emit Skim(token, skimRecipient, amount);
+        emit EventsLib.Skim(token, skimRecipient, amount);
     }
 
     /**
@@ -318,11 +320,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param data Additional data to pass to the swapper
      */
     function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
-        require(isAllocator[msg.sender], OnlyAllocators());
-        require(!isShutdown(), CannotAllocateIfShutdown());
-        require(isToken(token), TokenNotWhitelisted());
-        require(address(swapper) != address(0), InvalidAddress());
-        require(assetsAmount > 0, InvalidAmount());
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        require(!isShutdown(), ErrorsLib.CannotAllocateIfShutdown());
+        require(isToken(token), ErrorsLib.TokenNotWhitelisted());
+        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
+        require(assetsAmount > 0, ErrorsLib.InvalidAmount());
 
         IOracle oracle = oracles[token];
 
@@ -335,7 +337,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 tokensReceived = token.balanceOf(address(this)) - tokensBefore;
         uint256 assetsSpent = assetsBefore - IERC20(asset).balanceOf(address(this));
 
-        require(assetsSpent <= assetsAmount, SwapperDidSpendTooMuch());
+        require(assetsSpent <= assetsAmount, ErrorsLib.SwapperDidSpendTooMuch());
 
         // Validate slippage
         uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oracle.price());
@@ -343,7 +345,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         int256 slippage = int256(expectedTokens) - int256(tokensReceived);
         int256 slippagePct = expectedTokens == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedTokens);
 
-        require(tokensReceived >= minTokens, AllocationTooExpensive());
+        require(tokensReceived >= minTokens, ErrorsLib.AllocationTooExpensive());
 
         // Revoke allowance to prevent residual approvals
         IERC20(asset).forceApprove(address(swapper), 0);
@@ -354,7 +356,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
-        emit Allocation(token, assetsSpent, tokensReceived, slippagePct, swapper, data);
+        emit EventsLib.Allocation(token, assetsSpent, tokensReceived, slippagePct, swapper, data);
     }
 
     /**
@@ -366,12 +368,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
         require(isAllocator[msg.sender] 
-            || (isShutdown() && block.timestamp > shutdownTime + SHUTDOWN_WARMUP), OnlyAllocatorsOrShutdown());
-        require(tokensAmount > 0, InvalidAmount());     
-        require(address(swapper) != address(0), InvalidAddress());
-        
+            || (isShutdown() && block.timestamp > shutdownTime + SHUTDOWN_WARMUP), ErrorsLib.OnlyAllocatorsOrShutdown());
+        require(tokensAmount > 0, ErrorsLib.InvalidAmount());
+        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
+
         IOracle oracle = oracles[token];
-        require(address(oracle) != address(0), NoOracleForToken());
+        require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
 
         uint256 assetsBefore = IERC20(asset).balanceOf(address(this));   
         uint256 tokensBefore = token.balanceOf(address(this));   
@@ -382,7 +384,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 assetsReceived = IERC20(asset).balanceOf(address(this)) - assetsBefore;
         uint256 tokensSpent = tokensBefore - token.balanceOf(address(this));
 
-        require(tokensSpent <= tokensAmount, SwapperDidSpendTooMuch());
+        require(tokensSpent <= tokensAmount, ErrorsLib.SwapperDidSpendTooMuch());
 
         // Revoke allowance to prevent residual approvals
         token.forceApprove(address(swapper), 0);
@@ -405,7 +407,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         int256 slippage = int256(expectedAssets) - int256(assetsReceived);
         int256 slippagePct = expectedAssets == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedAssets);
 
-        require(assetsReceived >= minAssets, TokenSaleNotGeneratingEnoughAssets());
+        require(assetsReceived >= minAssets, ErrorsLib.TokenSaleNotGeneratingEnoughAssets());
 
         // Track slippage (only in normal operation)
         if (isAllocator[msg.sender] && slippage > 0) {
@@ -414,7 +416,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
-        emit Deallocation(token, tokensSpent, assetsReceived, slippagePct, swapper, data);
+        emit EventsLib.Deallocation(token, tokensSpent, assetsReceived, slippagePct, swapper, data);
     }
 
     /**
@@ -432,11 +434,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         ISwapper swapper,
         bytes calldata data
     ) external nonReentrant {
-        require(isAllocator[msg.sender], OnlyAllocators());
-        require(!isShutdown(), CannotReallocateIfShutdown());
-        require(isToken(from) && isToken(to), TokenNotWhitelisted());
-        require(address(swapper) != address(0), InvalidAddress());
-        require(tokensAmount > 0, InvalidAmount());
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        require(!isShutdown(), ErrorsLib.CannotReallocateIfShutdown());
+        require(isToken(from) && isToken(to), ErrorsLib.TokenNotWhitelisted());
+        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
+        require(tokensAmount > 0, ErrorsLib.InvalidAmount());
 
         IOracle fromOracle = oracles[from];
         IOracle toOracle = oracles[to];
@@ -450,7 +452,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 toReceived = to.balanceOf(address(this)) - toBefore;
         uint256 fromSpent = fromBefore - from.balanceOf(address(this));
 
-        require(fromSpent <= tokensAmount, SwapperDidSpendTooMuch());
+        require(fromSpent <= tokensAmount, ErrorsLib.SwapperDidSpendTooMuch());
 
         // Revoke allowance to prevent residual approvals
         from.forceApprove(address(swapper), 0);
@@ -462,7 +464,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         int256 slippage = int256(expectedToTokens) - int256(toReceived);
         int256 slippagePct = expectedToTokens == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedToTokens);
 
-        require(toReceived >= minToTokens, ReallocationSlippageTooHigh());
+        require(toReceived >= minToTokens, ErrorsLib.ReallocationSlippageTooHigh());
 
         // Track slippage
         if (slippage > 0) {
@@ -470,7 +472,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
-        emit Reallocation(from, to, fromSpent, toReceived, slippagePct, swapper, data);
+        emit EventsLib.Reallocation(from, to, fromSpent, toReceived, slippagePct, swapper, data);
     }
 
     // ========== ADMIN FUNCTIONS ==========
@@ -480,14 +482,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param newSkimRecipient Address of new skim recipient
      */
     function setSkimRecipient(address newSkimRecipient) external {
-        require(msg.sender == owner, OnlyOwner());
-        require(newSkimRecipient != address(0), InvalidAddress());
-        require(newSkimRecipient != skimRecipient, AlreadySet());
-        
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        require(newSkimRecipient != address(0), ErrorsLib.InvalidAddress());
+        require(newSkimRecipient != skimRecipient, ErrorsLib.AlreadySet());
+
         address oldRecipient = skimRecipient;
         skimRecipient = newSkimRecipient;
         
-        emit SkimRecipientUpdated(oldRecipient, newSkimRecipient);
+        emit EventsLib.SkimRecipientUpdated(oldRecipient, newSkimRecipient);
     }
 
     /**
@@ -495,13 +497,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param newOwner Address of new owner
      */
     function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, OnlyOwner());
-        require(newOwner != address(0), InvalidAddress());
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        require(newOwner != address(0), ErrorsLib.InvalidAddress());
 
         address oldOwner = owner;
         owner = newOwner;
         
-        emit OwnershipTransferred(oldOwner, newOwner);
+        emit EventsLib.OwnershipTransferred(oldOwner, newOwner);
     }
 
     /**
@@ -509,13 +511,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param newCurator Address of new curator
      */
     function setCurator(address newCurator) external {
-        require(msg.sender == owner, OnlyOwner());
-        require(newCurator != address(0), InvalidAddress());
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        require(newCurator != address(0), ErrorsLib.InvalidAddress());
 
         address oldCurator = curator;
         curator = newCurator;
         
-        emit CuratorUpdated(oldCurator, newCurator);
+        emit EventsLib.CuratorUpdated(oldCurator, newCurator);
     }
 
     /**
@@ -524,12 +526,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function setGuardian(address newGuardian) external {
         timelocked();
-        require(msg.sender == curator, OnlyCurator());
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
 
         address oldGuardian = guardian;
         guardian = newGuardian;
         
-        emit GuardianUpdated(oldGuardian, newGuardian);
+        emit EventsLib.GuardianUpdated(oldGuardian, newGuardian);
     }
 
     /**
@@ -538,12 +540,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param newIsAllocator New allocator status
      */
     function setIsAllocator(address account, bool newIsAllocator) external {
-        require(msg.sender == curator, OnlyCurator());
-        require(account != address(0), InvalidAddress());
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(account != address(0), ErrorsLib.InvalidAddress());
 
         isAllocator[account] = newIsAllocator;
 
-        emit AllocatorUpdated(account, newIsAllocator);
+        emit EventsLib.AllocatorUpdated(account, newIsAllocator);
     }
 
     /**
@@ -551,12 +553,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Only guardian can trigger shutdown
      */
     function shutdown() external {
-        require(msg.sender == guardian, OnlyGuardianCanShutdown());
-        require(!isShutdown(), AlreadyShutdown());
-        
+        require(msg.sender == guardian, ErrorsLib.OnlyGuardianCanShutdown());
+        require(!isShutdown(), ErrorsLib.AlreadyShutdown());
+
         shutdownTime = block.timestamp;
         
-        emit Shutdown(msg.sender);
+        emit EventsLib.Shutdown(msg.sender);
     }
 
     /**
@@ -564,12 +566,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Only guardian can recover from shutdown
      */
     function recover() external {
-        require(msg.sender == guardian, OnlyGuardianCanRecover());
-        require(isShutdown(), NotShutdown());
+        require(msg.sender == guardian, ErrorsLib.OnlyGuardianCanRecover());
+        require(isShutdown(), ErrorsLib.NotShutdown());
 
         shutdownTime = 0;
 
-        emit Recover(msg.sender);
+        emit EventsLib.Recover(msg.sender);
     }
 
     // ========== TIMELOCK GOVERNANCE ==========
@@ -579,15 +581,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param data Encoded function call
      */
     function submit(bytes calldata data) external {
-        require(msg.sender == curator, OnlyCurator());
-        require(executableAt[data] == 0, DataAlreadyTimelocked());
-        require(data.length >= 4, InvalidAmount());
-        
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(executableAt[data] == 0, ErrorsLib.DataAlreadyTimelocked());
+        require(data.length >= 4, ErrorsLib.InvalidAmount());
+
         bytes4 selector = bytes4(data);
         uint256 delay = timelock[selector];
         executableAt[data] = block.timestamp + delay;
 
-        emit TimelockSubmitted(selector, data, executableAt[data], msg.sender);
+        emit EventsLib.TimelockSubmitted(selector, data, executableAt[data], msg.sender);
     }
 
     /**
@@ -595,11 +597,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param data Encoded function call to revoke
      */
     function revoke(bytes calldata data) external {
-        require(msg.sender == curator || msg.sender == guardian, OnlyCuratorOrGuardian());
-        
+        require(msg.sender == curator || msg.sender == guardian, ErrorsLib.OnlyCuratorOrGuardian());
+
         executableAt[data] = 0;
 
-        emit TimelockRevoked(bytes4(data), data, msg.sender);
+        emit EventsLib.TimelockRevoked(bytes4(data), data, msg.sender);
     }
 
     /**
@@ -608,13 +610,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param newDuration New timelock duration
      */
     function increaseTimelock(bytes4 selector, uint256 newDuration) external {
-        require(msg.sender == curator, OnlyCurator());
-        require(newDuration <= TIMELOCK_CAP, InvalidTimelock());
-        require(newDuration > timelock[selector], TimelockDecrease());
-        
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(newDuration <= TIMELOCK_CAP, ErrorsLib.InvalidTimelock());
+        require(newDuration > timelock[selector], ErrorsLib.TimelockDecrease());
+
         timelock[selector] = newDuration;
 
-        emit TimelockIncreased(selector, newDuration, msg.sender);
+        emit EventsLib.TimelockIncreased(selector, newDuration, msg.sender);
     }
 
     /**
@@ -624,13 +626,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function decreaseTimelock(bytes4 selector, uint256 newDuration) external {
         timelocked();
-        require(msg.sender == curator, OnlyCurator());
-        require(newDuration <= TIMELOCK_CAP, InvalidTimelock());
-        require(newDuration < timelock[selector], TimelockIncrease());
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(newDuration <= TIMELOCK_CAP, ErrorsLib.InvalidTimelock());
+        require(newDuration < timelock[selector], ErrorsLib.TimelockIncrease());
 
         timelock[selector] = newDuration;
 
-        emit TimelockDecreased(selector, newDuration, msg.sender);
+        emit EventsLib.TimelockDecreased(selector, newDuration, msg.sender);
     }
 
     // ========== TIMELOCKED FUNCTIONS ==========
@@ -642,11 +644,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function setIsFeeder(address account, bool newIsFeeder) external {
         timelocked();
-        require(account != address(0), InvalidAddress());
+        require(account != address(0), ErrorsLib.InvalidAddress());
 
         isFeeder[account] = newIsFeeder;
 
-        emit FeederUpdated(account, newIsFeeder);
+        emit EventsLib.FeederUpdated(account, newIsFeeder);
     }
 
     /**
@@ -655,12 +657,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function setMaxSlippage(uint256 newMaxSlippage) external {
         timelocked();
-        require(newMaxSlippage <= MAX_SLIPPAGE_LIMIT, SlippageTooHigh());
+        require(newMaxSlippage <= MAX_SLIPPAGE_LIMIT, ErrorsLib.SlippageTooHigh());
 
         uint256 oldMaxSlippage = maxSlippage;
         maxSlippage = newMaxSlippage;
         
-        emit MaxSlippageUpdated(oldMaxSlippage, newMaxSlippage);
+        emit EventsLib.MaxSlippageUpdated(oldMaxSlippage, newMaxSlippage);
     }
 
     /**
@@ -670,15 +672,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function addToken(IERC20 token, IOracle oracle) external {
         timelocked();
-        require(address(token) != address(0), InvalidAddress());
-        require(address(oracle) != address(0), OracleRequired());
-        require(!isToken(token), TokenAlreadyWhitelisted());
-        require(tokens.length < MAX_TOKENS, TooManyTokens());
-        
+        require(address(token) != address(0), ErrorsLib.InvalidAddress());
+        require(address(oracle) != address(0), ErrorsLib.OracleRequired());
+        require(!isToken(token), ErrorsLib.TokenAlreadyWhitelisted());
+        require(tokens.length < MAX_TOKENS, ErrorsLib.TooManyTokens());
+
         tokens.push(token);
         oracles[token] = oracle;
         
-        emit TokenAdded(token, oracle);
+        emit EventsLib.TokenAdded(token, oracle);
     }
 
     /**
@@ -687,8 +689,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function removeToken(IERC20 token) external {
         timelocked();
-        require(isToken(token), TokenNotWhitelisted());
-        require(token.balanceOf(address(this)) == 0, TokenBalanceMustBeZero());
+        require(isToken(token), ErrorsLib.TokenNotWhitelisted());
+        require(token.balanceOf(address(this)) == 0, ErrorsLib.TokenBalanceMustBeZero());
 
         uint256 length = tokens.length;
         for (uint256 i; i < length;) {
@@ -702,7 +704,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         delete oracles[token];
         
-        emit TokenRemoved(token);
+        emit EventsLib.TokenRemoved(token);
     }
 
         /**
@@ -712,12 +714,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function changeTokenOracle(IERC20 token, IOracle oracle) external {
         timelocked();
-        require(address(oracle) != address(0), InvalidAddress());
-        require(isToken(token), TokenNotWhitelisted());
-        
+        require(address(oracle) != address(0), ErrorsLib.InvalidAddress());
+        require(isToken(token), ErrorsLib.TokenNotWhitelisted());
+
         oracles[token] = oracle;
         
-        emit TokenOracleChanged(token, oracle);
+        emit EventsLib.TokenOracleChanged(token, oracle);
     }
 
 
@@ -759,14 +761,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         if (block.timestamp >= slippageEpochStart + slippageEpochDuration) {
             slippageEpochStart = block.timestamp;
             accumulatedSlippage = slippagePct;
-            emit SlippageEpochReset(block.timestamp);
+            emit EventsLib.SlippageEpochReset(block.timestamp);
         } else {
             accumulatedSlippage += slippagePct;
         }
-        
-        if (accumulatedSlippage >= maxSlippage) revert TooMuchAccumulatedSlippage();
-        
-        emit SlippageAccumulated(slippagePct, accumulatedSlippage);
+
+        if (accumulatedSlippage >= maxSlippage) revert ErrorsLib.TooMuchAccumulatedSlippage();
+
+        emit EventsLib.SlippageAccumulated(slippagePct, accumulatedSlippage);
     }
 
     /**

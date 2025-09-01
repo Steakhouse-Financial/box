@@ -7,106 +7,8 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ISwapper} from "./ISwapper.sol";
 import {IOracle} from "./IOracle.sol";
 
+
 interface IBox is IERC4626 {
-    /* EVENTS */
-    event BoxCreated(address indexed box, address indexed asset, address indexed owner, address curator, string name, string symbol, 
-        uint256 maxSlippage, uint256 slippageEpochDuration, uint256 shutdownSlippageDuration);
-
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event CuratorUpdated(address indexed previousCurator, address indexed newCurator);
-    event GuardianUpdated(address indexed previousGuardian, address indexed newGuardian);
-    event AllocatorUpdated(address indexed account, bool isAllocator);
-    event FeederUpdated(address indexed account, bool isFeeder);
-    
-    event Allocation(IERC20 indexed token, uint256 assets, uint256 tokens, int256 slippagePct, ISwapper indexed swapper, bytes data);
-    event Deallocation(IERC20 indexed token, uint256 tokens, uint256 assets, int256 slippagePct, ISwapper indexed swapper, bytes data);
-    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 tokensFrom, uint256 tokensTo, int256 slippagePct, ISwapper indexed swapper, bytes data);
-    event Shutdown(address indexed guardian);
-    event Recover(address indexed guardian);
-    event Unbox(address indexed user, uint256 shares);
-    event Skim(IERC20 indexed token, address indexed recipient, uint256 amount);
-    event SkimRecipientUpdated(address indexed previousRecipient, address indexed newRecipient);
-    
-    event SlippageAccumulated(uint256 amount, uint256 total);
-    event SlippageEpochReset(uint256 newEpochStart);
-    event MaxSlippageUpdated(uint256 previousMaxSlippage, uint256 newMaxSlippage);
-    
-    event TokenAdded(IERC20 indexed token, IOracle indexed oracle);
-    event TokenRemoved(IERC20 indexed token);
-    event TokenOracleChanged(IERC20 indexed token, IOracle indexed oracle);
-    
-    event TimelockSubmitted(bytes4 indexed selector, bytes data, uint256 executableAt, address who);
-    event TimelockRevoked(bytes4 indexed selector, bytes data, address who);
-    event TimelockIncreased(bytes4 indexed selector, uint256 newDuration, address who);
-    event TimelockDecreased(bytes4 indexed selector, uint256 newDuration, address who);
-    event TimelockExecuted(bytes4 indexed selector, bytes data, address who);
-
-    /* ERRORS */
-
-    // General errors
-    error InvalidAddress();
-    error InvalidAmount();
-
-    // Access control errors
-    error OnlyOwner();
-    error OnlyCurator();
-    error OnlyGuardian();
-    error OnlyCuratorOrGuardian();
-    error OnlyAllocators();
-    error OnlyFeeders();
-    error OnlySkimRecipient();
-    error OnlyAllocatorsOrShutdown();
-    error InvalidOwner();
-    
-    // Deposit/Mint errors
-    error CannotDepositZero();
-    error CannotMintZero();
-    error CannotDepositIfShutdown();
-    error CannotMintIfShutdown();
-    
-    // Withdraw/Redeem errors
-    error InsufficientShares();
-    error InsufficientAllowance();
-    error InsufficientLiquidity();
-    error CannotUnboxZeroShares();
-    error DataAlreadyTimelocked();
-    
-    // Token errors
-    error TokenNotWhitelisted();
-    error TokenAlreadyWhitelisted();
-    error OracleRequired();
-    error NoOracleForToken();
-    error TokenBalanceMustBeZero();
-    error TooManyTokens();
-
-    // Slippage errors
-    error SwapperDidSpendTooMuch();
-    error AllocationTooExpensive();
-    error TokenSaleNotGeneratingEnoughAssets();
-    error ReallocationSlippageTooHigh();
-    error TooMuchAccumulatedSlippage();
-    error SlippageTooHigh();
-    
-    // Shutdown/Recover errors
-    error OnlyGuardianCanShutdown();
-    error OnlyGuardianCanRecover();
-    error AlreadyShutdown();
-    error NotShutdown();
-    error CannotAllocateIfShutdown();
-    error CannotReallocateIfShutdown();
-
-    // Timelock errors
-    error TimelockNotExpired();
-    error DataNotTimelocked();
-    error InvalidTimelock();
-    error TimelockDecrease();
-    error TimelockIncrease();
-
-    // Skim errors
-    error CannotSkimAsset();
-    error CannotSkimToken();
-    error AlreadySet();
-    error CannotSkimZero();
 
     /* FUNCTIONS */
 
@@ -160,9 +62,9 @@ interface IBox is IERC4626 {
     function removeToken(IERC20 token) external;
     function changeTokenOracle(IERC20 token, IOracle oracle) external;
 
-
     // ========== VIEW FUNCTIONS ==========
     function isToken(IERC20 token) external view returns (bool);
     function tokensLength() external view returns (uint256);
     function isShutdown() external view returns (bool);
+
 }
