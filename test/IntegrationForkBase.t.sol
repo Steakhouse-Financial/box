@@ -547,8 +547,8 @@ contract IntegrationForkBaseTest is Test {
         vault.allocate(address(adapter1b), "", 0); // We also test allocate
 
         // Vault V2 is limiting the value accrual per day
-        vm.prank(curator);
-        vault.changeMaxRate(200e16 / uint256(365 days)); // Make sure we can have up to 100% interest rate
+        vm.prank(allocator);
+        vault.setMaxRate(200e16 / uint256(365 days)); // Make sure we can have up to 100% interest rate
         vm.warp(block.timestamp + 10000 days); // Go far enough
 
         vault.resetFirstTotalAssets(); // transient issue for testing
@@ -754,4 +754,5 @@ contract IntegrationForkBaseTest is Test {
             "Vault value is back to 1000 USDC an");
 
     }
+
 }

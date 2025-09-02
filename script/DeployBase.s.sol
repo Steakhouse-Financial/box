@@ -159,7 +159,7 @@ contract DeployBaseScript is Script {
         vault.setName("Peaty USDC");
         vault.setSymbol("ptUSDC");
 
-        vault.changeMaxRate(MAX_MAX_RATE);
+        vault.setMaxRate(MAX_MAX_RATE);
 
         // Setting the vault to use bbqUSDC as the asset
         MorphoMarketV1Adapter bbqusdcAdapter = MorphoMarketV1Adapter(mm1AdapterFactory.createMorphoMarketV1Adapter(address(vault), address(morpho)));
