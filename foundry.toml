@@ -4,7 +4,8 @@ out = "out"
 libs = ["lib"]
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
-    "@vault-v2=lib/vault-v2/"
+    "@vault-v2=lib/vault-v2/",
+    "@morpho-blue/=lib/morpho-blue/src/"
 ]
 optimizer = true
 optimizer_runs = 1000

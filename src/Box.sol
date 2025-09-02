@@ -8,12 +8,13 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IBox} from "./interfaces/IBox.sol";
+import {IBox, LoanFacility} from "./interfaces/IBox.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ISwapper} from "./interfaces/ISwapper.sol";
 import "./lib/Constants.sol";
 import {ErrorsLib} from "./lib/ErrorsLib.sol";
 import {EventsLib} from "./lib/EventsLib.sol";
+import {IBorrow} from "./interfaces/IBorrow.sol";
 
 /**
  * @title Box
@@ -70,6 +71,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     mapping(bytes4 => uint256) public timelock;
     mapping(bytes => uint256) public executableAt;
     
+
+    LoanFacility[] internal _fundings;
+    mapping(bytes32 => LoanFacility) internal _fundingMap;
+
     // ========== MODIFIERS ==========
         
     function timelocked() internal {
@@ -792,4 +797,176 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             unchecked { ++i; }
         }
     }
+
+
+
+
+
+    function fundings(uint256 index) external view override returns (LoanFacility memory) {
+        return _fundings[index];
+    }
+    function fundingMap(bytes32 fundingId) external view returns (LoanFacility memory) {
+        return _fundingMap[fundingId];
+    }
+
+    function fundingsLength() external view override returns (uint256) {
+        return _fundings.length;
+    }
+
+    function fundingId(IBorrow borrow, bytes calldata data) external view override returns (bytes32) {
+        return keccak256(abi.encodePacked(borrow, data));
+    }
+
+    function addFunding(IBorrow borrow, bytes calldata data) external returns (bytes32 fundingId) {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+
+        fundingId = keccak256(abi.encodePacked(borrow, data));
+        require(address(_fundingMap[fundingId].borrow) == address(0), IBox.FundingAlreadyExists());
+
+        IERC20 loanToken = IERC20(borrow.loanToken(data));
+        IERC20 collateralToken = IERC20(borrow.collateralToken(data));
+
+        // TODO: check that both are valid added tokens or the asset of the box
+
+        //IOracle oracle = IOracle(borrow.morphoMarketToData(data).oracle);
+        //require(address(oracle) != address(0), NoOracleForToken());
+
+        _fundingMap[fundingId] = LoanFacility({
+            borrow: borrow,
+            data: data,
+            loanToken: loanToken,
+            collateralToken: collateralToken
+        });
+        _fundings.push(_fundingMap[fundingId]);
+
+        emit IBox.FundingAdded(borrow, data, loanToken, collateralToken, fundingId);
+    }
+
+    function supplyCollateral(IBorrow borrow, bytes calldata data, uint256 assets) external {
+        // Encode the function call
+        bytes memory callData = abi.encodeWithSelector(
+            IBorrow(borrow).supplyCollateral.selector,
+            data,
+            assets
+        );
+
+        // Perform the delegatecall
+        (bool success, bytes memory returnData) = address(borrow).delegatecall(callData);
+
+        // Revert if the delegatecall failed
+        if (!success) {
+            // Bubble up the revert reason
+            if (returnData.length > 0) {
+                assembly {
+                    let returndata_size := mload(returnData)
+                    revert(add(32, returnData), returndata_size)
+                }
+            } else {
+                revert("Delegatecall failed");
+            }
+        }
+    }
+
+    function withdrawCollateral(IBorrow borrow, bytes calldata data, uint256 assets) external {
+        // Encode the function call
+        bytes memory callData = abi.encodeWithSelector(
+            IBorrow(borrow).withdrawCollateral.selector,
+            data,
+            assets
+        );
+
+        // Perform the delegatecall
+        (bool success, bytes memory returnData) = address(borrow).delegatecall(callData);
+
+        // Revert if the delegatecall failed
+        if (!success) {
+            // Bubble up the revert reason
+            if (returnData.length > 0) {
+                assembly {
+                    let returndata_size := mload(returnData)
+                    revert(add(32, returnData), returndata_size)
+                }
+            } else {
+                revert("Delegatecall failed");
+            }
+        }
+    }
+
+
+    function borrow(IBorrow borrow, bytes calldata data, uint256 assets) external {
+        // Encode the function call
+        bytes memory callData = abi.encodeWithSelector(
+            IBorrow(borrow).borrow.selector,
+            data,
+            assets
+        );
+
+        // Perform the delegatecall
+        (bool success, bytes memory returnData) = address(borrow).delegatecall(callData);
+
+        // Revert if the delegatecall failed
+        if (!success) {
+            // Bubble up the revert reason
+            if (returnData.length > 0) {
+                assembly {
+                    let returndata_size := mload(returnData)
+                    revert(add(32, returnData), returndata_size)
+                }
+            } else {
+                revert("Delegatecall failed");
+            }
+        }
+    }
+
+
+    function repay(IBorrow borrow, bytes calldata data, uint256 assets) external {
+        // Encode the function call
+        bytes memory callData = abi.encodeWithSelector(
+            IBorrow(borrow).repay.selector,
+            data,
+            assets
+        );
+
+        // Perform the delegatecall
+        (bool success, bytes memory returnData) = address(borrow).delegatecall(callData);
+
+        // Revert if the delegatecall failed
+        if (!success) {
+            // Bubble up the revert reason
+            if (returnData.length > 0) {
+                assembly {
+                    let returndata_size := mload(returnData)
+                    revert(add(32, returnData), returndata_size)
+                }
+            } else {
+                revert("Delegatecall failed");
+            }
+        }
+    }
+
+    function repayShares(IBorrow borrow, bytes calldata data, uint256 shares) external {
+        // Encode the function call
+        bytes memory callData = abi.encodeWithSelector(
+            IBorrow(borrow).repayShares.selector,
+            data,
+            shares
+        );
+
+        // Perform the delegatecall
+        (bool success, bytes memory returnData) = address(borrow).delegatecall(callData);
+
+        // Revert if the delegatecall failed
+        if (!success) {
+            // Bubble up the revert reason
+            if (returnData.length > 0) {
+                assembly {
+                    let returndata_size := mload(returnData)
+                    revert(add(32, returnData), returndata_size)
+                }
+            } else {
+                revert("Delegatecall failed");
+            }
+        }
+    }
+
 }

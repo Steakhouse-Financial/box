@@ -6,10 +6,23 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ISwapper} from "./ISwapper.sol";
 import {IOracle} from "./IOracle.sol";
+import {IBorrow} from "./IBorrow.sol";
+
+
+struct LoanFacility {
+    IBorrow borrow;
+    bytes data;
+    IERC20 loanToken;
+    IERC20 collateralToken;
+}
 
 
 interface IBox is IERC4626 {
 
+    event FundingAdded(IBorrow indexed borrow, bytes indexed data, IERC20 indexed loanToken, IERC20 collateralToken, bytes32 fundingId);
+
+    error FundingAlreadyExists();
+    error FundingNotWhitelisted();
     /* FUNCTIONS */
 
     // ========== STATE FUNCTIONS ==========
@@ -66,5 +79,23 @@ interface IBox is IERC4626 {
     function isToken(IERC20 token) external view returns (bool);
     function tokensLength() external view returns (uint256);
     function isShutdown() external view returns (bool);
+
+
+
+
+
+    function fundingMap(bytes32 fundingId) external view returns (LoanFacility memory);
+    function fundings(uint256 index) external view returns (LoanFacility memory);
+
+    function supplyCollateral(IBorrow borrow, bytes calldata data, uint256 assets) external;
+    function withdrawCollateral(IBorrow borrow, bytes calldata data, uint256 assets) external;
+    function borrow(IBorrow borrow, bytes calldata data, uint256 assets) external;
+    function repay(IBorrow borrow, bytes calldata data, uint256 assets) external;
+    function repayShares(IBorrow borrow, bytes calldata data, uint256 shares) external;
+
+    function addFunding(IBorrow borrow, bytes calldata data) external returns (bytes32 fundingId);
+
+    function fundingsLength() external view returns (uint256);
+    function fundingId(IBorrow borrow, bytes calldata data) external view returns (bytes32);
 
 }
