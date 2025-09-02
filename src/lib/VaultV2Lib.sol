@@ -32,12 +32,11 @@ library VaultV2Lib {
         // Accept the adapter
         if(!vault.isAdapter(address(adapter))) {
             encoding = abi.encodeWithSelector(
-                vault.setIsAdapter.selector,
-                address(adapter),
-                true
+                vault.addAdapter.selector,
+                address(adapter)
             );
             vault.submit(encoding);
-            vault.setIsAdapter(address(adapter), true);
+            vault.addAdapter(address(adapter));
         }
 
         // Absolute limit
@@ -71,14 +70,4 @@ library VaultV2Lib {
         vault.setForceDeallocatePenalty(address(adapter), penalty);
     }
 
-
-    /// @notice Update maxrate, assume 0-day timelocks
-    function changeMaxRate(VaultV2 vault, uint256 newMaxRate) internal {
-        bytes memory encoding = abi.encodeWithSelector(
-            vault.setMaxRate.selector,
-            newMaxRate
-        );
-        vault.submit(encoding);
-        vault.setMaxRate(newMaxRate);
-    }
 }
