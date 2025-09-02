@@ -755,4 +755,69 @@ contract IntegrationForkBaseTest is Test {
 
     }
 
+
+
+
+
+
+
+    function testBoxLeverage() public {
+        uint256 USDC_1000 = 1000 * 10**6;
+        BorrowMorpho borrow = new BorrowMorpho();
+        MarketParams memory market = MarketParams(address(usdc), address(ptusr25sep), address(ptusr25sepOracle), irm, 915000000000000000);
+
+        vm.startPrank(curator);
+
+        // And this contract to be a feeder
+        box2.addFeeder(address(this));
+
+        // And the funding facility
+        bytes memory borrowData = borrow.morphoMarketToData(morpho, market);
+        box2.addFunding(borrow, borrowData);
+        vm.stopPrank();
+
+        bytes32 borrowId = box2.fundingId(borrow, borrowData);
+
+        assertEq(box2.fundingsLength(), 1, "There is one source of funding");
+        assertEq(address(box2.fundingMap(borrowId).loanToken), address(usdc), "Loan token is USDC");
+        assertEq(address(box2.fundingMap(borrowId).collateralToken), address(ptusr25sep), "Collateral token is ptusr25sep");
+
+        // Get some USDC
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        usdc.transfer(address(this), USDC_1000); // Transfer 1000 USDC to this contract
+
+        usdc.approve(address(box2), USDC_1000);
+        box2.deposit(USDC_1000, address(this)); // Deposit 1000 USDC
+
+        vm.startPrank(allocator);
+
+        box2.allocate(ptusr25sep, USDC_1000, swapper, "");
+        uint256 ptBalance = ptusr25sep.balanceOf(address(box2));
+
+        assertEq(usdc.balanceOf(address(box2)), 0, "No more USDC in the Box");
+        assertEq(ptBalance, 1010280676747326095928, "ptusr25sep in the Box");
+
+        box2.supplyCollateral(borrow, borrowData, ptBalance);
+
+        assertEq(ptusr25sep.balanceOf(address(box2)), 0, "No more ptusr25sep in the Box");
+        assertEq(borrow.collateral(borrowData, address(box2)), ptBalance, "Collateral is correct");
+
+        box2.borrow(borrow, borrowData, 500 * 10**6);
+
+        assertEq(usdc.balanceOf(address(box2)), 500  * 10**6, "500 USDC in the Box");
+
+        // Get some USDC to convert rounding
+        vm.stopPrank();
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        usdc.transfer(address(box2), 1);
+        vm.startPrank(allocator);
+
+        box2.repayShares(borrow, borrowData, borrow.debtShares(borrowData, address(box2)));
+
+        box2.withdrawCollateral(borrow, borrowData, ptBalance);
+        assertEq(ptusr25sep.balanceOf(address(box2)), 1010280676747326095928, "ptusr25sep are back in the Box");
+
+        vm.stopPrank();
+    }
+
 }

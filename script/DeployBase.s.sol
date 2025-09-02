@@ -9,6 +9,7 @@ import {MorphoMarketV1AdapterFactory} from "@vault-v2/src/adapters/MorphoMarketV
 import {IMetaMorpho} from "@vault-v2/lib/metamorpho/src/interfaces/IMetaMorpho.sol";
 import {MarketParams, IMorpho, Id} from "@vault-v2/lib/morpho-blue/src/interfaces/IMorpho.sol";
 import {Id as MetaId} from "@vault-v2/lib/metamorpho/lib/morpho-blue/src/interfaces/IMorpho.sol";
+import {MarketParams as MarketParamsBlue, IMorpho as IMorphoBlue} from "@morpho-blue/interfaces/IMorpho.sol";
 import {VaultV2Factory} from "@vault-v2/src/VaultV2Factory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -21,6 +22,7 @@ import {MorphoMarketV1Adapter} from "@vault-v2/src/adapters/MorphoMarketV1Adapte
 import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
+import {BorrowMorpho} from "../src/BorrowMorpho.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
 import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
 import {BoxAdapterCachedFactory} from "../src/BoxAdapterCachedFactory.sol";
@@ -33,12 +35,14 @@ contract DeployBaseScript is Script {
     using VaultV2Lib for VaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
 
-    VaultV2Factory vaultV2Factory = VaultV2Factory(0xf7A7c8490f619e3422bA55C2CDffbEFd5e047830);
+    VaultV2Factory vaultV2Factory = VaultV2Factory(0xB01De9173687292F06eDDC54812df1A62b6222E3);
     MorphoVaultV1AdapterFactory mv1AdapterFactory = MorphoVaultV1AdapterFactory(0x11c2Adb26F29334d1dD157CF0531A2Af6815cE2A);
     MorphoMarketV1AdapterFactory mm1AdapterFactory = MorphoMarketV1AdapterFactory(0x4C2166DA96e9751698B27C6c2066E0a7d46d539d);
-    BoxFactory boxFactory = BoxFactory(0x8F29232bC10957017b7961026734eA5035868D9C);
+    BoxFactory boxFactory = BoxFactory(0x2f8Db77fBd818D8688a32D648c525F415abC260F);
     BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x808F9fcf09921a21aa5Cd71D87BE50c0F05A5203);
     BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x09EA5EafbA623D9012124E05068ab884008f32BD);
+
+    BorrowMorpho borrowMorpho = BorrowMorpho(0x6d5178D8565134A78e1B861996fe7a28CB9bCc4C);
 
     address owner = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address curator = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
@@ -56,7 +60,8 @@ contract DeployBaseScript is Script {
     
     IERC20 ptusr25sep = IERC20(0xa6F0A4D18B6f6DdD408936e81b7b3A8BEFA18e77);
     IOracle ptusr25sepOracle = IOracle(0x6AdeD60f115bD6244ff4be46f84149bA758D9085);
-    
+
+
 
     ///@dev This script deploys the necessary contracts for the Peaty product on Base.
     function run() public {
@@ -116,6 +121,14 @@ contract DeployBaseScript is Script {
         return vaultV2Factory_;
     }
 
+    function deployBorrowMorpho() public returns (BorrowMorpho) {
+        vm.startBroadcast();
+        BorrowMorpho borrowMorpho_ = new BorrowMorpho();
+        console.log("BorrowMorpho deployed at:", address(borrowMorpho_));
+        vm.stopBroadcast();
+        return borrowMorpho_;
+    }
+
     function addMarketsToAdapterFromVault(VaultV2 vault, MorphoMarketV1Adapter mm1Adapter, IMetaMorpho vaultv1) public {
         uint256 length = vaultv1.withdrawQueueLength();
         vault.addCollateral(
@@ -135,7 +148,7 @@ contract DeployBaseScript is Script {
             );
             vault.addCollateral(
                 address(mm1Adapter),
-                abi.encode("this/marketParams", marketParams),
+                abi.encode("this/marketParams", address(mm1Adapter), marketParams),
                 100_000_000 * 10**6, // 100_000_000 USDC absolute cap
                 1 ether // 100% relative cap
             );
@@ -145,7 +158,7 @@ contract DeployBaseScript is Script {
     function deployPeaty() public returns (IVaultV2) {
         vm.startBroadcast();
 
-        bytes32 salt = "4";
+        bytes32 salt = "8";
 
         VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
         console.log("Peaty deployed at:", address(vault));
@@ -156,8 +169,8 @@ contract DeployBaseScript is Script {
         vault.addAllocator(address(allocator1)); 
         vault.addAllocator(address(allocator2)); 
 
-        vault.setName("Peaty USDC");
-        vault.setSymbol("ptUSDC");
+        vault.setName("Peaty USDC Turbo");
+        vault.setSymbol("ptUSDCturbo");
 
         vault.setMaxRate(MAX_MAX_RATE);
 
@@ -218,10 +231,22 @@ contract DeployBaseScript is Script {
         );
         console.log("Box Resolv deployed at:", address(box2));
         // Creating the ERC4626 adapter between the vault and box2
-        IBoxAdapter adapter2 = boxAdapterCachedFactory.createBoxAdapter(address(vault), box2);
+        IBoxAdapter adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
 
         // Allow box 2 to invest in PT-USR-25SEP
         box2.addCollateral(ptusr25sep, ptusr25sepOracle);
+
+
+        MarketParamsBlue memory fundingMarketParams = MarketParamsBlue({
+            loanToken: address(usdc),
+            collateralToken: address(ptusr25sep),
+            oracle: address(ptusr25sepOracle),
+            irm: 0x46415998764C29aB2a25CbeA6254146D50D22687,
+            lltv: 915000000000000000
+        });
+        bytes memory fundingData = borrowMorpho.morphoMarketToData(IMorphoBlue(address(morpho)), fundingMarketParams);
+        box2.addFunding(borrowMorpho, fundingData);
+
         box2.addAllocator(address(allocator1));
         box2.addAllocator(address(allocator2));
         box2.addFeeder(address(adapter2));
