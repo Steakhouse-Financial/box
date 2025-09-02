@@ -24,6 +24,8 @@ import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 
+import {BorrowMorpho} from "../src/BorrowMorpho.sol";
+import {MarketParams, IMorpho} from "@morpho-blue/interfaces/IMorpho.sol";
 
 contract TestableVaultV2 is VaultV2 {
 
@@ -68,6 +70,10 @@ contract IntegrationForkBaseTest is Test {
     IOracle ptusr25sepOracle = IOracle(0x6AdeD60f115bD6244ff4be46f84149bA758D9085);
     
     ISwapper swapper = ISwapper(0x5C9dA86ECF5B35C8BF700a31a51d8a63fA53d1f6);
+
+    IMorpho morpho = IMorpho(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
+    address irm = 0x46415998764C29aB2a25CbeA6254146D50D22687;
+
 
     IBoxAdapterFactory boxAdapterFactory;
     IBoxAdapterFactory boxAdapterCachedFactory;
