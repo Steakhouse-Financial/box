@@ -27,6 +27,7 @@ import {VaultV2} from "@vault-v2/src/VaultV2.sol";
 import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
 import {BoxAdapterCachedFactory} from "../src/BoxAdapterCachedFactory.sol";
 import "@vault-v2/src/libraries/ConstantsLib.sol";
+import {OperationsLib} from "../src/lib/OperationsLib.sol";
 
 ///@dev This script deploys the necessary contracts for the Peaty product on Base.
 ///@dev Default factories are hardcoded, but can be overridden using run() which will deploy fresh contracts.
@@ -127,6 +128,13 @@ contract DeployBaseScript is Script {
         console.log("BorrowMorpho deployed at:", address(borrowMorpho_));
         vm.stopBroadcast();
         return borrowMorpho_;
+    }
+
+    function deployOperationsLib() public {
+        vm.startBroadcast();        
+        address lib = deployCode("src/lib/OperationsLib.sol:OperationsLib");
+        console.log("OperationsLib deployed at:", lib);
+        vm.stopBroadcast();
     }
 
     function addMarketsToAdapterFromVault(VaultV2 vault, MorphoMarketV1Adapter mm1Adapter, IMetaMorpho vaultv1) public {
