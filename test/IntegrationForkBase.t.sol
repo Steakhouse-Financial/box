@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
+import {console2} from "forge-std/console2.sol";
 
 import {Box} from "../src/Box.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
@@ -25,7 +26,20 @@ import {BoxLib} from "../src/lib/BoxLib.sol";
 import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 
 import {BorrowMorpho} from "../src/BorrowMorpho.sol";
+import {BorrowAave, IPool} from "../src/BorrowAave.sol";
 import {MarketParams, IMorpho} from "@morpho-blue/interfaces/IMorpho.sol";
+
+/// @notice Minimal WETH interface for testing
+interface IWETH {
+    function deposit() external payable;
+    function transfer(address to, uint256 value) external returns (bool);
+    function balanceOf(address) external view returns (uint256);
+}
+
+/// @notice Minimal Aave v3 Addresses Provider to obtain the Pool
+interface IPoolAddressesProvider {
+    function getPool() external view returns (address);
+}
 
 contract TestableVaultV2 is VaultV2 {
 
@@ -80,8 +94,9 @@ contract IntegrationForkBaseTest is Test {
 
     /// @notice Will setup Peaty Base investing in bbqUSDC, box1 (stUSD) and box2 (PTs)
    function setUp() public {
-        // Fork base on August 14th, 2025
-        uint256 forkId = vm.createFork(vm.rpcUrl("base"), 34194011);
+        // Fork base on a recent block (December 2024)
+        // Note: Using a recent block to ensure Aave V3 is deployed
+        uint256 forkId = vm.createFork(vm.rpcUrl("base"));  // Use latest block
         vm.selectFork(forkId);
 
         boxAdapterFactory = new BoxAdapterFactory();
@@ -328,12 +343,12 @@ contract IntegrationForkBaseTest is Test {
         vault.redeem(vault.balanceOf(address(user)), address(user), address(user));
         assertEq(usdc.balanceOf(address(user)), remainingUSDC, "User should have received the USDC after redeem");
 
-        console.log("Vault total assets: ", vault.totalAssets());
-        console.log("Box 1 total assets: ", box1.totalAssets());
-        console.log("Box 2 total assets: ", box2.totalAssets());
-        console.log("bbqUSD adapter total assets: ", bbqusdc.convertToAssets(bbqusdc.balanceOf(address(bbqusdcAdapter))));
-        console.log("Liquidity total assets: ", usdc.balanceOf(address(vault)));
-        console.log("Vault total supply: ", vault.totalSupply());
+        console2.log("Vault total assets: ", vault.totalAssets());
+        console2.log("Box 1 total assets: ", box1.totalAssets());
+        console2.log("Box 2 total assets: ", box2.totalAssets());
+        console2.log("bbqUSD adapter total assets: ", bbqusdc.convertToAssets(bbqusdc.balanceOf(address(bbqusdcAdapter))));
+        console2.log("Liquidity total assets: ", usdc.balanceOf(address(vault)));
+        console2.log("Vault total supply: ", vault.totalSupply());
 
         assertEq(vault.totalSupply(), 0, "Vault should have no shares left after redeeming all");
 
@@ -822,6 +837,101 @@ contract IntegrationForkBaseTest is Test {
 
         box2.withdrawCollateral(borrow, borrowData, ptBalance);
         assertEq(ptusr25sep.balanceOf(address(box2)), 1010280676747326095928, "ptusr25sep are back in the Box");
+
+        vm.stopPrank();
+    }
+
+    /// @notice Leverage test using Aave instead of Morpho
+    function testBoxLeverageAave() public {
+        // Fork Ethereum mainnet instead where Aave V3 is deployed
+        vm.createSelectFork(vm.rpcUrl("eth"));
+        
+        uint256 USDC_1000 = 1000 * 10**6;
+        address PROVIDER = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e; // Aave v3 PoolAddressesProvider (Mainnet)
+        address POOL = IPoolAddressesProvider(PROVIDER).getPool();
+        address WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2; // Mainnet WETH
+        IERC20 mainnetUSDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48); // Mainnet USDC
+
+        // Create a new Box for this test on mainnet
+        Box testBox = new Box(
+            address(mainnetUSDC),
+            owner,
+            curator,
+            "Test Box Aave",
+            "TBAAVE",
+            0.01 ether, // 1% max slippage
+            7 days,     // slippage epoch duration
+            10 days     // shutdown slippage duration
+        );
+
+        BorrowAave borrow = new BorrowAave();
+
+        vm.startPrank(curator);
+        // This contract can feed and set funding
+        testBox.addFeeder(address(this));
+
+        // Funding facility (borrow USDC against WETH collateral, variable rate)
+        bytes memory borrowData = borrow.aaveParamsToData(IPool(POOL), address(mainnetUSDC), WETH, 2);
+        
+        testBox.setIsAllocator(address(allocator), true);
+        testBox.addFunding(borrow, borrowData);
+        vm.stopPrank();
+
+        bytes32 borrowId = testBox.fundingId(borrow, borrowData);
+        assertEq(testBox.fundingsLength(), 1, "There is one source of funding");
+        assertEq(address(testBox.fundingMap(borrowId).loanToken), address(mainnetUSDC), "Loan token is USDC");
+        assertEq(address(testBox.fundingMap(borrowId).collateralToken), WETH, "Collateral token is WETH");
+
+        // Fund the test with USDC for deposits and rounding compensation
+        // Use deal to directly set USDC balance
+        deal(address(mainnetUSDC), address(this), USDC_1000);
+
+        mainnetUSDC.approve(address(testBox), USDC_1000);
+        testBox.deposit(USDC_1000, address(this));
+        console2.log("[OK] Deposited 1000 USDC to testBox");
+
+        // Mint WETH and send to Box as collateral
+        address wethMinter = address(0xBEeFbeefbEefbeEFbeEfbEEfBEeFbeEfBeEfBeef);
+        vm.deal(wethMinter, 10 ether);
+        vm.startPrank(wethMinter);
+        IWETH(WETH).deposit{value: 5 ether}();
+        IWETH(WETH).transfer(address(testBox), 5 ether);
+        vm.stopPrank();
+
+        uint256 wethBalance = IWETH(WETH).balanceOf(address(testBox));
+        assertEq(wethBalance, 5 ether, "Box holds WETH collateral");
+
+        vm.startPrank(allocator);
+
+        // Supply WETH as collateral on Aave
+        testBox.supplyCollateral(borrow, borrowData, wethBalance);
+        assertEq(IWETH(WETH).balanceOf(address(testBox)), 0, "No more WETH in the Box");
+        console2.log("[OK] Supplied 5 WETH as collateral to Aave");
+        
+        // Get collateral balance
+        uint256 aTokenBal = borrow.collateral(borrowData, address(testBox));
+
+        // Borrow 500 USDC
+        uint256 usdcBefore = mainnetUSDC.balanceOf(address(testBox));
+        testBox.borrow(borrow, borrowData, 500 * 10**6);
+        uint256 usdcAfter = mainnetUSDC.balanceOf(address(testBox));
+        assertEq(usdcAfter - usdcBefore, 500 * 10**6, "500 USDC borrowed");
+        console2.log("[OK] Borrowed 500 USDC against WETH collateral");
+
+        // Add 1 USDC to handle potential rounding during repay
+        vm.stopPrank();
+        deal(address(mainnetUSDC), address(testBox), mainnetUSDC.balanceOf(address(testBox)) + 1);
+        vm.startPrank(allocator);
+
+        // Repay full variable debt amount and withdraw all collateral
+        testBox.repay(borrow, borrowData, type(uint256).max);
+        console2.log("[OK] Repaid all borrowed USDC");
+        
+        testBox.withdrawCollateral(borrow, borrowData, aTokenBal);
+        console2.log("[OK] Withdrew WETH collateral from Aave");
+
+        uint256 wethAfter = IWETH(WETH).balanceOf(address(testBox));
+        assertApproxEqAbs(wethAfter, 5 ether, 2, "WETH are back in the Box (allowing 2 wei rounding)");
 
         vm.stopPrank();
     }
