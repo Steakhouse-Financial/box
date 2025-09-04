@@ -133,7 +133,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @inheritdoc IERC4626
     function totalAssets() public view returns (uint256 assets_) {
-        return _calculateTotalAssets();
+        int256 nav = _nav();
+        return nav >= 0 ? uint256(nav) : 0;
     }
 
     /// @inheritdoc IERC4626
@@ -332,7 +333,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         IOracle oracle = oracles[token];
 
-        (uint256 tokensReceived, uint256 assetsSpent, int256 slippage, int256 slippagePct) = OperationsLib.executeAllocation(
+        (uint256 tokensReceived, uint256 assetsSpent, int256 slippage, int256 slippagePct) = OperationsLib.allocate(
             IERC20(asset),
             token,
             assetsAmount,
@@ -361,25 +362,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
         require(isAllocator[msg.sender] 
             || (isShutdown() && block.timestamp > shutdownTime + SHUTDOWN_WARMUP), ErrorsLib.OnlyAllocatorsOrShutdown());
-        require(tokensAmount > 0, ErrorsLib.InvalidAmount());
-        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
+
 
         IOracle oracle = oracles[token];
-        require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
-
-        uint256 assetsBefore = IERC20(asset).balanceOf(address(this));   
-        uint256 tokensBefore = token.balanceOf(address(this));   
-
-        token.forceApprove(address(swapper), tokensAmount);
-        swapper.sell(token, IERC20(asset), tokensAmount, data);
-
-        uint256 assetsReceived = IERC20(asset).balanceOf(address(this)) - assetsBefore;
-        uint256 tokensSpent = tokensBefore - token.balanceOf(address(this));
-
-        require(tokensSpent <= tokensAmount, ErrorsLib.SwapperDidSpendTooMuch());
-
-        // Revoke allowance to prevent residual approvals
-        token.forceApprove(address(swapper), 0);
 
         // Calculate slippage tolerance, default to allocator slippage
         uint256 slippageTolerance = maxSlippage;
@@ -393,13 +378,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             }
         }
 
-        // Validate slippage
-        uint256 expectedAssets = tokensAmount.mulDiv(oracle.price(), ORACLE_PRECISION);
-        uint256 minAssets = expectedAssets.mulDiv(PRECISION - slippageTolerance, PRECISION);
-        int256 slippage = int256(expectedAssets) - int256(assetsReceived);
-        int256 slippagePct = expectedAssets == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedAssets);
+        (uint256 assetsReceived, uint256 tokensSpent, int256 slippage, int256 slippagePct) = 
+            OperationsLib.deallocate(IERC20(asset), IERC20(token), tokensAmount, swapper, data, 
+            oracle, address(this), slippageTolerance);
 
-        require(assetsReceived >= minAssets, ErrorsLib.TokenSaleNotGeneratingEnoughAssets());
 
         // Track slippage (only in normal operation)
         if (isAllocator[msg.sender] && slippage > 0) {
@@ -724,6 +706,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         return address(oracles[token]) != address(0);
     }
     
+    /**
+     * @notice Returns true if token is an investment token
+     * @return true if it is a whitelisted investment token
+     */
+    function isTokenOrAsset(IERC20 token) public view returns (bool) {
+        return address(oracles[token]) != address(0) || address(token) == asset;
+    }
+    
 
     /**
      * @notice Returns number of investment tokens
@@ -764,11 +754,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @dev Calculates the total value of all tokens and assets in the vault
-     * @return assets_ The total value of all assets
+     * @dev Calculates the net asset value of all tokens and assets in the vault
+     * @return nav The net asset value of all assets
      */
-    function _calculateTotalAssets() internal view returns (uint256 assets_) {
-        assets_ = IERC20(asset).balanceOf(address(this));
+    function _nav() internal view returns (int256 nav) {
+        uint256 assets_ = IERC20(asset).balanceOf(address(this));
+        uint256 liabilities = 0;
 
         // Add value of all tokens
         uint256 length = tokens.length;
@@ -783,6 +774,36 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             }
             unchecked { ++i; }
         }
+        // Loop over funding sources
+        length = _fundings.length;
+        for (uint256 i; i < length; i++) {
+            LoanFacility memory facility = _fundings[i];
+            IERC20 token = facility.collateralToken;
+            uint256 collateralBalance = facility.borrow.collateral(facility.data, address(this));
+
+            // If there is no collateral balance there is no value nor any borrow, we skip
+            if(collateralBalance == 0) continue;
+
+            IOracle oracle = oracles[facility.collateralToken];
+            if (address(oracle) != address(0)) {
+                // collateralBalance can't be null here
+                assets_ += collateralBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
+            } else if (address(token) == asset) {
+                assets_ += collateralBalance;
+            }
+
+            uint256 debtBalance = facility.borrow.debt(facility.data, address(this));
+            if(debtBalance == 0) continue;
+
+            oracle = oracles[facility.loanToken];
+            if (address(oracle) != address(0)) {
+                assets_ += debtBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
+            } else if (address(token) == asset) {
+                liabilities += debtBalance;
+            }            
+        }
+
+        nav = int256(assets_) - int256(liabilities);
     }
 
 
@@ -800,9 +821,34 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         return _fundings.length;
     }
 
-    function fundingId(IBorrow borrow, bytes calldata data) external view override returns (bytes32) {
-        return keccak256(abi.encodePacked(borrow, data));
+    function fundingId(IBorrow borrowAdapter, bytes calldata data) public pure override returns (bytes32) {
+        return keccak256(abi.encodePacked(borrowAdapter, data));
     }
+
+    function isFunding(IBorrow borrowAdapter, bytes calldata data) public view returns (bool) {
+        return _fundingMap[fundingId(borrowAdapter, data)].borrow == borrowAdapter;
+    }
+
+    function _delegateCall(
+        address target,
+        bytes memory callData
+    ) internal {
+        (bool success, bytes memory returnData) = target.delegatecall(callData);
+
+        // Revert if the delegatecall failed
+        if (!success) {
+            // Bubble up the revert reason
+            if (returnData.length > 0) {
+                assembly {
+                    let returndata_size := mload(returnData)
+                    revert(add(32, returnData), returndata_size)
+                }
+            } else {
+                revert("Delegatecall failed");
+            }
+        }
+    }
+
 
     function addFunding(IBorrow borrow, bytes calldata data) external returns (bytes32 fundingId) {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
@@ -829,131 +875,56 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit IBox.FundingAdded(borrow, data, loanToken, collateralToken, fundingId);
     }
 
-    function supplyCollateral(IBorrow borrow, bytes calldata data, uint256 assets) public {
-        // Encode the function call
+    function repay(IBorrow borrowAdapter, bytes calldata data, uint256 assets) external {
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        require(isFunding(borrowAdapter, data), IBox.FundingNotWhitelisted());
+
         bytes memory callData = abi.encodeWithSelector(
-            IBorrow(borrow).supplyCollateral.selector,
+            IBorrow(borrowAdapter).repay.selector,
             data,
             assets
         );
 
-        // Perform the delegatecall
-        (bool success, bytes memory returnData) = address(borrow).delegatecall(callData);
-
-        // Revert if the delegatecall failed
-        if (!success) {
-            // Bubble up the revert reason
-            if (returnData.length > 0) {
-                assembly {
-                    let returndata_size := mload(returnData)
-                    revert(add(32, returnData), returndata_size)
-                }
-            } else {
-                revert("Delegatecall failed");
-            }
-        }
+        _delegateCall(address(borrowAdapter), callData);
     }
 
-    function withdrawCollateral(IBorrow borrow, bytes calldata data, uint256 assets) external {
-        // Encode the function call
+    function borrow(IBorrow borrowAdapter, bytes calldata data, uint256 assets) public {
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        require(isFunding(borrowAdapter, data), IBox.FundingNotWhitelisted());
+
         bytes memory callData = abi.encodeWithSelector(
-            IBorrow(borrow).withdrawCollateral.selector,
+            IBorrow(borrowAdapter).borrow.selector,
             data,
             assets
         );
 
-        // Perform the delegatecall
-        (bool success, bytes memory returnData) = address(borrow).delegatecall(callData);
-
-        // Revert if the delegatecall failed
-        if (!success) {
-            // Bubble up the revert reason
-            if (returnData.length > 0) {
-                assembly {
-                    let returndata_size := mload(returnData)
-                    revert(add(32, returnData), returndata_size)
-                }
-            } else {
-                revert("Delegatecall failed");
-            }
-        }
+        _delegateCall(address(borrowAdapter), callData);
     }
 
+    function supplyCollateral(IBorrow borrowAdapter, bytes calldata data, uint256 assets) public {
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        require(isFunding(borrowAdapter, data), IBox.FundingNotWhitelisted());
 
-    function borrow(IBorrow borrow, bytes calldata data, uint256 assets) public {
-        // Encode the function call
         bytes memory callData = abi.encodeWithSelector(
-            IBorrow(borrow).borrow.selector,
+            IBorrow(borrowAdapter).supplyCollateral.selector,
             data,
             assets
         );
 
-        // Perform the delegatecall
-        (bool success, bytes memory returnData) = address(borrow).delegatecall(callData);
-
-        // Revert if the delegatecall failed
-        if (!success) {
-            // Bubble up the revert reason
-            if (returnData.length > 0) {
-                assembly {
-                    let returndata_size := mload(returnData)
-                    revert(add(32, returnData), returndata_size)
-                }
-            } else {
-                revert("Delegatecall failed");
-            }
-        }
+        _delegateCall(address(borrowAdapter), callData);
     }
 
+    function withdrawCollateral(IBorrow borrowAdapter, bytes calldata data, uint256 assets) external {
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        require(isFunding(borrowAdapter, data), IBox.FundingNotWhitelisted());
 
-    function repay(IBorrow borrow, bytes calldata data, uint256 assets) external {
-        // Encode the function call
         bytes memory callData = abi.encodeWithSelector(
-            IBorrow(borrow).repay.selector,
+            IBorrow(borrowAdapter).withdrawCollateral.selector,
             data,
             assets
         );
 
-        // Perform the delegatecall
-        (bool success, bytes memory returnData) = address(borrow).delegatecall(callData);
-
-        // Revert if the delegatecall failed
-        if (!success) {
-            // Bubble up the revert reason
-            if (returnData.length > 0) {
-                assembly {
-                    let returndata_size := mload(returnData)
-                    revert(add(32, returnData), returndata_size)
-                }
-            } else {
-                revert("Delegatecall failed");
-            }
-        }
-    }
-
-    function repayShares(IBorrow borrow, bytes calldata data, uint256 shares) external {
-        // Encode the function call
-        bytes memory callData = abi.encodeWithSelector(
-            IBorrow(borrow).repayShares.selector,
-            data,
-            shares
-        );
-
-        // Perform the delegatecall
-        (bool success, bytes memory returnData) = address(borrow).delegatecall(callData);
-
-        // Revert if the delegatecall failed
-        if (!success) {
-            // Bubble up the revert reason
-            if (returnData.length > 0) {
-                assembly {
-                    let returndata_size := mload(returnData)
-                    revert(add(32, returnData), returndata_size)
-                }
-            } else {
-                revert("Delegatecall failed");
-            }
-        }
+        _delegateCall(address(borrowAdapter), callData);
     }
 
     function wind(address flashloanProvider, 
@@ -961,17 +932,28 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateral, IERC20 loanAsset, uint256 loanAmount) external {
 
-        // To be able to repay the flashloan
-        loanAsset.transferFrom(flashloanProvider, address(this), loanAmount);
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        // Most checks will be done at the underlying actions
 
-        uint256 before = collateral.balanceOf(address(this));
-        allocate(collateral, loanAmount, swapper, swapData);
-        uint256 afterBalance = collateral.balanceOf(address(this));
-        supplyCollateral(borrowAdapter, borrowData, afterBalance - before);
-        borrow(borrowAdapter, borrowData, loanAmount);
+        OperationsLib.wind(this, flashloanProvider, borrowAdapter, borrowData, 
+            swapper, swapData, collateral, loanAsset, loanAmount);
 
-        // So the adapter can repay the flash loan
-        loanAsset.safeTransfer(flashloanProvider, loanAmount);
+        // Events are already emitted at the underlying actions
+    }
+
+    function unwind(address flashloanProvider, 
+        IBorrow borrowAdapter, bytes calldata borrowData, 
+        ISwapper swapper, bytes calldata swapData, 
+        IERC20 collateral, uint256 collateralAmount, IERC20 loanAsset, 
+        uint256 loanAmount) external {
+
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        // Most checks will be done at the underlying actions
+
+        OperationsLib.unwind(this, flashloanProvider, borrowAdapter, borrowData, 
+            swapper, swapData, collateral, collateralAmount, loanAsset, loanAmount);
+
+        // Events are already emitted at the underlying actions
     }
 
 

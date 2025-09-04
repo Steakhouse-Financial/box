@@ -91,7 +91,6 @@ interface IBox is IERC4626 {
     function withdrawCollateral(IBorrow borrow, bytes calldata data, uint256 assets) external;
     function borrow(IBorrow borrow, bytes calldata data, uint256 assets) external;
     function repay(IBorrow borrow, bytes calldata data, uint256 assets) external;
-    function repayShares(IBorrow borrow, bytes calldata data, uint256 shares) external;
 
     function addFunding(IBorrow borrow, bytes calldata data) external returns (bytes32 fundingId);
 

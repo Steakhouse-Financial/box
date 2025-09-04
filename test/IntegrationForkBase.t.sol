@@ -783,7 +783,7 @@ contract IntegrationForkBaseTest is Test {
 
 
 
-    function testBoxLeverage() public {
+    function testBoxLeverageMorpho() public {
         uint256 USDC_1000 = 1000 * 10**6;
         BorrowMorpho borrow = new BorrowMorpho();
         MarketParams memory market = MarketParams(address(usdc), address(ptusr25sep), address(ptusr25sepOracle), irm, 915000000000000000);
@@ -834,7 +834,7 @@ contract IntegrationForkBaseTest is Test {
         usdc.transfer(address(box2), 1);
         vm.startPrank(allocator);
 
-        box2.repayShares(borrow, borrowData, borrow.debtShares(borrowData, address(box2)));
+        box2.repay(borrow, borrowData, type(uint256).max);
 
         box2.withdrawCollateral(borrow, borrowData, ptBalance);
         assertEq(ptusr25sep.balanceOf(address(box2)), 1010280676747326095928, "ptusr25sep are back in the Box");
@@ -945,6 +945,7 @@ contract IntegrationForkBaseTest is Test {
 
         // And this contract to be a feeder
         box2.addFeeder(address(this));
+        box2.setIsAllocator(address(box2), true);
 
         // And the funding facility
         bytes memory borrowData = borrow.morphoMarketToData(morpho, market);
@@ -987,6 +988,7 @@ contract IntegrationForkBaseTest is Test {
 
         assertEq(borrow.debt(borrowData, address(box2)), 500 * 10**6 + 1, "Debt is correct");
         assertEq(borrow.collateral(borrowData, address(box2)), 1515398374089157807752, "Collateral after wind is correct");
+
 
 
         vm.stopPrank();

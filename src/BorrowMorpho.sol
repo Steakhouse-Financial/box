@@ -40,8 +40,16 @@ contract BorrowMorpho is IBorrow {
 
     function repay(bytes calldata data, uint256 repayAmount) external {
         (IMorpho morpho, MarketParams memory market) = dataToMorphoMarket(data);
-        IERC20(market.loanToken).forceApprove(address(morpho), repayAmount);
-        morpho.repay(market, repayAmount, 0, address(this), "");
+
+        if(repayAmount == type(uint256).max) {
+            repayAmount = debt(data, address(this));
+            IERC20(market.loanToken).forceApprove(address(morpho), repayAmount);
+            morpho.repay(market, 0, morpho.borrowShares(market.id(), address(this)), address(this), "");
+        }
+        else {
+            IERC20(market.loanToken).forceApprove(address(morpho), repayAmount);
+            morpho.repay(market, repayAmount, 0, address(this), "");
+        }
     }
 
     function repayShares(bytes calldata data, uint256 shares) external {
