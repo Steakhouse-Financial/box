@@ -38,6 +38,7 @@ import {FlashLoanMorpho} from "../src/FlashLoanMorpho.sol";
 contract BoxLeverageMorphoBaseTest is Test {
     using BoxLib for Box;
     Box box;
+    Box boxEth;
     address owner = address(0x1);
     address curator = address(0x2);
     address guardian = address(0x3);
@@ -48,7 +49,12 @@ contract BoxLeverageMorphoBaseTest is Test {
 
     IERC20 ptusr25sep = IERC20(0xa6F0A4D18B6f6DdD408936e81b7b3A8BEFA18e77);
     IOracle ptusr25sepOracle = IOracle(0x6AdeD60f115bD6244ff4be46f84149bA758D9085);
-    
+
+    IERC20 weth = IERC20(0x4200000000000000000000000000000000000006);
+    IERC20 wsteth = IERC20(0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452);
+    IOracle wstethOracle94 = IOracle(0x4A11590e5326138B514E08A9B52202D42077Ca65); // vs WETH  
+    IOracle wstethOracle96 = IOracle(0xaE10cbdAa587646246c8253E4532A002EE4fa7A4); // vs WETH
+
     ISwapper swapper = ISwapper(0x5C9dA86ECF5B35C8BF700a31a51d8a63fA53d1f6);
 
     IMorpho morpho = IMorpho(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
@@ -59,16 +65,24 @@ contract BoxLeverageMorphoBaseTest is Test {
     bytes fundingData;
     bytes32 fundingId;
 
+    BorrowMorpho fundingAdapterEth;
+    MarketParams marketParamsEth1;
+    bytes fundingDataEth1;
+    bytes32 fundingIdEth1;
+
+    MarketParams marketParamsEth2;
+    bytes fundingDataEth2;
+    bytes32 fundingIdEth2;
+
     /// @notice Will setup Peaty Base investing in bbqUSDC, box1 (stUSD) and box (PTs)
    function setUp() public {
-        // Fork base on a recent block (December 2024)
-        // Note: Using a recent block to ensure Aave V3 is deployed
-        uint256 forkId = vm.createFork(vm.rpcUrl("base"), 34194011);  // Use latest block
+        // Fork base on a  Sept 4th, 2025
+        uint256 forkId = vm.createFork(vm.rpcUrl("base"), 35116463);  
         vm.selectFork(forkId);
 
-        // Creating Box 2 which will invest in PT-USR-25SEP
-        string memory name = "Box";
-        string memory symbol = "BOX";
+        // Creating Box USDC which will invest in PT-USR-25SEP
+        string memory name = "Box USDC";
+        string memory symbol = "BOX_USDC";
         uint256 maxSlippage = 0.01 ether; // 1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
@@ -96,6 +110,44 @@ contract BoxLeverageMorphoBaseTest is Test {
         fundingData = fundingAdapter.morphoMarketToData(morpho, marketParams);
         fundingId = box.fundingId(fundingAdapter, fundingData);
         box.addFunding(fundingAdapter, fundingData);
+
+
+        // Creating Box ETH which will invest in wstETH
+        name = "Box ETH";
+        symbol = "BOX_ETH";
+        maxSlippage = 0.01 ether; // 1%
+        slippageEpochDuration = 7 days;
+        shutdownSlippageDuration = 10 days;
+        boxEth = new Box(
+            address(weth),
+            owner,
+            curator,
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration
+        );
+
+        // Allow box 2 to invest in PT-USR-25SEP
+        vm.startPrank(curator);
+        boxEth.changeGuardian(guardian);
+        boxEth.addCollateral(wsteth, wstethOracle94);
+        boxEth.setIsAllocator(address(allocator), true);
+        boxEth.addFeeder(address(this));
+
+        fundingAdapterEth = new BorrowMorpho();
+        marketParamsEth1 = MarketParams(address(weth), address(wsteth), address(wstethOracle94), irm, 945000000000000000);
+        // And the funding facility
+        fundingDataEth1 = fundingAdapterEth.morphoMarketToData(morpho, marketParamsEth1);
+        fundingIdEth1 = boxEth.fundingId(fundingAdapterEth, fundingDataEth1);
+        boxEth.addFunding(fundingAdapterEth, fundingDataEth1);
+
+        marketParamsEth2 = MarketParams(address(weth), address(wsteth), address(wstethOracle96), irm, 965000000000000000);
+        // And the funding facility
+        fundingDataEth2 = fundingAdapterEth.morphoMarketToData(morpho, marketParamsEth2);
+        fundingIdEth2 = boxEth.fundingId(fundingAdapterEth, fundingDataEth2);
+        boxEth.addFunding(fundingAdapterEth, fundingDataEth2);
 
         vm.stopPrank();
     }   
@@ -139,7 +191,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         testAddresses[2] = guardian;
         testAddresses[3] = user;
 
-        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho();
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
 
         for (uint256 i = 0; i < testAddresses.length; i++) {
             vm.startPrank(testAddresses[i]);
@@ -167,7 +219,7 @@ contract BoxLeverageMorphoBaseTest is Test {
                 ptusr25sep, 0, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            flashloanProvider.wind(box, morpho, fundingAdapter, fundingData, swapper, "", ptusr25sep, usdc, 1);
+            flashloanProvider.wind(box, fundingAdapter, fundingData, swapper, "", ptusr25sep, usdc, 1);
 
             vm.stopPrank();
         }
@@ -196,8 +248,8 @@ contract BoxLeverageMorphoBaseTest is Test {
         uint256 totalAssets = box.totalAssets();
 
         assertEq(usdc.balanceOf(address(box)), 0, "No more USDC in the Box");
-        assertEq(ptBalance, 1010280676747326095928, "ptusr25sep in the Box");
-        assertEq(totalAssets, 1000000740, "totalAssets in the Box after ptusr25sep allocation");
+        assertEq(ptBalance, 1005863679192785855851, "ptusr25sep in the Box");
+        assertEq(totalAssets, 999828627, "totalAssets in the Box after ptusr25sep allocation");
 
         box.supplyCollateral(fundingAdapter, fundingData, ptBalance);
 
@@ -218,7 +270,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         box.repay(fundingAdapter, fundingData, type(uint256).max);
 
         box.withdrawCollateral(fundingAdapter, fundingData, ptBalance);
-        assertEq(ptusr25sep.balanceOf(address(box)), 1010280676747326095928, "ptusr25sep are back in the Box");
+        assertEq(ptusr25sep.balanceOf(address(box)), 1005863679192785855851, "ptusr25sep are back in the Box");
 
         vm.stopPrank();
     }
@@ -228,6 +280,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         uint256 USDC_1000 = 1000 * 10**6;
         uint256 USDC_500 = 500 * 10**6;
         
+        // TODO: We shouldn't have to do this
         vm.prank(curator);
         box.setIsAllocator(address(box), true);
 
@@ -243,33 +296,91 @@ contract BoxLeverageMorphoBaseTest is Test {
         uint256 ptBalance = ptusr25sep.balanceOf(address(box));
 
         assertEq(usdc.balanceOf(address(box)), 0, "No more USDC in the Box");
-        assertEq(ptBalance, 1010280676747326095928, "ptusr25sep in the Box");
+        assertEq(ptBalance, 1005863679192785855851, "ptusr25sep in the Box");
 
         box.supplyCollateral(fundingAdapter, fundingData, ptBalance);
 
         assertEq(ptusr25sep.balanceOf(address(box)), 0, "No more ptusr25sep in the Box");
         assertEq(fundingAdapter.collateral(fundingData, address(box)), ptBalance, "Collateral is correct");
 
-        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho();
-
-        // expect revert
-        //flashloanProvider.wind(box, morpho, borrow, borrowData, swapper, "", ptusr25sep, usdc, USDC_500);
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
 
         vm.stopPrank();
         vm.prank(curator);
         box.setIsAllocator(address(flashloanProvider), true);
         vm.startPrank(allocator);
 
-        flashloanProvider.wind(box, morpho, fundingAdapter, fundingData, swapper, "", ptusr25sep, usdc, USDC_500);
+        flashloanProvider.wind(box, fundingAdapter, fundingData, swapper, "", ptusr25sep, usdc, USDC_500);
 
         assertEq(fundingAdapter.debt(fundingData, address(box)), USDC_500 + 1, "Debt is correct");
-        assertEq(fundingAdapter.collateral(fundingData, address(box)), 1515398374089157807752, "Collateral after wind is correct");
+        assertEq(fundingAdapter.collateral(fundingData, address(box)), 1508804269763505704594, "Collateral after wind is correct");
 
-        flashloanProvider.unwind(box, morpho, fundingAdapter, fundingData, swapper, "", 
+        flashloanProvider.unwind(box, fundingAdapter, fundingData, swapper, "", 
             ptusr25sep, fundingAdapter.collateral(fundingData, address(box)), 
             usdc, type(uint256).max);
 
+        assertEq(fundingAdapter.debt(fundingData, address(box)), 0, "Debt is fully repaid");
+        assertEq(fundingAdapter.collateral(fundingData, address(box)), 0, "No collateral left on Morpho");
+        assertEq(ptusr25sep.balanceOf(address(box)), 0, "No ptusr25sep are in the Box");
+        assertEq(usdc.balanceOf(address(box)), 999371412, "USDC is back in the Box");
+
         vm.stopPrank();
+    }
+
+
+    function testShift() public {
+        vm.prank(curator);
+        boxEth.setIsAllocator(address(boxEth), true);
+
+        // Get some USDC in Box
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        weth.transfer(address(this), 1 ether);
+        weth.approve(address(boxEth), 1 ether);
+        boxEth.deposit(1 ether, address(this));
+
+        vm.startPrank(allocator);
+
+        // Swap WETH to wstETH
+        boxEth.allocate(wsteth, 1 ether, swapper, "");
+        
+        uint256 wstEthBalance = wsteth.balanceOf(address(boxEth));
+        assertEq(wstEthBalance, 825488650470599462, "wstETH in the Box");
+
+        // Supply wsteth collateral to first market
+        boxEth.supplyCollateral(fundingAdapterEth, fundingDataEth1, wstEthBalance);
+        assertEq(fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)), wstEthBalance);
+        assertEq(fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)), 0 ether);
+        assertEq(fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)), 0 ether);
+
+        // Prepare flashloan facility
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
+        vm.stopPrank();
+        vm.prank(curator);
+        boxEth.setIsAllocator(address(flashloanProvider), true);
+        vm.startPrank(allocator);
+
+        // Leverage on the first market
+        flashloanProvider.wind(boxEth, fundingAdapterEth, fundingDataEth1, swapper, "", wsteth, weth, 0.5 ether);
+
+        assertEq(fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)), 1238232915944902834);
+        assertEq(fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)), 0);
+        assertEq(fundingAdapterEth.debt(fundingDataEth1, address(boxEth)), 500000000000000001);
+        assertEq(fundingAdapterEth.debt(fundingDataEth2, address(boxEth)), 0 ether);
+        assertEq(fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)), 332938470795156227);
+
+        // Shift all the position to the second market
+        flashloanProvider.shift(boxEth, fundingAdapterEth, fundingDataEth1, fundingAdapterEth, fundingDataEth2, 
+            wsteth, type(uint256).max, weth, type(uint256).max);
+
+        assertEq(fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)), 0);
+        assertEq(fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)), 1238232915944902834);
+        assertEq(fundingAdapterEth.debt(fundingDataEth1, address(boxEth)), 0 ether);
+        assertEq(fundingAdapterEth.debt(fundingDataEth2, address(boxEth)), 500000000000000002);
+        assertEq(fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)), 0 ether);
+        assertEq(fundingAdapterEth.ltv(fundingDataEth2, address(boxEth)), 332938470795156228);
+
+        vm.stopPrank();
+
     }
 
 }

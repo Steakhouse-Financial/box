@@ -16,6 +16,7 @@ library ErrorsLib {
     error OnlyFeeders();
     error OnlySkimRecipient();
     error OnlyAllocatorsOrShutdown();
+    error OnlyMorpho();
     error InvalidOwner();
     
     // Deposit/Mint errors

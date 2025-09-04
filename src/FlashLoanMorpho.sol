@@ -15,7 +15,7 @@ import {MorphoBalancesLib} from "@morpho-blue/libraries/periphery/MorphoBalances
 import {MorphoLib} from "@morpho-blue/libraries/periphery/MorphoLib.sol";
 import "@morpho-blue/libraries/ConstantsLib.sol";
 
-
+import {ErrorsLib} from "./lib/ErrorsLib.sol";
 
 interface IMorphoFlashLoanCallback {
     /// @notice Callback called when a flash loan occurs.
@@ -30,21 +30,61 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
     using MorphoLib for IMorpho;
     using MathLib for uint256;
 
+    IMorpho public immutable MORPHO;
+
+    constructor(IMorpho morpho) {
+        MORPHO = morpho;
+    }
+
 
     function onMorphoFlashLoan(uint256 assets, bytes calldata data) external {
-        // require morpho only msg.Sender
+        // TODO require morpho only msg.Sender
+        require(msg.sender == address(MORPHO), ErrorsLib.OnlyMorpho());
 
-
-        // Decode data to get the operation type and other parameters
-        (bytes4 operation, uint256 loanAmount, IBox box, IBorrow borrowAdapter, bytes memory borrowData, 
-            IERC20 collateral, IERC20 loanAsset, ISwapper swapper, bytes memory swapData) 
-            = abi.decode(data, (bytes4, uint256, IBox, IBorrow, bytes, IERC20, IERC20, ISwapper, bytes));
+        bytes4 operation = abi.decode(bytes(data), (bytes4));
+        
+        IBox box;
+        IBorrow borrowAdapter;
+        bytes memory borrowData;
+        IBorrow borrowAdapter2;
+        bytes memory borrowData2;
+        IERC20 collateral;
+        uint256 collateralAmount;
+        IERC20 loanAsset;
+        uint256 loanAmount;
+        ISwapper swapper;
+        bytes memory swapData;
 
         if (operation == FlashLoanMorpho.wind.selector) {
-            // The flash loan is sent to the box
+            (operation, box, borrowAdapter, borrowData, collateral,
+                loanAsset, loanAmount, swapper, swapData) = abi.decode(data,
+                (bytes4, IBox, IBorrow, bytes, IERC20, IERC20, uint256, ISwapper, bytes));
+
+            // The flash loan is allowed for the box to grab
             loanAsset.forceApprove(address(box), assets);
             box.wind(address(this), borrowAdapter, borrowData, swapper, swapData, collateral, loanAsset, loanAmount);
+
         } else if (operation == FlashLoanMorpho.unwind.selector) {
+
+            (operation, box, borrowAdapter, borrowData, collateral, collateralAmount,
+                loanAsset, loanAmount, swapper, swapData) = abi.decode(data,
+                (bytes4, IBox, IBorrow, bytes, IERC20, uint256, IERC20, uint256, ISwapper, bytes));
+
+            // The flash loan is allowed for the box to grab
+            loanAsset.forceApprove(address(box), assets);
+            box.unwind(address(this), borrowAdapter, borrowData, swapper, swapData, collateral, collateralAmount, 
+                loanAsset, loanAmount);       
+
+        } else if (operation == FlashLoanMorpho.shift.selector) {
+
+            (operation, box, borrowAdapter, borrowData, borrowAdapter2, borrowData2,
+                collateral, collateralAmount, loanAsset, loanAmount) = abi.decode(data,
+                (bytes4, IBox, IBorrow, bytes, IBorrow, bytes, IERC20, uint256, IERC20, uint256));
+
+            // The flash loan is allowed for the box to grab
+            loanAsset.forceApprove(address(box), assets);
+            box.shift(address(this), borrowAdapter, borrowData, borrowAdapter2, borrowData2, collateral, collateralAmount, 
+                loanAsset, loanAmount);
 
         } else {
             revert("Invalid operation");
@@ -55,26 +95,50 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
 
     }
 
-    function wind(IBox box, IMorpho morpho, IBorrow borrow, bytes calldata borrowData, 
+    function wind(IBox box, IBorrow borrow, bytes calldata borrowData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateral, IERC20 loanAsset, uint256 loanAmount) external {
 
+        require(box.isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
+
         bytes4 operation = FlashLoanMorpho.wind.selector;
-        bytes memory data = abi.encode(operation, loanAmount, address(box), borrow, borrowData, collateral, loanAsset, swapper, swapData);
-        morpho.flashLoan(address(loanAsset), loanAmount, data);
+        bytes memory data = abi.encode(operation, address(box), borrow, borrowData, collateral, loanAsset, 
+            loanAmount, swapper, swapData);
+        MORPHO.flashLoan(address(loanAsset), loanAmount, data);
     }
 
-    function unwind(IBox box, IMorpho morpho, IBorrow borrow, bytes calldata borrowData, 
+    function unwind(IBox box, IBorrow borrow, bytes calldata borrowData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateral, uint256 collateralAmount, IERC20 loanAsset, uint256 loanAmount) external {
+
+        require(box.isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
 
         if(loanAmount == type(uint256).max) {
             loanAmount = borrow.debt(borrowData, address(box));
         }
 
         bytes4 operation = FlashLoanMorpho.unwind.selector;
-        bytes memory data = abi.encode(operation, loanAmount, address(box), borrow, borrowData, collateral, loanAsset, swapper, swapData);
-        morpho.flashLoan(address(loanAsset), loanAmount, data);
+        bytes memory data = abi.encode(operation, address(box), borrow, borrowData, collateral, collateralAmount, 
+            loanAsset, loanAmount, swapper, swapData);
+        MORPHO.flashLoan(address(loanAsset), loanAmount, data);
+    }
+
+    function shift(IBox box, 
+        IBorrow fromBorrow, bytes calldata fromBorrowData, 
+        IBorrow toBorrow, bytes calldata toBorrowData,
+        IERC20 collateral, uint256 collateralAmount, IERC20 loanAsset, uint256 loanAmount) external {
+
+        require(box.isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
+
+        if(loanAmount == type(uint256).max) {
+            loanAmount = fromBorrow.debt(fromBorrowData, address(box));
+        }
+
+        bytes4 operation = FlashLoanMorpho.shift.selector;
+        bytes memory data = abi.encode(operation, address(box), 
+            fromBorrow, fromBorrowData, toBorrow, toBorrowData,
+            collateral, collateralAmount, loanAsset, loanAmount);
+        MORPHO.flashLoan(address(loanAsset), loanAmount, data);
     }
 
 }

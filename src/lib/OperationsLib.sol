@@ -142,4 +142,29 @@ library OperationsLib {
         loanAsset.safeTransfer(flashloanProvider, loanAmount);
     }
 
+    function shift(IBox box, address flashloanProvider, 
+        IBorrow fromBorrowAdapter, bytes calldata fromBorrowData, 
+        IBorrow toBorrowAdapter, bytes calldata toBorrowData, 
+        IERC20 collateral, uint256 collateralAmount, IERC20 loanAsset, uint256 loanAmount) external {
+
+        if(loanAmount == type(uint256).max) {
+            loanAmount = fromBorrowAdapter.debt(fromBorrowData, address(this));
+        }
+        if(collateralAmount == type(uint256).max) {
+            collateralAmount = fromBorrowAdapter.collateral(fromBorrowData, address(this));
+        }
+
+        // To be able to repay the flashloan
+        loanAsset.transferFrom(flashloanProvider, address(this), loanAmount);
+
+        box.repay(fromBorrowAdapter, fromBorrowData, loanAmount);
+        box.withdrawCollateral(fromBorrowAdapter, fromBorrowData, collateralAmount);
+
+        box.supplyCollateral(toBorrowAdapter, toBorrowData, collateralAmount);
+        box.borrow(toBorrowAdapter, toBorrowData, loanAmount);
+
+        // So the adapter can repay the flash loan
+        loanAsset.safeTransfer(flashloanProvider, loanAmount);
+    }
+
 }

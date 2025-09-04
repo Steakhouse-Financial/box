@@ -978,13 +978,13 @@ contract IntegrationForkBaseTest is Test {
         assertEq(ptusr25sep.balanceOf(address(box2)), 0, "No more ptusr25sep in the Box");
         assertEq(borrow.collateral(borrowData, address(box2)), ptBalance, "Collateral is correct");
 
-        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho();
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
         vm.stopPrank();
         vm.prank(curator);
         box2.setIsAllocator(address(flashloanProvider), true);
         vm.startPrank(allocator);
 
-        flashloanProvider.wind(box2, morpho, borrow, borrowData, swapper, "", ptusr25sep, usdc, 500 * 10**6);
+        flashloanProvider.wind(box2, borrow, borrowData, swapper, "", ptusr25sep, usdc, 500 * 10**6);
 
         assertEq(borrow.debt(borrowData, address(box2)), 500 * 10**6 + 1, "Debt is correct");
         assertEq(borrow.collateral(borrowData, address(box2)), 1515398374089157807752, "Collateral after wind is correct");

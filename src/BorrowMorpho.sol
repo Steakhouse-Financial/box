@@ -41,8 +41,15 @@ contract BorrowMorpho is IBorrow {
     function repay(bytes calldata data, uint256 repayAmount) external {
         (IMorpho morpho, MarketParams memory market) = dataToMorphoMarket(data);
 
+        uint256 debtAmount = morpho.expectedBorrowAssets(market, address(this));
+
         if(repayAmount == type(uint256).max) {
-            repayAmount = debt(data, address(this));
+            repayAmount = debtAmount;
+        }
+
+        // If the amount repaid is all the debt, we convert to all shares
+        // amount repaid would internally get translated to more shares that there is to repaid
+        if(repayAmount == debtAmount) {
             IERC20(market.loanToken).forceApprove(address(morpho), repayAmount);
             morpho.repay(market, 0, morpho.borrowShares(market.id(), address(this)), address(this), "");
         }

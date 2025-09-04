@@ -77,6 +77,7 @@ interface IBox is IERC4626 {
 
     // ========== VIEW FUNCTIONS ==========
     function isToken(IERC20 token) external view returns (bool);
+    function isTokenOrAsset(IERC20 token) external view returns (bool);
     function tokensLength() external view returns (uint256);
     function isShutdown() external view returns (bool);
 
@@ -97,5 +98,17 @@ interface IBox is IERC4626 {
     function fundingsLength() external view returns (uint256);
     function fundingId(IBorrow borrow, bytes calldata data) external view returns (bytes32);
     function wind(address flashloanProvider, IBorrow borrowAdapter, bytes calldata borrowData, 
-        ISwapper swapper, bytes calldata swapData, IERC20 collateral, IERC20 loanAsset, uint256 loanAmount) external;
+        ISwapper swapper, bytes calldata swapData, 
+        IERC20 collateral, 
+        IERC20 loanAsset, uint256 loanAmount) external;
+
+    function unwind(address flashloanProvider, IBorrow borrow, bytes calldata borrowData, 
+        ISwapper swapper, bytes calldata swapData, 
+        IERC20 collateral, uint256 collateralAmount, IERC20 loanAsset, uint256 loanAmount) external;
+
+    function shift(address flashloanProvider, 
+        IBorrow fromBorrowAdapter, bytes calldata fromBorrowData, 
+        IBorrow toBorrowAdapter, bytes calldata toBorrowData,
+        IERC20 collateral, uint256 collateralAmount, 
+        IERC20 loanAsset, uint256 loanAmount) external;
 }

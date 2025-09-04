@@ -944,14 +944,31 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function unwind(address flashloanProvider, 
         IBorrow borrowAdapter, bytes calldata borrowData, 
         ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateral, uint256 collateralAmount, IERC20 loanAsset, 
-        uint256 loanAmount) external {
+        IERC20 collateral, uint256 collateralAmount, 
+        IERC20 loanAsset, uint256 loanAmount) external {
 
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         // Most checks will be done at the underlying actions
 
         OperationsLib.unwind(this, flashloanProvider, borrowAdapter, borrowData, 
             swapper, swapData, collateral, collateralAmount, loanAsset, loanAmount);
+
+        // Events are already emitted at the underlying actions
+    }
+
+
+    function shift(address flashloanProvider, 
+        IBorrow fromBorrowAdapter, bytes calldata fromBorrowData, 
+        IBorrow toBorrowAdapter, bytes calldata toBorrowData,
+        IERC20 collateral, uint256 collateralAmount, 
+        IERC20 loanAsset, uint256 loanAmount) external {
+
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        // Most checks will be done at the underlying actions
+
+        OperationsLib.shift(this, flashloanProvider, 
+            fromBorrowAdapter, fromBorrowData, toBorrowAdapter, toBorrowData, 
+            collateral, collateralAmount, loanAsset, loanAmount);
 
         // Events are already emitted at the underlying actions
     }
