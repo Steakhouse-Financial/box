@@ -12,6 +12,13 @@ optimizer_runs = 200
 via_ir = true
 evm_version = "cancun"
 gas_reports = ["*"]
+libraries = [
+    "./src/lib/OperationsLib.sol:OperationsLib:0x1eB0801eCd6B7b4e56AF75E51eA6AaEE116dB081"
+]
+
+[profile.test]
+# Inherits all settings from default except libraries
+libraries = []  # Empty = tests deploy their own OperationsLib
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}" }

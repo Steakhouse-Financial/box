@@ -13,6 +13,7 @@ import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import "../src/lib/Constants.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
+import {OperationsLib} from "../src/lib/OperationsLib.sol";
 
 contract MockERC20 is IERC20 {
     string public name;
