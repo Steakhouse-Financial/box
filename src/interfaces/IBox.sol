@@ -97,5 +97,6 @@ interface IBox is IERC4626 {
 
     function fundingsLength() external view returns (uint256);
     function fundingId(IBorrow borrow, bytes calldata data) external view returns (bytes32);
-
+    function wind(address flashloanProvider, IBorrow borrowAdapter, bytes calldata borrowData, 
+        ISwapper swapper, bytes calldata swapData, IERC20 collateral, IERC20 loanAsset, uint256 loanAmount) external;
 }

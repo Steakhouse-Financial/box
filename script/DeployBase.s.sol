@@ -158,7 +158,7 @@ contract DeployBaseScript is Script {
     function deployPeaty() public returns (IVaultV2) {
         vm.startBroadcast();
 
-        bytes32 salt = "8";
+        bytes32 salt = "9";
 
         VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
         console.log("Peaty deployed at:", address(vault));
@@ -204,8 +204,8 @@ contract DeployBaseScript is Script {
 
         // Allow box 1 to invest in stUSD
         box1.addCollateral(stusd, stusdOracle);
-        box1.addAllocator(address(allocator1));
-        box1.addAllocator(address(allocator2));
+        box1.setIsAllocator(address(allocator1), true);
+        box1.setIsAllocator(address(allocator2), true);
         box1.addFeeder(address(adapter1));
         box1.setCurator(address(curator));
         box1.transferOwnership(address(owner));
@@ -247,8 +247,8 @@ contract DeployBaseScript is Script {
         bytes memory fundingData = borrowMorpho.morphoMarketToData(IMorphoBlue(address(morpho)), fundingMarketParams);
         box2.addFunding(borrowMorpho, fundingData);
 
-        box2.addAllocator(address(allocator1));
-        box2.addAllocator(address(allocator2));
+        box2.setIsAllocator(address(allocator1), true);
+        box2.setIsAllocator(address(allocator2), true);
         box2.addFeeder(address(adapter2));
         box2.setCurator(address(curator));
         box2.transferOwnership(address(owner));

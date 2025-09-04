@@ -28,6 +28,7 @@ import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 import {BorrowMorpho} from "../src/BorrowMorpho.sol";
 import {BorrowAave, IPool} from "../src/BorrowAave.sol";
 import {MarketParams, IMorpho} from "@morpho-blue/interfaces/IMorpho.sol";
+import {FlashLoanMorpho} from "../src/FlashLoanMorpho.sol";
 
 /// @notice Minimal WETH interface for testing
 interface IWETH {
@@ -96,7 +97,7 @@ contract IntegrationForkBaseTest is Test {
    function setUp() public {
         // Fork base on a recent block (December 2024)
         // Note: Using a recent block to ensure Aave V3 is deployed
-        uint256 forkId = vm.createFork(vm.rpcUrl("base"));  // Use latest block
+        uint256 forkId = vm.createFork(vm.rpcUrl("base"), 34194011);  // Use latest block
         vm.selectFork(forkId);
 
         boxAdapterFactory = new BoxAdapterFactory();
@@ -932,6 +933,61 @@ contract IntegrationForkBaseTest is Test {
 
         uint256 wethAfter = IWETH(WETH).balanceOf(address(testBox));
         assertApproxEqAbs(wethAfter, 5 ether, 2, "WETH are back in the Box (allowing 2 wei rounding)");
+        vm.stopPrank();
+    }
+
+    function testBoxWind() public {
+        uint256 USDC_1000 = 1000 * 10**6;
+        BorrowMorpho borrow = new BorrowMorpho();
+        MarketParams memory market = MarketParams(address(usdc), address(ptusr25sep), address(ptusr25sepOracle), irm, 915000000000000000);
+
+        vm.startPrank(curator);
+
+        // And this contract to be a feeder
+        box2.addFeeder(address(this));
+
+        // And the funding facility
+        bytes memory borrowData = borrow.morphoMarketToData(morpho, market);
+        box2.addFunding(borrow, borrowData);
+        vm.stopPrank();
+
+        bytes32 borrowId = box2.fundingId(borrow, borrowData);
+
+        assertEq(box2.fundingsLength(), 1, "There is one source of funding");
+        assertEq(address(box2.fundingMap(borrowId).loanToken), address(usdc), "Loan token is USDC");
+        assertEq(address(box2.fundingMap(borrowId).collateralToken), address(ptusr25sep), "Collateral token is ptusr25sep");
+
+        // Get some USDC
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        usdc.transfer(address(this), USDC_1000); // Transfer 1000 USDC to this contract
+
+        usdc.approve(address(box2), USDC_1000);
+        box2.deposit(USDC_1000, address(this)); // Deposit 1000 USDC
+
+        vm.startPrank(allocator);
+
+        box2.allocate(ptusr25sep, USDC_1000, swapper, "");
+        uint256 ptBalance = ptusr25sep.balanceOf(address(box2));
+
+        assertEq(usdc.balanceOf(address(box2)), 0, "No more USDC in the Box");
+        assertEq(ptBalance, 1010280676747326095928, "ptusr25sep in the Box");
+
+        box2.supplyCollateral(borrow, borrowData, ptBalance);
+
+        assertEq(ptusr25sep.balanceOf(address(box2)), 0, "No more ptusr25sep in the Box");
+        assertEq(borrow.collateral(borrowData, address(box2)), ptBalance, "Collateral is correct");
+
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho();
+        vm.stopPrank();
+        vm.prank(curator);
+        box2.setIsAllocator(address(flashloanProvider), true);
+        vm.startPrank(allocator);
+
+        flashloanProvider.wind(box2, morpho, borrow, borrowData, swapper, "", ptusr25sep, usdc, 500 * 10**6);
+
+        assertEq(borrow.debt(borrowData, address(box2)), 500 * 10**6 + 1, "Debt is correct");
+        assertEq(borrow.collateral(borrowData, address(box2)), 1515398374089157807752, "Collateral after wind is correct");
+
 
         vm.stopPrank();
     }

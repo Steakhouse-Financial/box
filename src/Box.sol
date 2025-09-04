@@ -15,6 +15,7 @@ import "./lib/Constants.sol";
 import {ErrorsLib} from "./lib/ErrorsLib.sol";
 import {EventsLib} from "./lib/EventsLib.sol";
 import {IBorrow} from "./interfaces/IBorrow.sol";
+import {OperationsLib} from "./lib/OperationsLib.sol";
 
 /**
  * @title Box
@@ -324,36 +325,22 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param swapper Swapper contract to use (should not be address(0))
      * @param data Additional data to pass to the swapper
      */
-    function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
+    function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) public nonReentrant {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         require(!isShutdown(), ErrorsLib.CannotAllocateIfShutdown());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
-        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
-        require(assetsAmount > 0, ErrorsLib.InvalidAmount());
 
         IOracle oracle = oracles[token];
 
-        uint256 tokensBefore = token.balanceOf(address(this));
-        uint256 assetsBefore = IERC20(asset).balanceOf(address(this));
-
-        IERC20(asset).forceApprove(address(swapper), assetsAmount);
-        swapper.sell(IERC20(asset), token, assetsAmount, data);
-        
-        uint256 tokensReceived = token.balanceOf(address(this)) - tokensBefore;
-        uint256 assetsSpent = assetsBefore - IERC20(asset).balanceOf(address(this));
-
-        require(assetsSpent <= assetsAmount, ErrorsLib.SwapperDidSpendTooMuch());
-
-        // Validate slippage
-        uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oracle.price());
-        uint256 minTokens = expectedTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
-        int256 slippage = int256(expectedTokens) - int256(tokensReceived);
-        int256 slippagePct = expectedTokens == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedTokens);
-
-        require(tokensReceived >= minTokens, ErrorsLib.AllocationTooExpensive());
-
-        // Revoke allowance to prevent residual approvals
-        IERC20(asset).forceApprove(address(swapper), 0);
+        (uint256 tokensReceived, uint256 assetsSpent, int256 slippage, int256 slippagePct) = OperationsLib.executeAllocation(
+            IERC20(asset),
+            token,
+            assetsAmount,
+            maxSlippage,
+            oracle,
+            swapper,
+            data
+        );
 
         // Track slippage
         if (slippage > 0) {
@@ -842,7 +829,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit IBox.FundingAdded(borrow, data, loanToken, collateralToken, fundingId);
     }
 
-    function supplyCollateral(IBorrow borrow, bytes calldata data, uint256 assets) external {
+    function supplyCollateral(IBorrow borrow, bytes calldata data, uint256 assets) public {
         // Encode the function call
         bytes memory callData = abi.encodeWithSelector(
             IBorrow(borrow).supplyCollateral.selector,
@@ -893,7 +880,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
 
-    function borrow(IBorrow borrow, bytes calldata data, uint256 assets) external {
+    function borrow(IBorrow borrow, bytes calldata data, uint256 assets) public {
         // Encode the function call
         bytes memory callData = abi.encodeWithSelector(
             IBorrow(borrow).borrow.selector,
@@ -968,5 +955,24 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             }
         }
     }
+
+    function wind(address flashloanProvider, 
+        IBorrow borrowAdapter, bytes calldata borrowData, 
+        ISwapper swapper, bytes calldata swapData, 
+        IERC20 collateral, IERC20 loanAsset, uint256 loanAmount) external {
+
+        // To be able to repay the flashloan
+        loanAsset.transferFrom(flashloanProvider, address(this), loanAmount);
+
+        uint256 before = collateral.balanceOf(address(this));
+        allocate(collateral, loanAmount, swapper, swapData);
+        uint256 afterBalance = collateral.balanceOf(address(this));
+        supplyCollateral(borrowAdapter, borrowData, afterBalance - before);
+        borrow(borrowAdapter, borrowData, loanAmount);
+
+        // So the adapter can repay the flash loan
+        loanAsset.safeTransfer(flashloanProvider, loanAmount);
+    }
+
 
 }
