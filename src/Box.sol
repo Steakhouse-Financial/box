@@ -774,36 +774,53 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             }
             unchecked { ++i; }
         }
-        // Loop over funding sources
+        // Process funding sources with deduplication
         length = _fundings.length;
+        bytes32[] memory seenKeys = new bytes32[](length * 2); // collateral + debt keys
+        uint256 seenCount;
+        
         for (uint256 i; i < length; i++) {
             LoanFacility memory facility = _fundings[i];
-            IERC20 token = facility.collateralToken;
+            
+            // Collateral
             uint256 collateralBalance = facility.borrow.collateral(facility.data, address(this));
-
-            // If there is no collateral balance there is no value nor any borrow, we skip
-            if(collateralBalance == 0) continue;
-
-            IOracle oracle = oracles[facility.collateralToken];
-            if (address(oracle) != address(0)) {
-                // collateralBalance can't be null here
-                assets_ += collateralBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
-            } else if (address(token) == asset) {
-                assets_ += collateralBalance;
+            if (collateralBalance > 0) {
+                bytes32 key = facility.borrow.collateralPositionKey(facility.data);
+                if (!_contains(seenKeys, seenCount, key)) {
+                    seenKeys[seenCount++] = key;
+                    IOracle oracle = oracles[facility.collateralToken];
+                    if (address(oracle) != address(0)) {
+                        assets_ += collateralBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
+                    } else if (address(facility.collateralToken) == asset) {
+                        assets_ += collateralBalance;
+                    }
+                }
             }
 
+            // Debt
             uint256 debtBalance = facility.borrow.debt(facility.data, address(this));
-            if(debtBalance == 0) continue;
-
-            oracle = oracles[facility.loanToken];
-            if (address(oracle) != address(0)) {
-                assets_ += debtBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
-            } else if (address(token) == asset) {
-                liabilities += debtBalance;
-            }            
+            if (debtBalance > 0) {
+                bytes32 key = facility.borrow.debtPositionKey(facility.data);
+                if (!_contains(seenKeys, seenCount, key)) {
+                    seenKeys[seenCount++] = key;
+                    IOracle oracle = oracles[facility.loanToken];
+                    if (address(oracle) != address(0)) {
+                        liabilities += debtBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
+                    } else if (address(facility.loanToken) == asset) {
+                        liabilities += debtBalance;
+                    }
+                }
+            }
         }
 
         nav = int256(assets_) - int256(liabilities);
+    }
+
+    function _contains(bytes32[] memory arr, uint256 len, bytes32 key) private pure returns (bool) {
+        for (uint256 i; i < len; i++) {
+            if (arr[i] == key) return true;
+        }
+        return false;
     }
 
 

@@ -36,5 +36,9 @@ interface IBorrow {
     function debt(bytes calldata data, address who) external view returns (uint256);
     function debtShares(bytes calldata data, address who) external view returns (uint256);
     function collateral(bytes calldata data, address who) external view returns (uint256);
+    
+    // Position key functions for NAV deduplication
+    function collateralPositionKey(bytes calldata data) external pure returns (bytes32);
+    function debtPositionKey(bytes calldata data) external pure returns (bytes32);
 
 }

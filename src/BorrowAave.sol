@@ -77,13 +77,31 @@ contract BorrowAave is IBorrow {
 
     // interestRateMode: 1 = Stable, 2 = Variable (Aave v3 constant)
 
-    function supplyCollateral(bytes calldata data, uint256 assets) external {
-        (IPool pool, , address collateralAsset, , uint8 eMode) = dataToAaveParams(data);
-
-        // Set e-mode if specified (0 means no e-mode)
-        if (eMode > 0 && pool.getUserEMode(address(this)) != eMode) {
+    
+    function _setEMode(bytes calldata data) internal {
+        (IPool pool, , , , uint8 eMode) = dataToAaveParams(data);
+        if (pool.getUserEMode(address(this)) != eMode) {
             pool.setUserEMode(eMode);
         }
+    }
+
+    function _setEMode(IPool pool, uint8 eMode) internal {
+        if (pool.getUserEMode(address(this)) != eMode) {
+            pool.setUserEMode(eMode);
+        }
+    }
+
+    function setEMode(bytes calldata data) external {
+        _setEMode(data);
+    }
+
+    function setEMode(IPool pool, uint8 eMode) external {
+        _setEMode(pool, eMode);
+    }
+
+    function supplyCollateral(bytes calldata data, uint256 assets) external {
+        (IPool pool, , address collateralAsset, , uint8 eMode) = dataToAaveParams(data);
+        _setEMode(pool, eMode);
 
         IERC20(collateralAsset).forceApprove(address(pool), assets);
         pool.supply(collateralAsset, assets, address(this), 0);
@@ -96,7 +114,9 @@ contract BorrowAave is IBorrow {
     }
 
     function borrow(bytes calldata data, uint256 borrowAmount) external {
-        (IPool pool, address loanAsset, , uint256 rateMode,) = dataToAaveParams(data);
+        (IPool pool, address loanAsset, , uint256 rateMode, uint8 eMode) = dataToAaveParams(data);
+        _setEMode(pool, eMode);
+        
         pool.borrow(loanAsset, borrowAmount, rateMode, 0, address(this));
     }
 
@@ -202,6 +222,16 @@ contract BorrowAave is IBorrow {
         returns (bytes memory)
     {
         return abi.encode(address(pool), loanAsset, collateralAsset, interestRateMode, eMode);
+    }
+
+    function collateralPositionKey(bytes calldata data) external pure returns (bytes32) {
+        (IPool pool, , address collateralAsset, ,) = dataToAaveParams(data);
+        return keccak256(abi.encodePacked(address(pool), collateralAsset));
+    }
+
+    function debtPositionKey(bytes calldata data) external pure returns (bytes32) {
+        (IPool pool, address loanAsset, , ,) = dataToAaveParams(data);
+        return keccak256(abi.encodePacked(address(pool), loanAsset));
     }
 }
 

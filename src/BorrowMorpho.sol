@@ -108,4 +108,14 @@ contract BorrowMorpho is IBorrow {
     function morphoMarketToData(IMorpho morpho, MarketParams memory market) public pure returns (bytes memory) {
         return abi.encode(address(morpho), market);
     }
+
+    function collateralPositionKey(bytes calldata data) external pure returns (bytes32) {
+        (IMorpho morpho, MarketParams memory market) = dataToMorphoMarket(data);
+        return keccak256(abi.encodePacked(address(morpho), market.id(), "collateral"));
+    }
+
+    function debtPositionKey(bytes calldata data) external pure returns (bytes32) {
+        (IMorpho morpho, MarketParams memory market) = dataToMorphoMarket(data);
+        return keccak256(abi.encodePacked(address(morpho), market.id(), "debt"));
+    }
 }
