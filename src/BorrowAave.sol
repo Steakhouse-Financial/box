@@ -14,6 +14,8 @@ interface IPool {
     function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external;
     function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256);
     function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
+    function setUserEMode(uint8 categoryId) external;
+    function getUserEMode(address user) external view returns (uint256);
 
     function getUserAccountData(address user)
         external
@@ -65,7 +67,12 @@ contract BorrowAave is IBorrow {
     // interestRateMode: 1 = Stable, 2 = Variable (Aave v3 constant)
 
     function supplyCollateral(bytes calldata data, uint256 assets) external {
-        (IPool pool, , address collateralAsset, ) = dataToAaveParams(data);
+        (IPool pool, , address collateralAsset, , uint8 eMode) = dataToAaveParams(data);
+
+        // Set e-mode if specified (0 means no e-mode)
+        if (eMode > 0 && pool.getUserEMode(address(this)) != eMode) {
+            pool.setUserEMode(eMode);
+        }
 
         IERC20(collateralAsset).forceApprove(address(pool), assets);
         pool.supply(collateralAsset, assets, address(this), 0);
@@ -73,23 +80,23 @@ contract BorrowAave is IBorrow {
     }
 
     function withdrawCollateral(bytes calldata data, uint256 assets) external {
-        (IPool pool, , address collateralAsset, ) = dataToAaveParams(data);
+        (IPool pool, , address collateralAsset, ,) = dataToAaveParams(data);
         pool.withdraw(collateralAsset, assets, address(this));
     }
 
     function borrow(bytes calldata data, uint256 borrowAmount) external {
-        (IPool pool, address loanAsset, , uint256 rateMode) = dataToAaveParams(data);
+        (IPool pool, address loanAsset, , uint256 rateMode,) = dataToAaveParams(data);
         pool.borrow(loanAsset, borrowAmount, rateMode, 0, address(this));
     }
 
     function repay(bytes calldata data, uint256 repayAmount) external {
-        (IPool pool, address loanAsset, , uint256 rateMode) = dataToAaveParams(data);
+        (IPool pool, address loanAsset, , uint256 rateMode,) = dataToAaveParams(data);
         IERC20(loanAsset).forceApprove(address(pool), repayAmount);
         pool.repay(loanAsset, repayAmount, rateMode, address(this));
     }
 
     function repayShares(bytes calldata data, uint256 shares) external {
-        (IPool pool, address loanAsset, , uint256 rateMode) = dataToAaveParams(data);
+        (IPool pool, address loanAsset, , uint256 rateMode,) = dataToAaveParams(data);
 
         uint256 repayAmount;
         if (rateMode == 2) {
@@ -106,17 +113,17 @@ contract BorrowAave is IBorrow {
     }
 
     function loanToken(bytes calldata data) external pure returns (address) {
-        (, address loanAsset, , ) = dataToAaveParams(data);
+        (, address loanAsset, , ,) = dataToAaveParams(data);
         return loanAsset;
     }
 
     function collateralToken(bytes calldata data) external pure returns (address) {
-        (, , address collateralAsset, ) = dataToAaveParams(data);
+        (, , address collateralAsset, ,) = dataToAaveParams(data);
         return collateralAsset;
     }
 
     function ltv(bytes calldata data, address who) external view returns (uint256) {
-        (IPool pool, , , ) = dataToAaveParams(data);
+        (IPool pool, , , ,) = dataToAaveParams(data);
         (
             uint256 totalCollateralBase,
             uint256 totalDebtBase,
@@ -130,14 +137,14 @@ contract BorrowAave is IBorrow {
     }
 
     function debt(bytes calldata data, address who) public view returns (uint256) {
-        (IPool pool, address loanAsset, , uint256 rateMode) = dataToAaveParams(data);
+        (IPool pool, address loanAsset, , uint256 rateMode,) = dataToAaveParams(data);
         (,,,,,,,, , address stableDebtToken, address variableDebtToken,,,,) = pool.getReserveData(loanAsset);
         address debtToken = rateMode == 2 ? variableDebtToken : stableDebtToken;
         return IERC20(debtToken).balanceOf(who);
     }
 
     function debtShares(bytes calldata data, address who) external view returns (uint256) {
-        (IPool pool, address loanAsset, , uint256 rateMode) = dataToAaveParams(data);
+        (IPool pool, address loanAsset, , uint256 rateMode,) = dataToAaveParams(data);
         if (rateMode == 2) {
             (,,,,,,,, , , address variableDebtToken,,,,) = pool.getReserveData(loanAsset);
             return IScaledBalanceToken(variableDebtToken).scaledBalanceOf(who);
@@ -148,7 +155,7 @@ contract BorrowAave is IBorrow {
     }
 
     function collateral(bytes calldata data, address who) external view returns (uint256) {
-        (IPool pool, , address collateralAsset, ) = dataToAaveParams(data);
+        (IPool pool, , address collateralAsset, ,) = dataToAaveParams(data);
         (,,,,,,,, address aTokenAddress, , ,,,,) = pool.getReserveData(collateralAsset);
         return IERC20(aTokenAddress).balanceOf(who);
     }
@@ -156,11 +163,18 @@ contract BorrowAave is IBorrow {
     function dataToAaveParams(bytes calldata data)
         public
         pure
-        returns (IPool pool, address loanAsset, address collateralAsset, uint256 interestRateMode)
+        returns (IPool pool, address loanAsset, address collateralAsset, uint256 interestRateMode, uint8 eMode)
     {
-        (address poolAddress, address _loanAsset, address _collateralAsset, uint256 rateMode) =
-            abi.decode(data, (address, address, address, uint256));
-        return (IPool(poolAddress), _loanAsset, _collateralAsset, rateMode);
+        // Check data length to determine format
+        if (data.length == 160) { // 5 * 32 bytes for new format with e-mode
+            (address poolAddress, address _loanAsset, address _collateralAsset, uint256 rateMode, uint8 _eMode) =
+                abi.decode(data, (address, address, address, uint256, uint8));
+            return (IPool(poolAddress), _loanAsset, _collateralAsset, rateMode, _eMode);
+        } else { // Old format without e-mode
+            (address poolAddress, address _loanAsset, address _collateralAsset, uint256 rateMode) =
+                abi.decode(data, (address, address, address, uint256));
+            return (IPool(poolAddress), _loanAsset, _collateralAsset, rateMode, 0);
+        }
     }
 
     function aaveParamsToData(IPool pool, address loanAsset, address collateralAsset, uint256 interestRateMode)
@@ -169,6 +183,14 @@ contract BorrowAave is IBorrow {
         returns (bytes memory)
     {
         return abi.encode(address(pool), loanAsset, collateralAsset, interestRateMode);
+    }
+    
+    function aaveParamsToDataWithEMode(IPool pool, address loanAsset, address collateralAsset, uint256 interestRateMode, uint8 eMode)
+        public
+        pure
+        returns (bytes memory)
+    {
+        return abi.encode(address(pool), loanAsset, collateralAsset, interestRateMode, eMode);
     }
 }
 
