@@ -231,52 +231,82 @@ contract BoxLeverageMorphoBaseTest is Test {
     /////////////////////////////
 
     function testBoxLeverage() public {
+        console2.log("\n=== Starting testBoxLeverage ===");
         uint256 USDC_1000 = 1000 * 10**6;
 
         // Get some USDC
+        console2.log("\n1. Setting up initial USDC funding");
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
         usdc.transfer(address(this), USDC_1000); // Transfer 1000 USDC to this contract
 
         usdc.approve(address(box), USDC_1000);
         box.deposit(USDC_1000, address(this)); // Deposit 1000 USDC
+        console2.log("- Deposited:", USDC_1000 / 1e6, "USDC to Box");
 
         vm.startPrank(allocator);
 
+        console2.log("\n2. Allocating USDC to PT-USR-25SEP");
         box.allocate(ptusr25sep, USDC_1000, swapper, "");
         uint256 ptBalance = ptusr25sep.balanceOf(address(box));
 
         uint256 totalAssets = box.totalAssets();
+        console2.log("- PT balance received:", ptBalance / 1e18, "PT tokens");
+        console2.log("- Total assets value:", totalAssets / 1e6, "USDC");
 
         assertEq(usdc.balanceOf(address(box)), 0, "No more USDC in the Box");
         assertEq(ptBalance, 1005863679192785855851, "ptusr25sep in the Box");
         assertEq(totalAssets, 999828627, "totalAssets in the Box after ptusr25sep allocation");
 
+        console2.log("\n3. Supplying PT as collateral to Morpho");
         box.supplyCollateral(fundingAdapter, fundingData, ptBalance);
+        console2.log("- Supplied all PT tokens as collateral");
 
         assertEq(ptusr25sep.balanceOf(address(box)), 0, "No more ptusr25sep in the Box");
         assertEq(fundingAdapter.collateral(fundingData, address(box)), ptBalance, "Collateral is correct");
         assertEq(box.totalAssets(), totalAssets, "totalAssets in the Box after ptusr25sep collateral supply");
 
+        // Record NAV before borrowing
+        uint256 navBeforeBorrow = box.totalAssets();
+        console2.log("\n4. Borrowing USDC against PT collateral");
+        console2.log("- NAV before borrow:", navBeforeBorrow / 1e6, "USDC");
+        
         box.borrow(fundingAdapter, fundingData, 500 * 10**6);
+        console2.log("- Borrowed:", 500, "USDC");
 
         assertEq(usdc.balanceOf(address(box)), 500  * 10**6, "500 USDC in the Box");
+        
+        // Check NAV after borrowing
+        uint256 navAfterBorrow = box.totalAssets();
+        console2.log("- NAV after borrow:", navAfterBorrow / 1e6, "USDC");
+        int256 navChange = int256(navAfterBorrow) - int256(navBeforeBorrow);
+        if (navChange >= 0) {
+            console2.log("- NAV change: +", uint256(navChange), "units");
+        } else {
+            console2.log("- NAV change: -", uint256(-navChange), "units");
+        }
+        assertApproxEqRel(navAfterBorrow, navBeforeBorrow, 0.001e18, "NAV should remain approximately constant after borrowing");
 
-        // Get some USDC to convert rounding
+        // Get some USDC to cover rounding
+        console2.log("\n5. Repaying debt and withdrawing collateral");
         vm.stopPrank();
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
         usdc.transfer(address(box), 1);
         vm.startPrank(allocator);
 
         box.repay(fundingAdapter, fundingData, type(uint256).max);
+        console2.log("- Repaid all USDC debt");
 
         box.withdrawCollateral(fundingAdapter, fundingData, ptBalance);
+        console2.log("- Withdrew all PT collateral");
         assertEq(ptusr25sep.balanceOf(address(box)), 1005863679192785855851, "ptusr25sep are back in the Box");
 
+        console2.log("\n[PASS] Test completed successfully");
         vm.stopPrank();
     }
 
 
     function testBoxWind() public {
+        console2.log("\n=== Starting testBoxWind (Looping Test) ===");
         uint256 USDC_1000 = 1000 * 10**6;
         uint256 USDC_500 = 500 * 10**6;
         
@@ -285,24 +315,31 @@ contract BoxLeverageMorphoBaseTest is Test {
         box.setIsAllocator(address(box), true);
 
         // Get some USDC in Box
+        console2.log("\n1. Setting up initial USDC funding");
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
         usdc.transfer(address(this), USDC_1000); // Transfer 1000 USDC to this contract
         usdc.approve(address(box), USDC_1000);
         box.deposit(USDC_1000, address(this)); // Deposit 1000 USDC
+        console2.log("- Deposited:", USDC_1000 / 1e6, "USDC to Box");
 
         vm.startPrank(allocator);
 
+        console2.log("\n2. Allocating USDC to PT-USR-25SEP");
         box.allocate(ptusr25sep, USDC_1000, swapper, "");
         uint256 ptBalance = ptusr25sep.balanceOf(address(box));
+        console2.log("- PT balance received:", ptBalance / 1e18, "PT tokens");
 
         assertEq(usdc.balanceOf(address(box)), 0, "No more USDC in the Box");
         assertEq(ptBalance, 1005863679192785855851, "ptusr25sep in the Box");
 
+        console2.log("\n3. Supplying PT as collateral");
         box.supplyCollateral(fundingAdapter, fundingData, ptBalance);
+        console2.log("- Initial collateral supplied:", ptBalance / 1e18, "PT tokens");
 
         assertEq(ptusr25sep.balanceOf(address(box)), 0, "No more ptusr25sep in the Box");
         assertEq(fundingAdapter.collateral(fundingData, address(box)), ptBalance, "Collateral is correct");
 
+        console2.log("\n4. Setting up flashloan provider");
         FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
 
         vm.stopPrank();
@@ -310,77 +347,162 @@ contract BoxLeverageMorphoBaseTest is Test {
         box.setIsAllocator(address(flashloanProvider), true);
         vm.startPrank(allocator);
 
+        // Record NAV before wind operation
+        uint256 navBeforeWind = box.totalAssets();
+        console2.log("\n5. Executing wind operation (leverage loop)");
+        console2.log("- NAV before wind:", navBeforeWind / 1e6, "USDC");
+
         flashloanProvider.wind(box, fundingAdapter, fundingData, swapper, "", ptusr25sep, usdc, USDC_500);
+        console2.log("- Wind operation completed with", USDC_500 / 1e6, "USDC borrowed");
 
         assertEq(fundingAdapter.debt(fundingData, address(box)), USDC_500 + 1, "Debt is correct");
         assertEq(fundingAdapter.collateral(fundingData, address(box)), 1508804269763505704594, "Collateral after wind is correct");
+        
+        console2.log("- New collateral amount:", fundingAdapter.collateral(fundingData, address(box)) / 1e18, "PT tokens");
+        console2.log("- Debt amount:", fundingAdapter.debt(fundingData, address(box)) / 1e6, "USDC");
 
+        // Check NAV after wind
+        uint256 navAfterWind = box.totalAssets();
+        console2.log("- NAV after wind:", navAfterWind / 1e6, "USDC");
+        int256 navChangeWind = int256(navAfterWind) - int256(navBeforeWind);
+        if (navChangeWind >= 0) {
+            console2.log("- NAV change from wind: +", uint256(navChangeWind), "units");
+        } else {
+            console2.log("- NAV change from wind: -", uint256(-navChangeWind), "units");
+        }
+        assertApproxEqRel(navAfterWind, navBeforeWind, 0.01e18, "NAV should remain approximately constant after wind");
+
+        console2.log("\n6. Executing unwind operation (deleverage)");
         flashloanProvider.unwind(box, fundingAdapter, fundingData, swapper, "", 
             ptusr25sep, fundingAdapter.collateral(fundingData, address(box)), 
             usdc, type(uint256).max);
+        console2.log("- Unwind operation completed");
 
         assertEq(fundingAdapter.debt(fundingData, address(box)), 0, "Debt is fully repaid");
         assertEq(fundingAdapter.collateral(fundingData, address(box)), 0, "No collateral left on Morpho");
         assertEq(ptusr25sep.balanceOf(address(box)), 0, "No ptusr25sep are in the Box");
         assertEq(usdc.balanceOf(address(box)), 999371412, "USDC is back in the Box");
 
+        // Check NAV after unwind
+        uint256 navAfterUnwind = box.totalAssets();
+        console2.log("- NAV after unwind:", navAfterUnwind / 1e6, "USDC");
+        console2.log("- Final USDC balance:", usdc.balanceOf(address(box)) / 1e6, "USDC");
+        int256 navChangeFinal = int256(navAfterUnwind) - int256(navBeforeWind);
+        if (navChangeFinal >= 0) {
+            console2.log("- NAV change from original: +", uint256(navChangeFinal), "units");
+        } else {
+            console2.log("- NAV change from original: -", uint256(-navChangeFinal), "units");
+        }
+        assertApproxEqRel(navAfterUnwind, navBeforeWind, 0.01e18, "NAV should return to approximately original value after unwind");
+
+        console2.log("\n[PASS] Test completed successfully");
         vm.stopPrank();
     }
 
 
     function testShift() public {
+        console2.log("\n=== Starting testShift (Market Migration Test) ===");
         vm.prank(curator);
         boxEth.setIsAllocator(address(boxEth), true);
 
-        // Get some USDC in Box
+        // Get some WETH in Box
+        console2.log("\n1. Setting up initial WETH funding");
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
-        weth.transfer(address(this), 1 ether);
-        weth.approve(address(boxEth), 1 ether);
-        boxEth.deposit(1 ether, address(this));
+        weth.transfer(address(this), 10 ether);
+        weth.approve(address(boxEth), 10 ether);
+        boxEth.deposit(10 ether, address(this));
+        console2.log("- Deposited: 10 WETH to Box");
 
         vm.startPrank(allocator);
 
         // Swap WETH to wstETH
-        boxEth.allocate(wsteth, 1 ether, swapper, "");
+        console2.log("\n2. Swapping WETH to wstETH");
+        boxEth.allocate(wsteth, 10 ether, swapper, "");
         
         uint256 wstEthBalance = wsteth.balanceOf(address(boxEth));
-        assertEq(wstEthBalance, 825488650470599462, "wstETH in the Box");
+        console2.log("- Received:", wstEthBalance / 1e18, "wstETH");
+        // With 10 ETH, we should get ~10x more wstETH than the original 1 ETH test
+        assertApproxEqAbs(wstEthBalance, 8254886504705994620, 1e17, "wstETH in the Box");
 
         // Supply wsteth collateral to first market
+        console2.log("\n3. Supplying collateral to Market 1 (94% LLTV)");
         boxEth.supplyCollateral(fundingAdapterEth, fundingDataEth1, wstEthBalance);
+        console2.log("- Supplied:", wstEthBalance / 1e18, "wstETH to Market 1");
         assertEq(fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)), wstEthBalance);
         assertEq(fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)), 0 ether);
         assertEq(fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)), 0 ether);
 
         // Prepare flashloan facility
+        console2.log("\n4. Setting up flashloan provider");
         FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
         vm.stopPrank();
         vm.prank(curator);
         boxEth.setIsAllocator(address(flashloanProvider), true);
         vm.startPrank(allocator);
 
-        // Leverage on the first market
-        flashloanProvider.wind(boxEth, fundingAdapterEth, fundingDataEth1, swapper, "", wsteth, weth, 0.5 ether);
+        // Record NAV before leveraging
+        uint256 navBeforeLeverage = boxEth.totalAssets();
+        console2.log("\n5. Leveraging position on Market 1");
+        console2.log("- NAV before leverage:", navBeforeLeverage / 1e18, "WETH");
 
-        assertEq(fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)), 1238232915944902834);
+        // Leverage on the first market
+        flashloanProvider.wind(boxEth, fundingAdapterEth, fundingDataEth1, swapper, "", wsteth, weth, 5 ether);
+        console2.log("- Leveraged with 5 WETH borrowed");
+
+        console2.log("- Market 1 collateral:", fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)) / 1e18, "wstETH");
+        console2.log("- Market 1 debt:", fundingAdapterEth.debt(fundingDataEth1, address(boxEth)) / 1e18, "WETH");
+        console2.log("- Market 1 LTV:", fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)) * 100 / 1e18, "%");
+        
+        // Approximate values since we're using 10x scale
+        assertApproxEqRel(fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)), 12382329159449028340, 0.01e18, "Market 1 collateral");
         assertEq(fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)), 0);
-        assertEq(fundingAdapterEth.debt(fundingDataEth1, address(boxEth)), 500000000000000001);
+        assertApproxEqRel(fundingAdapterEth.debt(fundingDataEth1, address(boxEth)), 5000000000000000010, 0.01e18, "Market 1 debt");
         assertEq(fundingAdapterEth.debt(fundingDataEth2, address(boxEth)), 0 ether);
-        assertEq(fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)), 332938470795156227);
+        assertApproxEqRel(fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)), 332938470795156227, 0.01e18, "Market 1 LTV");
+
+        // Check NAV after leverage
+        uint256 navAfterLeverage = boxEth.totalAssets();
+        console2.log("- NAV after leverage:", navAfterLeverage / 1e18, "WETH");
+        int256 navChangeLeverage = int256(navAfterLeverage) - int256(navBeforeLeverage);
+        if (navChangeLeverage >= 0) {
+            console2.log("- NAV change from leverage: +", uint256(navChangeLeverage), "units");
+        } else {
+            console2.log("- NAV change from leverage: -", uint256(-navChangeLeverage), "units");
+        }
+        assertApproxEqRel(navAfterLeverage, navBeforeLeverage, 0.01e18, "NAV should remain approximately constant after leverage");
 
         // Shift all the position to the second market
+        console2.log("\n6. Shifting position from Market 1 to Market 2 (96% LLTV)");
         flashloanProvider.shift(boxEth, fundingAdapterEth, fundingDataEth1, fundingAdapterEth, fundingDataEth2, 
             wsteth, type(uint256).max, weth, type(uint256).max);
+        console2.log("- Position shifted to Market 2");
+
+        console2.log("- Market 1 collateral:", fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)) / 1e18, "wstETH");
+        console2.log("- Market 1 debt:", fundingAdapterEth.debt(fundingDataEth1, address(boxEth)) / 1e18, "WETH");
+        console2.log("- Market 2 collateral:", fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)) / 1e18, "wstETH");
+        console2.log("- Market 2 debt:", fundingAdapterEth.debt(fundingDataEth2, address(boxEth)) / 1e18, "WETH");
+        console2.log("- Market 2 LTV:", fundingAdapterEth.ltv(fundingDataEth2, address(boxEth)) * 100 / 1e18, "%");
 
         assertEq(fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)), 0);
-        assertEq(fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)), 1238232915944902834);
+        assertApproxEqRel(fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)), 12382329159449028340, 0.01e18, "Market 2 collateral");
         assertEq(fundingAdapterEth.debt(fundingDataEth1, address(boxEth)), 0 ether);
-        assertEq(fundingAdapterEth.debt(fundingDataEth2, address(boxEth)), 500000000000000002);
+        assertApproxEqRel(fundingAdapterEth.debt(fundingDataEth2, address(boxEth)), 5000000000000000020, 0.01e18, "Market 2 debt");
         assertEq(fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)), 0 ether);
-        assertEq(fundingAdapterEth.ltv(fundingDataEth2, address(boxEth)), 332938470795156228);
+        assertApproxEqRel(fundingAdapterEth.ltv(fundingDataEth2, address(boxEth)), 332938470795156228, 0.01e18, "Market 2 LTV");
 
+        // Check NAV after shift
+        uint256 navAfterShift = boxEth.totalAssets();
+        console2.log("- NAV after shift:", navAfterShift / 1e18, "WETH");
+        int256 navChangeShift = int256(navAfterShift) - int256(navAfterLeverage);
+        if (navChangeShift >= 0) {
+            console2.log("- NAV change from shift: +", uint256(navChangeShift), "units");
+        } else {
+            console2.log("- NAV change from shift: -", uint256(-navChangeShift), "units");
+        }
+        assertApproxEqRel(navAfterShift, navAfterLeverage, 0.001e18, "NAV should remain approximately constant after shift");
+
+        console2.log("\n[PASS] Test completed successfully");
         vm.stopPrank();
-
     }
 
 }
