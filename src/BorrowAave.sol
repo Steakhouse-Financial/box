@@ -16,6 +16,17 @@ interface IPool {
     function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
     function setUserEMode(uint8 categoryId) external;
     function getUserEMode(address user) external view returns (uint256);
+    function getEModeCategoryData(uint8 categoryId)
+        external
+        view
+        returns (
+            uint16 ltv,
+            uint16 liquidationThreshold,
+            uint16 liquidationBonus,
+            address priceSource,
+            string memory label
+        );
+    function getReserveEModeCategory(address asset) external view returns (uint256);
 
     function getUserAccountData(address user)
         external
