@@ -150,9 +150,10 @@ contract FundingMorpho is IFunding {
         collateralToken.safeTransfer(owner, collateralAmount);
     }
 
-    /// @dev We don't check if valid facility/collateral, allowing donations
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        require(isFacility(facilityData), "Invalid facility");
+        require(isDebtToken(debtToken), "Invalid debt token");
 
         MarketParams memory market = decodeFacilityData(facilityData);
         morpho.borrow(market, borrowAmount, 0, address(this), address(this));

@@ -190,22 +190,38 @@ contract FundingAave is IFunding {
 
     // ========== ACTIONS ==========
 
-    function deposit(bytes calldata data, IERC20 collateralToken, uint256 collateralAmount) external {
+    function deposit(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        require(isFacility(facilityData), "Invalid facility");
+        require(isCollateralToken(collateralToken), "Invalid collateral token");
+        
+        IERC20(collateralToken).forceApprove(address(pool), collateralAmount);
         pool.supply(address(collateralToken), collateralAmount, address(this), 0);
         pool.setUserUseReserveAsCollateral(address(collateralToken), true);
     }
 
-    function withdraw(bytes calldata data, IERC20 collateralToken, uint256 collateralAmount) external {
+    /// @dev We don't check if valid facility/collateral, allowing donations
+    function withdraw(bytes calldata, IERC20 collateralToken, uint256 collateralAmount) external {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+
         pool.withdraw(address(collateralToken), collateralAmount, address(this));
         collateralToken.safeTransfer(owner, collateralAmount);
     }
 
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        require(isFacility(facilityData), "Invalid facility");
+        require(isDebtToken(debtToken), "Invalid debt token");
+
         pool.borrow(address(debtToken), borrowAmount, rateMode, 0, address(this));
         debtToken.safeTransfer(owner, borrowAmount);
     }
 
     function repay(bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        require(isFacility(facilityData), "Invalid facility");
+        require(isDebtToken(debtToken), "Invalid debt token");
+
         debtToken.forceApprove(address(pool), repayAmount);
         pool.repay(address(debtToken), repayAmount, rateMode, address(this));
     }

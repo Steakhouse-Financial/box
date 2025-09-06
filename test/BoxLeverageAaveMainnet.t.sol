@@ -11,8 +11,8 @@ import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
 
-import {IBorrow} from "../src/interfaces/IBorrow.sol";
-import {BorrowAave, IPool} from "../src/BorrowAave.sol";
+import {IFunding} from "../src/interfaces/IFunding.sol";
+import {FundingAave, IPool} from "../src/FundingAave.sol";
 import {IBox} from "../src/interfaces/IBox.sol";
 
 /// @notice Minimal Aave v3 Addresses Provider to obtain the Pool
@@ -64,7 +64,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         // Get Aave pool
         pool = IPool(IPoolAddressesProvider(PROVIDER).getPool());
     }
-    /*
+
     function testBorrowUSDCAgainstPTsUSDe() public {
         // Deploy Box for USDC
         Box box = new Box(
@@ -84,12 +84,15 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.addCollateral(ptSusde25Sep, ptSusdeOracle);
         box.setIsAllocator(allocator, true);
         box.addFeeder(address(this));
-        
-        BorrowAave borrowAdapter = new BorrowAave();
+
         // Use e-mode 17 for borrowing stablecoins (including USDC)
         uint8 eModeCategory = 17;
-        bytes memory borrowData = borrowAdapter.aaveParamsToDataWithEMode(pool, address(usdc), address(ptSusde25Sep), 2, eModeCategory);
-        box.addFunding(borrowAdapter, borrowData);
+        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
+        bytes memory facilityData = "";
+        box.addFunding(fundingModule);
+        box.addFundingFacility(fundingModule, facilityData);
+        box.addFundingCollateral(fundingModule, ptSusde25Sep);
+        box.addFundingDebt(fundingModule, usdc);
         vm.stopPrank();
         
         // Supply 1000 PT tokens
@@ -104,32 +107,32 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.startPrank(allocator);
         
         // Supply PT as collateral
-        box.deposit(borrowAdapter, borrowData, ptAmount);
+        box.deposit(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         console2.log("Supplied", ptAmount / 1e18, "PT-sUSDe as collateral");
         
         // Borrow at 80% LTV
-        (uint256 totalCollateral, , , , , ) = pool.getUserAccountData(address(box));
+        (uint256 totalCollateral, , , , , ) = pool.getUserAccountData(address(fundingModule));
         uint256 targetBorrowAmount = (totalCollateral * 80) / 100 / 100;
         uint256 navBefore = box.totalAssets();
         console2.log("NAV before borrow:", navBefore / 1e6, "USDC");
-        
-        box.borrow(borrowAdapter, borrowData, targetBorrowAmount);
+
+        box.borrow(fundingModule, facilityData, usdc, targetBorrowAmount);
         console2.log("Borrowed", targetBorrowAmount / 1e6, "USDC at 80% LTV");
         
         // Verify e-mode and LTV
-        assertEq(pool.getUserEMode(address(box)), eModeCategory, "E-mode not set correctly");
-        
-        uint256 finalLTV = borrowAdapter.ltv(borrowData, address(box));
+        assertEq(pool.getUserEMode(address(fundingModule)), eModeCategory, "E-mode not set correctly");
+
+        uint256 finalLTV = fundingModule.ltv(facilityData);
         uint256 navAfter = box.totalAssets();
         console2.log("NAV after borrow:", navAfter / 1e6, "USDC");
-        console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, E-mode:", pool.getUserEMode(address(box)));
+        console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, E-mode:", pool.getUserEMode(address(fundingModule)));
         
         assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
         
         // Clean up
         deal(address(usdc), address(box), usdc.balanceOf(address(box)) + targetBorrowAmount + 100e6);
-        box.repay(borrowAdapter, borrowData, type(uint256).max);
-        box.withdrawCollateral(borrowAdapter, borrowData, ptAmount);
+        box.repay(fundingModule, facilityData, usdc, type(uint256).max);
+        box.withdraw(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         vm.stopPrank();
     }
     
@@ -152,12 +155,16 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.addCollateral(ptSusde25Sep, ptSusdeOracle);
         box.setIsAllocator(allocator, true);
         box.addFeeder(address(this));
-        
-        BorrowAave borrowAdapter = new BorrowAave();
+
         // Use e-mode 18 for borrowing USDe (better max LTV)
         uint8 eModeCategory = 18;
-        bytes memory borrowData = borrowAdapter.aaveParamsToDataWithEMode(pool, address(usde), address(ptSusde25Sep), 2, eModeCategory);
-        box.addFunding(borrowAdapter, borrowData);
+        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
+        bytes memory facilityData = "";
+        box.addFunding(fundingModule);
+        box.addFundingFacility(fundingModule, facilityData);
+        box.addFundingCollateral(fundingModule, ptSusde25Sep);
+        box.addFundingDebt(fundingModule, usdc);
+        box.addFundingDebt(fundingModule, usde);
         vm.stopPrank();
         
         // Supply 1000 PT tokens
@@ -172,34 +179,35 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.startPrank(allocator);
         
         // Supply PT as collateral
-        box.supplyCollateral(borrowAdapter, borrowData, ptAmount);
+        box.deposit(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         console2.log("Supplied", ptAmount / 1e18, "PT-sUSDe as collateral");
         
         // Borrow at 80% LTV
-        (uint256 totalCollateral, , , , , ) = pool.getUserAccountData(address(box));
+        (uint256 totalCollateral, , , , , ) = pool.getUserAccountData(address(fundingModule));
         uint256 targetBorrowAmount = (totalCollateral * 80) / 100 * 1e10;
         uint256 navBefore = box.totalAssets();
         console2.log("NAV before borrow:", navBefore / 1e18, "USDe");
-        
-        box.borrow(borrowAdapter, borrowData, targetBorrowAmount);
+
+        box.borrow(fundingModule, facilityData, usde, targetBorrowAmount);
         console2.log("Borrowed", targetBorrowAmount / 1e18, "USDe at 80% LTV");
         
         // Verify e-mode and LTV
-        assertEq(pool.getUserEMode(address(box)), eModeCategory, "E-mode not set correctly");
-        
-        uint256 finalLTV = borrowAdapter.ltv(borrowData, address(box));
+        assertEq(pool.getUserEMode(address(fundingModule)), eModeCategory, "E-mode not set correctly");
+
+        uint256 finalLTV = fundingModule.ltv(facilityData);
         uint256 navAfter = box.totalAssets();
         console2.log("NAV after borrow:", navAfter / 1e18, "USDe");
-        console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, E-mode:", pool.getUserEMode(address(box)));
+        console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, E-mode:", pool.getUserEMode(address(fundingModule)));
         
         assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
         
         // Clean up
         vm.stopPrank();
-        deal(address(usde), address(box), usde.balanceOf(address(box)) + targetBorrowAmount + 100e18);
+        // TODO: this work even without this line
+        //deal(address(usde), address(box), usde.balanceOf(address(box)) + targetBorrowAmount + 100e18);
         vm.startPrank(allocator);
-        box.repay(borrowAdapter, borrowData, type(uint256).max);
-        box.withdrawCollateral(borrowAdapter, borrowData, ptAmount);
+        box.repay(fundingModule, facilityData, usde, type(uint256).max);
+        box.withdraw(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         vm.stopPrank();
     }
     
@@ -218,10 +226,10 @@ contract BoxLeverageAaveMainnetTest is Test {
         
         vm.prank(curator);
         box.setIsAllocator(allocator, true);
-        
-        BorrowAave borrowAdapter = new BorrowAave();
-        bytes memory borrowData = borrowAdapter.aaveParamsToData(pool, address(usdc), address(ptSusde25Sep), 2);
-        
+
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        bytes memory facilityData = "";
+
         address[] memory testAddresses = new address[](4);
         testAddresses[0] = owner;
         testAddresses[1] = curator;
@@ -232,17 +240,17 @@ contract BoxLeverageAaveMainnetTest is Test {
             vm.startPrank(testAddresses[i]);
             
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.supplyCollateral(borrowAdapter, borrowData, 0);
+            box.deposit(fundingModule, facilityData, usdc, 0);
             
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.withdrawCollateral(borrowAdapter, borrowData, 0);
-            
+            box.withdraw(fundingModule, facilityData, usdc, 0);
+
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.borrow(borrowAdapter, borrowData, 0);
-            
+            box.borrow(fundingModule, facilityData, usdc, 0);
+
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.repay(borrowAdapter, borrowData, 0);
-            
+            box.repay(fundingModule, facilityData, usdc, 0);
+
             vm.stopPrank();
         }
     }
@@ -272,19 +280,23 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.setIsAllocator(allocator, true);
         box.addFeeder(address(this));
         
-        // Create two separate BorrowAave adapters
-        BorrowAave borrowAdapterPTsUSDe = new BorrowAave();
-        BorrowAave borrowAdapterSUSDe = new BorrowAave();
-        
+        // Create two separate FundingAave adapters
         // Configure funding for PT-sUSDe with e-mode 17
-        uint8 eMode17 = 17;
-        bytes memory borrowDataPTsUSDe = borrowAdapterPTsUSDe.aaveParamsToDataWithEMode(pool, address(usdc), address(ptSusde25Sep), 2, eMode17);
-        box.addFunding(borrowAdapterPTsUSDe, borrowDataPTsUSDe);
-        
+        FundingAave fundingModulePTsUSDe = new FundingAave(address(box), pool, 17);
         // Configure funding for sUSDe with e-mode 2
-        uint8 eMode2 = 2;
-        bytes memory borrowDataSUSDe = borrowAdapterSUSDe.aaveParamsToDataWithEMode(pool, address(usdc), address(sUsde), 2, eMode2);
-        box.addFunding(borrowAdapterSUSDe, borrowDataSUSDe);
+        FundingAave fundingModuleSUSDe = new FundingAave(address(box), pool, 2);
+
+        bytes memory facilityDataPTsUSDe = "";
+        box.addFunding(fundingModulePTsUSDe);
+        box.addFundingFacility(fundingModulePTsUSDe, facilityDataPTsUSDe);
+        box.addFundingCollateral(fundingModulePTsUSDe, ptSusde25Sep);
+        box.addFundingDebt(fundingModulePTsUSDe, usdc);
+
+        bytes memory facilityDataSUSDe = "";
+        box.addFunding(fundingModuleSUSDe);
+        box.addFundingFacility(fundingModuleSUSDe, facilityDataSUSDe);
+        box.addFundingCollateral(fundingModuleSUSDe, sUsde);
+        box.addFundingDebt(fundingModuleSUSDe, usdc);
         vm.stopPrank();
         
         // Supply collaterals
@@ -304,29 +316,30 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.startPrank(allocator);
         
         // Supply collaterals
-        box.supplyCollateral(borrowAdapterPTsUSDe, borrowDataPTsUSDe, ptSusdeAmount);
+        box.deposit(fundingModulePTsUSDe, facilityDataPTsUSDe, ptSusde25Sep, ptSusdeAmount);
         console2.log("Supplied", ptSusdeAmount / 1e18, "PT-sUSDe for e-mode 17");
-        
-        box.supplyCollateral(borrowAdapterSUSDe, borrowDataSUSDe, sUsdeAmount);
+
+        box.deposit(fundingModuleSUSDe, facilityDataSUSDe, sUsde, sUsdeAmount);
         console2.log("Supplied", sUsdeAmount / 1e18, "sUSDe for e-mode 2");
         
         // Borrow with different e-modes
         uint256 borrowAmount1 = 500e6;
         uint256 borrowAmount2 = 300e6;
-        
-        box.borrow(borrowAdapterPTsUSDe, borrowDataPTsUSDe, borrowAmount1);
+
+        box.borrow(fundingModulePTsUSDe, facilityDataPTsUSDe, usdc, borrowAmount1);
         console2.log("Borrowed", borrowAmount1 / 1e6, "USDC with e-mode 17");
-        
-        box.borrow(borrowAdapterSUSDe, borrowDataSUSDe, borrowAmount2);
+
+        box.borrow(fundingModuleSUSDe, facilityDataSUSDe, usdc, borrowAmount2);
         console2.log("Borrowed", borrowAmount2 / 1e6, "USDC with e-mode 2");
         
         // Verify final state
-        uint256 finalLTV = borrowAdapterPTsUSDe.ltv(borrowDataPTsUSDe, address(box));
-        uint256 finalEMode = pool.getUserEMode(address(box));
+        uint256 finalLTV = fundingModulePTsUSDe.ltv(facilityDataPTsUSDe);
+        uint256 finalEMode = pool.getUserEMode(address(fundingModulePTsUSDe));
         uint256 navAfter = box.totalAssets();
         console2.log("NAV after operations:", navAfter / 1e6, "USDC");
         console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, Final e-mode:", finalEMode);
-        
+        // TODO: Add a check for the above for both funding modules
+
         assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
         
         vm.stopPrank();
@@ -356,14 +369,16 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.addToken(usde, IOracle(address(usdeOracle)));
         box.setIsAllocator(allocator, true);
         box.addFeeder(address(this));
-        
-        BorrowAave borrowAdapter = new BorrowAave();
+
         // Use e-mode 17 for borrowing stablecoins (allows both USDC and USDe)
-        uint8 eModeCategory = 17;
-        bytes memory borrowDataUSDC = borrowAdapter.aaveParamsToDataWithEMode(pool, address(usdc), address(ptSusde25Sep), 2, eModeCategory);
-        bytes memory borrowDataUSDe = borrowAdapter.aaveParamsToDataWithEMode(pool, address(usde), address(ptSusde25Sep), 2, eModeCategory);
-        box.addFunding(borrowAdapter, borrowDataUSDC);
-        box.addFunding(borrowAdapter, borrowDataUSDe);
+        uint8 eModeCategory = 17;        
+        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
+        bytes memory facilityData = "";
+        box.addFunding(fundingModule);
+        box.addFundingFacility(fundingModule, facilityData);
+        box.addFundingCollateral(fundingModule, ptSusde25Sep);
+        box.addFundingDebt(fundingModule, usdc);
+        box.addFundingDebt(fundingModule, usde);
         vm.stopPrank();
         
         // Supply 2000 PT tokens total (1000 for each step)
@@ -381,28 +396,28 @@ contract BoxLeverageAaveMainnetTest is Test {
         console2.log("NAV before operations:", navBefore / 1e6, "USDC");
         
         // Step 1: Supply collateral and borrow USDC at 60% LTV
-        box.supplyCollateral(borrowAdapter, borrowDataUSDC, ptAmount);
+        box.deposit(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         console2.log("Step 1: Supplied", ptAmount / 1e18, "PT-sUSDe");
         
-        (uint256 collateralValue1, , , , , ) = pool.getUserAccountData(address(box));
+        (uint256 collateralValue1, , , , , ) = pool.getUserAccountData(address(fundingModule));
         uint256 usdcBorrowAmount = (collateralValue1 * 60) / 100 / 100;
-        box.borrow(borrowAdapter, borrowDataUSDC, usdcBorrowAmount);
+        box.borrow(fundingModule, facilityData, usdc, usdcBorrowAmount);
         console2.log("Step 1: Borrowed", usdcBorrowAmount / 1e6, "USDC at 60% LTV");
         
         // Step 2: Supply more collateral and borrow USDe at 80% LTV
-        (uint256 collateralAfterUSDC, , , , , ) = pool.getUserAccountData(address(box));
-        box.supplyCollateral(borrowAdapter, borrowDataUSDe, ptAmount);
+        (uint256 collateralAfterUSDC, , , , , ) = pool.getUserAccountData(address(fundingModule));
+        box.deposit(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         console2.log("Step 2: Supplied", ptAmount / 1e18, "more PT-sUSDe");
-        
-        (uint256 collateralValue2, , , , , ) = pool.getUserAccountData(address(box));
+
+        (uint256 collateralValue2, , , , , ) = pool.getUserAccountData(address(fundingModule));
         uint256 newCollateralValue = collateralValue2 - collateralAfterUSDC;
         
         uint256 usdeBorrowAmount = (newCollateralValue * 80) / 100 * 1e10;
-        box.borrow(borrowAdapter, borrowDataUSDe, usdeBorrowAmount);
+        box.borrow(fundingModule, facilityData, usde, usdeBorrowAmount);
         console2.log("Step 2: Borrowed", usdeBorrowAmount / 1e18, "USDe at 80% LTV");
         
         // Verify combined position
-        uint256 finalLTV = borrowAdapter.ltv(borrowDataUSDC, address(box));
+        uint256 finalLTV = fundingModule.ltv(facilityData);
         uint256 navAfter = box.totalAssets();
         console2.log("NAV after operations:", navAfter / 1e6, "USDC");
         console2.log("Combined LTV:", finalLTV * 100 / 1e18, "% (expected ~70%)");
@@ -415,9 +430,9 @@ contract BoxLeverageAaveMainnetTest is Test {
         deal(address(usdc), address(box), usdc.balanceOf(address(box)) + usdcBorrowAmount + 100e6);
         deal(address(usde), address(box), usde.balanceOf(address(box)) + usdeBorrowAmount + 100e18);
         vm.startPrank(allocator);
-        box.repay(borrowAdapter, borrowDataUSDC, type(uint256).max);
-        box.repay(borrowAdapter, borrowDataUSDe, type(uint256).max);
-        box.withdrawCollateral(borrowAdapter, borrowDataUSDC, ptAmount * 2);
+        box.repay(fundingModule, facilityData, usdc, type(uint256).max);
+        box.repay(fundingModule, facilityData, usde, type(uint256).max);
+        box.withdraw(fundingModule, facilityData, ptSusde25Sep, ptAmount * 2);
         vm.stopPrank();
-    }*/
+    }
 }
