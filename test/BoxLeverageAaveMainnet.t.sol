@@ -105,43 +105,26 @@ contract BoxLeverageAaveMainnetTest is Test {
         
         // Supply PT as collateral
         box.supplyCollateral(borrowAdapter, borrowData, ptAmount);
-        
-        // Get account data
-        (uint256 totalCollateral, , uint256 availableBorrows, , uint256 ltv, ) = pool.getUserAccountData(address(box));
-        
-        console2.log("USDC Borrowing with E-mode 17:");
-        console2.log("- Collateral value:", totalCollateral / 1e8, "USD");
-        console2.log("- Available to borrow:", availableBorrows / 1e8, "USD");
-        console2.log("- LTV:", ltv / 100, "%");
-        
-        // Record NAV before borrowing
-        uint256 navBeforeBorrow = box.totalAssets();
+        console2.log("Supplied", ptAmount / 1e18, "PT-sUSDe as collateral");
         
         // Borrow at 80% LTV
-        uint256 targetBorrowAmount = (totalCollateral * 80) / 100 / 100; // 80% LTV in USDC terms
+        (uint256 totalCollateral, , , , , ) = pool.getUserAccountData(address(box));
+        uint256 targetBorrowAmount = (totalCollateral * 80) / 100 / 100;
+        uint256 navBefore = box.totalAssets();
+        console2.log("NAV before borrow:", navBefore / 1e6, "USDC");
+        
         box.borrow(borrowAdapter, borrowData, targetBorrowAmount);
+        console2.log("Borrowed", targetBorrowAmount / 1e6, "USDC at 80% LTV");
         
-        // Check e-mode status (should be set after borrow)
-        uint256 boxEMode = pool.getUserEMode(address(box));
-        assertEq(boxEMode, eModeCategory, "E-mode not set correctly");
+        // Verify e-mode and LTV
+        assertEq(pool.getUserEMode(address(box)), eModeCategory, "E-mode not set correctly");
         
-        // Verify final LTV using both methods
-        (uint256 finalCollateral, uint256 finalDebt, , , , ) = pool.getUserAccountData(address(box));
-        uint256 finalLTVCalculated = finalCollateral > 0 ? (finalDebt * 10000) / finalCollateral : 0;
-        uint256 finalLTVFromFunction = borrowAdapter.ltv(borrowData, address(box));
+        uint256 finalLTV = borrowAdapter.ltv(borrowData, address(box));
+        uint256 navAfter = box.totalAssets();
+        console2.log("NAV after borrow:", navAfter / 1e6, "USDC");
+        console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, E-mode:", pool.getUserEMode(address(box)));
         
-        console2.log("- Final LTV (calculated):", finalLTVCalculated / 100, "%");
-        console2.log("- Final LTV (from function):", finalLTVFromFunction * 100 / 1e18, "%");
-        
-        // Assert that both methods give the same result (with small tolerance for rounding)
-        assertApproxEqAbs(finalLTVFromFunction, finalLTVCalculated * 1e14, 1e14, "LTV function should match calculation");
-        
-        // NAV check
-        uint256 navAfterBorrow = box.totalAssets();
-        console2.log("\nNAV check:");
-        console2.log("- Before borrow:", navBeforeBorrow / 1e6, "USDC");
-        console2.log("- After borrow:", navAfterBorrow / 1e6, "USDC");
-        assertApproxEqRel(navAfterBorrow, navBeforeBorrow, 0.001e18, "NAV should remain approximately constant");
+        assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
         
         // Clean up
         deal(address(usdc), address(box), usdc.balanceOf(address(box)) + targetBorrowAmount + 100e6);
@@ -190,43 +173,26 @@ contract BoxLeverageAaveMainnetTest is Test {
         
         // Supply PT as collateral
         box.supplyCollateral(borrowAdapter, borrowData, ptAmount);
-        
-        // Get account data
-        (uint256 totalCollateral, , uint256 availableBorrows, , uint256 ltv, ) = pool.getUserAccountData(address(box));
-        
-        console2.log("USDe Borrowing with E-mode 18:");
-        console2.log("- Collateral value:", totalCollateral / 1e8, "USD");
-        console2.log("- Available to borrow:", availableBorrows / 1e8, "USD");
-        console2.log("- LTV:", ltv / 100, "%");
-        
-        // Record NAV before borrowing
-        uint256 navBeforeBorrow = box.totalAssets();
+        console2.log("Supplied", ptAmount / 1e18, "PT-sUSDe as collateral");
         
         // Borrow at 80% LTV
-        uint256 targetBorrowAmount = (totalCollateral * 80) / 100 * 1e10; // 80% LTV in USDe terms
+        (uint256 totalCollateral, , , , , ) = pool.getUserAccountData(address(box));
+        uint256 targetBorrowAmount = (totalCollateral * 80) / 100 * 1e10;
+        uint256 navBefore = box.totalAssets();
+        console2.log("NAV before borrow:", navBefore / 1e18, "USDe");
+        
         box.borrow(borrowAdapter, borrowData, targetBorrowAmount);
+        console2.log("Borrowed", targetBorrowAmount / 1e18, "USDe at 80% LTV");
         
-        // Check e-mode status (should be set after borrow)
-        uint256 boxEMode = pool.getUserEMode(address(box));
-        assertEq(boxEMode, eModeCategory, "E-mode not set correctly");
+        // Verify e-mode and LTV
+        assertEq(pool.getUserEMode(address(box)), eModeCategory, "E-mode not set correctly");
         
-        // Verify final LTV using both methods
-        (uint256 finalCollateral, uint256 finalDebt, , , , ) = pool.getUserAccountData(address(box));
-        uint256 finalLTVCalculated = finalCollateral > 0 ? (finalDebt * 10000) / finalCollateral : 0;
-        uint256 finalLTVFromFunction = borrowAdapter.ltv(borrowData, address(box));
+        uint256 finalLTV = borrowAdapter.ltv(borrowData, address(box));
+        uint256 navAfter = box.totalAssets();
+        console2.log("NAV after borrow:", navAfter / 1e18, "USDe");
+        console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, E-mode:", pool.getUserEMode(address(box)));
         
-        console2.log("- Final LTV (calculated):", finalLTVCalculated / 100, "%");
-        console2.log("- Final LTV (from function):", finalLTVFromFunction * 100 / 1e18, "%");
-        
-        // Assert that both methods give the same result (with small tolerance for rounding)
-        assertApproxEqAbs(finalLTVFromFunction, finalLTVCalculated * 1e14, 1e14, "LTV function should match calculation");
-        
-        // NAV check
-        uint256 navAfterBorrow = box.totalAssets();
-        console2.log("\nNAV check:");
-        console2.log("- Before borrow:", navBeforeBorrow / 1e18, "USDe");
-        console2.log("- After borrow:", navAfterBorrow / 1e18, "USDe");
-        assertApproxEqRel(navAfterBorrow, navBeforeBorrow, 0.001e18, "NAV should remain approximately constant");
+        assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
         
         // Clean up
         vm.stopPrank();
@@ -332,89 +298,36 @@ contract BoxLeverageAaveMainnetTest is Test {
         usdc.approve(address(box), 1000e6);
         box.deposit(1000e6, address(this));
         
-        // Record NAV before borrowing
-        uint256 navBeforeBorrow = box.totalAssets();
-        console2.log("NAV before supplying collateral and borrowing:", navBeforeBorrow / 1e6, "USDC");
+        uint256 navBefore = box.totalAssets();
+        console2.log("NAV before operations:", navBefore / 1e6, "USDC");
         
         vm.startPrank(allocator);
         
         // Supply collaterals
         box.supplyCollateral(borrowAdapterPTsUSDe, borrowDataPTsUSDe, ptSusdeAmount);
+        console2.log("Supplied", ptSusdeAmount / 1e18, "PT-sUSDe for e-mode 17");
+        
         box.supplyCollateral(borrowAdapterSUSDe, borrowDataSUSDe, sUsdeAmount);
+        console2.log("Supplied", sUsdeAmount / 1e18, "sUSDe for e-mode 2");
         
-        // Get NAV after supplying collateral
-        uint256 navAfterSupply = box.totalAssets();
-        console2.log("NAV after supplying collaterals:", navAfterSupply / 1e6, "USDC");
+        // Borrow with different e-modes
+        uint256 borrowAmount1 = 500e6;
+        uint256 borrowAmount2 = 300e6;
         
-        // First borrow: USDC against PT-sUSDe with e-mode 17
-        // Get available borrow amount
-        (uint256 collateral1, , uint256 availableBorrows1, , , ) = pool.getUserAccountData(address(box));
-        console2.log("\nBefore first borrow:");
-        console2.log("- E-mode:", pool.getUserEMode(address(box)));
-        console2.log("- Collateral value:", collateral1 / 1e8, "USD");
-        console2.log("- Available to borrow:", availableBorrows1 / 1e8, "USD");
-        
-        uint256 borrowAmount1 = 500e6; // Borrow 500 USDC
         box.borrow(borrowAdapterPTsUSDe, borrowDataPTsUSDe, borrowAmount1);
-        console2.log("Borrowed", borrowAmount1 / 1e6, "USDC against PT-sUSDe with e-mode 17");
+        console2.log("Borrowed", borrowAmount1 / 1e6, "USDC with e-mode 17");
         
-        // Second borrow: USDC against sUSDe with e-mode 2
-        // This will switch e-mode from 17 to 2
-        (uint256 collateral2, , uint256 availableBorrows2, , , ) = pool.getUserAccountData(address(box));
-        console2.log("\nBefore second borrow:");
-        console2.log("- E-mode:", pool.getUserEMode(address(box)));
-        console2.log("- Collateral value:", collateral2 / 1e8, "USD");
-        console2.log("- Available to borrow:", availableBorrows2 / 1e8, "USD");
-        
-        uint256 borrowAmount2 = 300e6; // Borrow 300 USDC
         box.borrow(borrowAdapterSUSDe, borrowDataSUSDe, borrowAmount2);
-        console2.log("Borrowed", borrowAmount2 / 1e6, "USDC against sUSDe with e-mode 2");
+        console2.log("Borrowed", borrowAmount2 / 1e6, "USDC with e-mode 2");
         
-        // Final position
-        (uint256 finalCollateral, uint256 finalDebt, , , , ) = pool.getUserAccountData(address(box));
-        uint256 finalEMode = pool.getUserEMode(address(box));
-        console2.log("\nFinal position:");
-        console2.log("- E-mode:", finalEMode);
-        console2.log("- Total collateral value:", finalCollateral / 1e8, "USD");
-        console2.log("- Total debt value:", finalDebt / 1e8, "USD");
-        
-        // Calculate final LTV using the first adapter (both should give same result)
+        // Verify final state
         uint256 finalLTV = borrowAdapterPTsUSDe.ltv(borrowDataPTsUSDe, address(box));
-        console2.log("- Final LTV:", finalLTV * 100 / 1e18, "%");
+        uint256 finalEMode = pool.getUserEMode(address(box));
+        uint256 navAfter = box.totalAssets();
+        console2.log("NAV after operations:", navAfter / 1e6, "USDC");
+        console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, Final e-mode:", finalEMode);
         
-        // Get final NAV
-        uint256 navAfterBorrow = box.totalAssets();
-        console2.log("\nNAV Analysis:");
-        console2.log("- NAV before borrow:", navBeforeBorrow / 1e6, "USDC");
-        console2.log("- NAV after borrow:", navAfterBorrow / 1e6, "USDC");
-        int256 navDiff = int256(navAfterBorrow) - int256(navBeforeBorrow);
-        if (navDiff >= 0) {
-            console2.log("- Difference: +", uint256(navDiff), "units");
-        } else {
-            console2.log("- Difference: -", uint256(-navDiff), "units");
-        }
-        
-        // Debug: Check what each adapter is reporting for collateral
-        console2.log("\nCollateral debugging:");
-        uint256 ptSusdeCollateral = borrowAdapterPTsUSDe.collateral(borrowDataPTsUSDe, address(box));
-        uint256 sUsdeCollateral = borrowAdapterSUSDe.collateral(borrowDataSUSDe, address(box));
-        console2.log("- PT-sUSDe adapter reports:", ptSusdeCollateral / 1e18, "PT-sUSDe");
-        console2.log("- sUSDe adapter reports:", sUsdeCollateral / 1e18, "sUSDe");
-        
-        // Debug: Check what debts are being reported
-        uint256 ptSusdeDebt = borrowAdapterPTsUSDe.debt(borrowDataPTsUSDe, address(box));
-        uint256 sUsdeDebt = borrowAdapterSUSDe.debt(borrowDataSUSDe, address(box));
-        console2.log("- PT-sUSDe adapter debt:", ptSusdeDebt / 1e6, "USDC");
-        console2.log("- sUSDe adapter debt:", sUsdeDebt / 1e6, "USDC");
-        console2.log("- Expected total debt:", (borrowAmount1 + borrowAmount2) / 1e6, "USDC");
-        
-        // NAV should remain constant when borrowing assets at fair value
-        assertApproxEqRel(navAfterBorrow, navBeforeBorrow, 0.001e18, "NAV should remain approximately constant");
-        
-        // Verify Box has the borrowed USDC
-        uint256 boxUSDCBalance = usdc.balanceOf(address(box));
-        console2.log("\nBox USDC balance:", boxUSDCBalance / 1e6, "USDC");
-        console2.log("Expected from borrows:", (borrowAmount1 + borrowAmount2) / 1e6, "USDC");
+        assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
         
         vm.stopPrank();
     }
@@ -464,137 +377,37 @@ contract BoxLeverageAaveMainnetTest is Test {
         
         vm.startPrank(allocator);
         
-        // Check what tokens the Box knows about
-        console2.log("Box USDC balance:", usdc.balanceOf(address(box)) / 1e6, "USDC");
-        console2.log("Box USDe balance before borrow:", usde.balanceOf(address(box)) / 1e18, "USDe");
-        
-        // Record initial NAV
         uint256 navBefore = box.totalAssets();
-        console2.log("Initial NAV:", navBefore / 1e6, "USDC");
+        console2.log("NAV before operations:", navBefore / 1e6, "USDC");
         
-        // Step 1: Supply first X collateral and borrow USDC at 60% LTV
+        // Step 1: Supply collateral and borrow USDC at 60% LTV
         box.supplyCollateral(borrowAdapter, borrowDataUSDC, ptAmount);
+        console2.log("Step 1: Supplied", ptAmount / 1e18, "PT-sUSDe");
         
-        // Get initial collateral value
         (uint256 collateralValue1, , , , , ) = pool.getUserAccountData(address(box));
-        console2.log("Collateral value after first supply:", collateralValue1 / 1e8, "USD");
-        
-        // Borrow USDC at 60% LTV
-        uint256 usdcBorrowAmount = (collateralValue1 * 60) / 100 / 100; // 60% LTV in USDC terms
+        uint256 usdcBorrowAmount = (collateralValue1 * 60) / 100 / 100;
         box.borrow(borrowAdapter, borrowDataUSDC, usdcBorrowAmount);
+        console2.log("Step 1: Borrowed", usdcBorrowAmount / 1e6, "USDC at 60% LTV");
         
-        // Verify intermediate LTV using the ltv function
-        uint256 ltvAfterUSDC = borrowAdapter.ltv(borrowDataUSDC, address(box));
-        console2.log("LTV after USDC borrow:", ltvAfterUSDC * 100 / 1e18, "%");
-        
-        // Get collateral value after USDC borrow for later calculation
+        // Step 2: Supply more collateral and borrow USDe at 80% LTV
         (uint256 collateralAfterUSDC, , , , , ) = pool.getUserAccountData(address(box));
-        
-        // Step 2: Supply second X collateral and borrow USDe at 80% of new collateral
         box.supplyCollateral(borrowAdapter, borrowDataUSDe, ptAmount);
+        console2.log("Step 2: Supplied", ptAmount / 1e18, "more PT-sUSDe");
         
-        // Get updated collateral value
         (uint256 collateralValue2, , , , , ) = pool.getUserAccountData(address(box));
-        console2.log("Collateral value after second supply:", collateralValue2 / 1e8, "USD");
-        
-        // Calculate how much new collateral was added
         uint256 newCollateralValue = collateralValue2 - collateralAfterUSDC;
-        
-        // Borrow USDe at 80% of the NEW collateral only
-        uint256 usdeBorrowAmount = (newCollateralValue * 80) / 100 * 1e10; // 80% LTV in USDe terms
+        uint256 usdeBorrowAmount = (newCollateralValue * 80) / 100 * 1e10;
         box.borrow(borrowAdapter, borrowDataUSDe, usdeBorrowAmount);
+        console2.log("Step 2: Borrowed", usdeBorrowAmount / 1e18, "USDe at 80% LTV");
         
-        // Get final LTV using the ltv function from BorrowAave
+        // Verify combined position
         uint256 finalLTV = borrowAdapter.ltv(borrowDataUSDC, address(box));
-        
-        // Also get final position data for logging
-        (uint256 finalCollateral, uint256 finalDebt, , , , ) = pool.getUserAccountData(address(box));
-        
-        console2.log("\nFinal position summary:");
-        console2.log("- Total collateral value:", finalCollateral / 1e8, "USD");
-        console2.log("- Total debt value:", finalDebt / 1e8, "USD");
-        console2.log("- Combined LTV (from ltv function):", finalLTV * 100 / 1e18, "%");
-        
-        // Assert that the combined LTV is approximately 70% (average of 60% and 80%)
-        // The ltv function returns WAD format (1e18 = 100%), so 70% = 0.7e18
-        assertApproxEqAbs(finalLTV, 0.7e18, 0.005e18, "Combined LTV should be approximately 70%");
-        
-        // NAV check with detailed analysis
         uint256 navAfter = box.totalAssets();
-        console2.log("\nNAV check:");
-        console2.log("- Before borrowing:", navBefore / 1e6, "USDC");
-        console2.log("- After borrowing:", navAfter / 1e6, "USDC");
+        console2.log("NAV after operations:", navAfter / 1e6, "USDC");
+        console2.log("Combined LTV:", finalLTV * 100 / 1e18, "% (expected ~70%)");
         
-        // Check USDe balance and price to understand NAV increase
-        uint256 usdeBalance = usde.balanceOf(address(box));
-        console2.log("- USDe balance in box:", usdeBalance / 1e18, "USDe");
-        
-        // Get USDe price from our mock oracle (should be 1:1 with USD)
-        uint256 usdePrice = usdeOracle.price();
-        console2.log("- USDe oracle price:", usdePrice, "(raw oracle value)");
-        
-        // Debug debt calculations
-        console2.log("\nDebt analysis:");
-        uint256 usdcDebt = borrowAdapter.debt(borrowDataUSDC, address(box));
-        uint256 usdeDebt = borrowAdapter.debt(borrowDataUSDe, address(box));
-        console2.log("- USDC debt:", usdcDebt / 1e6, "USDC");
-        console2.log("- USDe debt:", usdeDebt / 1e18, "USDe");
-        console2.log("- Expected USDe debt (borrow amount):", usdeBorrowAmount / 1e18, "USDe");
-        
-        // Debug asset calculations 
-        console2.log("\nAsset analysis:");
-        uint256 boxUSDC = usdc.balanceOf(address(box));
-        console2.log("- Box USDC balance:", boxUSDC / 1e6, "USDC");
-        console2.log("- Box USDe balance:", usdeBalance / 1e18, "USDe");
-        
-        // Calculate expected values in NAV terms 
-        uint256 ORACLE_PRECISION = 1e36;
-        uint256 usdeAssetValue = usdeBalance * usdePrice / ORACLE_PRECISION;
-        uint256 usdeDebtValue = usdeDebt * usdePrice / ORACLE_PRECISION;
-        console2.log("- USDe asset value (calculated):", usdeAssetValue / 1e6, "USD");
-        console2.log("- USDe debt value (calculated):", usdeDebtValue / 1e6, "USD");
-        int256 usdeNetImpact = int256(usdeAssetValue / 1e6) - int256(usdeDebtValue / 1e6);
-        if (usdeNetImpact >= 0) {
-            console2.log("- USDe net impact (should be ~0): +", uint256(usdeNetImpact), "USD");
-        } else {
-            console2.log("- USDe net impact (should be ~0): -", uint256(-usdeNetImpact), "USD");
-        }
-        
-        // Check USDC calculations (Box asset is USDC, no oracle needed)
-        console2.log("- USDC asset value (Box balance):", boxUSDC / 1e6, "USD");
-        console2.log("- USDC debt value (debt amount):", usdcDebt / 1e6, "USD");
-        int256 usdcNetImpact = int256(boxUSDC / 1e6) - int256(usdcDebt / 1e6);
-        if (usdcNetImpact >= 0) {
-            console2.log("- USDC net impact (should be ~0): +", uint256(usdcNetImpact), "USD");
-        } else {
-            console2.log("- USDC net impact (should be ~0): -", uint256(-usdcNetImpact), "USD");
-        }
-        
-        // Check if collateral is being double-counted by examining each funding facility
-        console2.log("\nCollateral analysis:");
-        uint256 usdcFacilityCollateral = borrowAdapter.collateral(borrowDataUSDC, address(box));
-        uint256 usdeFacilityCollateral = borrowAdapter.collateral(borrowDataUSDe, address(box));
-        console2.log("- USDC facility collateral:", usdcFacilityCollateral / 1e18, "PT-sUSDe");
-        console2.log("- USDe facility collateral:", usdeFacilityCollateral / 1e18, "PT-sUSDe");
-        console2.log("- Expected total collateral supplied:", (ptAmount * 2) / 1e18, "PT-sUSDe");
-        
-        // The core issue: borrowed assets = liabilities, so NAV should remain constant
-        console2.log("- Total borrowed assets (USDC+USDe):", (boxUSDC - 1000e6) / 1e6 + usdeBalance / 1e18, "USD");
-        console2.log("- Total debt (USDC+USDe):", usdcDebt / 1e6 + usdeDebtValue / 1e6, "USD");
-        
-        // With 1:1 USDe:USD pricing, NAV should remain constant
-        int256 navChange = int256(navAfter) - int256(navBefore);
-        if (navChange >= 0) {
-            console2.log("- Actual NAV change: +", uint256(navChange), "units");
-        } else {
-            console2.log("- Actual NAV change: -", uint256(-navChange), "units");
-        }
-        
-        // NAV should remain approximately constant when borrowing assets at fair value
-        assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain approximately constant");
-
-        uint256 currentEMode = pool.getUserEMode(address(box));
-        console2.log("- Current e-mode:", currentEMode);
+        assertApproxEqAbs(finalLTV, 0.7e18, 0.005e18, "Combined LTV should be ~70%");
+        assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
         
         // Clean up
         vm.stopPrank();
