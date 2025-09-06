@@ -14,7 +14,7 @@ import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
 import {IBorrow} from "../src/interfaces/IBorrow.sol";
 import {BorrowAave, IPool} from "../src/BorrowAave.sol";
 import {BorrowMorpho} from "../src/BorrowMorpho.sol";
-import {IMorpho, MarketParams} from "@morpho-blue/interfaces/IMorpho.sol";
+import {IMorpho, MarketParams, Id} from "@morpho-blue/interfaces/IMorpho.sol";
 import {IBox, LoanFacility} from "../src/interfaces/IBox.sol";
 
 /// @notice Minimal Aave v3 Addresses Provider to obtain the Pool
@@ -92,11 +92,9 @@ contract BoxLeverageMainnetTest is Test {
         );
         box.addFunding(aaveAdapter, aaveData);
         
-        // Setup Morpho adapter - need to get market params from market ID
+        // Setup Morpho adapter - get market params directly from Morpho
         BorrowMorpho morphoAdapter = new BorrowMorpho();
-        
-        // Get market params from the market ID
-        MarketParams memory marketParams = _getMarketParamsFromId(MORPHO_MARKET_ID);
+        MarketParams memory marketParams = morpho.idToMarketParams(Id.wrap(MORPHO_MARKET_ID));
         bytes memory morphoData = morphoAdapter.morphoMarketToData(morpho, marketParams);
         box.addFunding(morphoAdapter, morphoData);
         
@@ -117,46 +115,51 @@ contract BoxLeverageMainnetTest is Test {
         vm.startPrank(allocator);
         
         // Supply 1000 PT to Aave
-        uint256 aaveCollateral = 1000 ether;
-        box.supplyCollateral(aaveAdapter, aaveData, aaveCollateral);
-        console2.log("Supplied", aaveCollateral / 1e18, "PT-sUSDe to Aave");
+        uint256 aaveCollateralSupply = 1000 ether;
+        box.supplyCollateral(aaveAdapter, aaveData, aaveCollateralSupply);
+        console2.log("Supplied", aaveCollateralSupply / 1e18, "PT-sUSDe to Aave");
         
         // Supply 1000 PT to Morpho
-        uint256 morphoCollateral = 1000 ether;
-        box.supplyCollateral(morphoAdapter, morphoData, morphoCollateral);
-        console2.log("Supplied", morphoCollateral / 1e18, "PT-sUSDe to Morpho");
+        uint256 morphoCollateralSupply = 1000 ether;
+        box.supplyCollateral(morphoAdapter, morphoData, morphoCollateralSupply);
+        console2.log("Supplied", morphoCollateralSupply / 1e18, "PT-sUSDe to Morpho");
         
-        // Borrow from Aave at 70% LTV
-        (uint256 aaveCollateralValue, , , , , ) = aavePool.getUserAccountData(address(box));
-        uint256 aaveBorrowAmount = (aaveCollateralValue * 70) / 100 / 100; // 70% LTV in USDC terms
+        // Check Aave collateral and borrow amount
+        uint256 aaveCollateralBalance = aaveAdapter.collateral(aaveData, address(box));
+        console2.log("Aave collateral balance:", aaveCollateralBalance / 1e18, "PT-sUSDe");
+        
+        // Borrow 500 USDC from Aave
+        uint256 aaveBorrowAmount = 500e6;
         box.borrow(aaveAdapter, aaveData, aaveBorrowAmount);
-        console2.log("Borrowed", aaveBorrowAmount / 1e6, "USDC from Aave at 70% LTV");
+        uint256 aaveLTVAfterBorrow = aaveAdapter.ltv(aaveData, address(box));
+        console2.log("Borrowed", aaveBorrowAmount / 1e6, "USDC from Aave");
+        console2.log("Aave LTV after borrow:", aaveLTVAfterBorrow * 100 / 1e18, "%");
         
-        // Borrow from Morpho at 60% LTV
-        uint256 morphoCollateralAmount = morphoAdapter.collateral(morphoData, address(box));
-        // Estimate collateral value (assuming PT-sUSDe ≈ 1 USD)
-        uint256 morphoBorrowAmount = (morphoCollateralAmount * 60) / 100; // 60% LTV
-        // Convert to USDC decimals (6 decimals vs 18)
-        morphoBorrowAmount = morphoBorrowAmount / 1e12;
+        // Check Morpho collateral and borrow amount
+        uint256 morphoCollateralBalance = morphoAdapter.collateral(morphoData, address(box));
+        console2.log("Morpho collateral balance:", morphoCollateralBalance / 1e18, "PT-sUSDe");
+        
+        // Borrow 600 USDC from Morpho
+        uint256 morphoBorrowAmount = 600e6;
         box.borrow(morphoAdapter, morphoData, morphoBorrowAmount);
-        console2.log("Borrowed", morphoBorrowAmount / 1e6, "USDC from Morpho at ~60% LTV");
+        uint256 morphoLTVAfterBorrow = morphoAdapter.ltv(morphoData, address(box));
+        console2.log("Borrowed", morphoBorrowAmount / 1e6, "USDC from Morpho");
+        console2.log("Morpho LTV after borrow:", morphoLTVAfterBorrow * 100 / 1e18, "%");
         
-        // Verify final state
-        uint256 aaveLTV = aaveAdapter.ltv(aaveData, address(box));
-        uint256 morphoLTV = morphoAdapter.ltv(morphoData, address(box));
+        // Verify final state (LTV already calculated above)
         uint256 navAfter = box.totalAssets();
         
         console2.log("NAV after operations:", navAfter / 1e6, "USDC");
-        console2.log("Aave LTV:", aaveLTV * 100 / 1e18, "%");
-        console2.log("Morpho LTV:", morphoLTV * 100 / 1e18, "%");
+        console2.log("Final Aave LTV:", aaveLTVAfterBorrow * 100 / 1e18, "%");
+        console2.log("Final Morpho LTV:", morphoLTVAfterBorrow * 100 / 1e18, "%");
         console2.log("Total borrowed:", (aaveBorrowAmount + morphoBorrowAmount) / 1e6, "USDC");
         
         // Verify NAV stability - borrowing assets at fair value should keep NAV constant
         assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain approximately constant");
         
         // Verify both protocols show reasonable LTVs
-        assertLt(aaveLTV, 0.8e18, "Aave LTV should be under 80%");
-        assertLt(morphoLTV, 0.8e18, "Morpho LTV should be under 80%");
+        assertLt(aaveLTVAfterBorrow, 0.8e18, "Aave LTV should be under 80%");
+        assertLt(morphoLTVAfterBorrow, 0.8e18, "Morpho LTV should be under 80%");
         
         // Verify we have the borrowed USDC
         uint256 totalExpected = 1000e6 + aaveBorrowAmount + morphoBorrowAmount;
@@ -166,19 +169,4 @@ contract BoxLeverageMainnetTest is Test {
         vm.stopPrank();
     }
     
-    /**
-     * @dev Get market parameters for the specified Morpho market ID
-     * Market parameters queried from Morpho Blue on mainnet
-     */
-    function _getMarketParamsFromId(bytes32 marketId) internal pure returns (MarketParams memory) {
-        // Market parameters for 0x3e37bd6e02277f15f93cd7534ce039e60d19d9298f4d1bc6a3a4f7bf64de0a1c
-        // Queried from Morpho: USDC/PT-sUSDe market with 91.5% LLTV
-        return MarketParams({
-            loanToken: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, // USDC
-            collateralToken: 0x9F56094C450763769BA0EA9Fe2876070c0fD5F77, // PT-sUSDe-25SEP2025
-            oracle: 0x5139aa359F7F7FdE869305e8C7AD001B28E1C99a, // PT-sUSDe Oracle
-            irm: 0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC, // Interest Rate Model
-            lltv: 915000000000000000 // 91.5% LLTV (9.15e17)
-        });
-    }
 }

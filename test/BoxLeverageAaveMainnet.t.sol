@@ -396,6 +396,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         
         (uint256 collateralValue2, , , , , ) = pool.getUserAccountData(address(box));
         uint256 newCollateralValue = collateralValue2 - collateralAfterUSDC;
+        
         uint256 usdeBorrowAmount = (newCollateralValue * 80) / 100 * 1e10;
         box.borrow(borrowAdapter, borrowDataUSDe, usdeBorrowAmount);
         console2.log("Step 2: Borrowed", usdeBorrowAmount / 1e18, "USDe at 80% LTV");
