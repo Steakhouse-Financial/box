@@ -6,23 +6,25 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ISwapper} from "./ISwapper.sol";
 import {IOracle} from "./IOracle.sol";
-import {IBorrow} from "./IBorrow.sol";
+import {IFunding} from "./IFunding.sol";
 
-
-struct LoanFacility {
-    IBorrow borrow;
-    bytes data;
-    IERC20 loanToken;
-    IERC20 collateralToken;
-}
 
 
 interface IBox is IERC4626 {
 
-    event FundingAdded(IBorrow indexed borrow, bytes indexed data, IERC20 indexed loanToken, IERC20 collateralToken, bytes32 fundingId);
+    event FundingModuleAdded(IFunding indexed fundingModule);
+    event FundingFacilityAdded(IFunding indexed fundingModule, bytes facilityData);
+    event FundingCollateralAdded(IFunding indexed fundingModule, IERC20 collateralToken);
+    event FundingDebtAdded(IFunding indexed fundingModule, IERC20 debtToken);
+
+    event FundingDeposit(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
+    event FundingWithdraw(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
+    event FundingBorrow(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 borrowAmount);
+    event FundingRepay(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 repayAmount);
 
     error FundingAlreadyExists();
     error FundingNotWhitelisted();
+    error FundingNNotClean();
     /* FUNCTIONS */
 
     // ========== STATE FUNCTIONS ==========
@@ -83,32 +85,39 @@ interface IBox is IERC4626 {
 
 
 
+    // ========== FUNDING ADMIN FUNCTIONS ==========
+    function addFunding(IFunding fundingModule) external;
+    function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external;
+    function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external;
+    function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external;
 
-
-    function fundingMap(bytes32 fundingId) external view returns (LoanFacility memory);
-    function fundings(uint256 index) external view returns (LoanFacility memory);
-
-    function supplyCollateral(IBorrow borrow, bytes calldata data, uint256 assets) external;
-    function withdrawCollateral(IBorrow borrow, bytes calldata data, uint256 assets) external;
-    function borrow(IBorrow borrow, bytes calldata data, uint256 assets) external;
-    function repay(IBorrow borrow, bytes calldata data, uint256 assets) external;
-
-    function addFunding(IBorrow borrow, bytes calldata data) external returns (bytes32 fundingId);
-
+    // ========== FUNDING VIEW FUNCTIONS ==========
+    function fundings(uint256 index) external view returns (IFunding);
     function fundingsLength() external view returns (uint256);
-    function fundingId(IBorrow borrow, bytes calldata data) external view returns (bytes32);
-    function wind(address flashloanProvider, IBorrow borrowAdapter, bytes calldata borrowData, 
+    function isFunding(IFunding fundingModule) external view returns (bool);
+
+    // ========== SIMPLE FUNDING OPERATIONS ==========
+    function deposit(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
+    function withdraw(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
+    function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external;
+    function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external;
+
+    // ========== COMPLEX FUNDING OPERATIONS WITH FLASHLOAN AND SWAPPER ==========
+    function wind(address flashloanProvider, IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateral, 
         IERC20 loanAsset, uint256 loanAmount) external;
 
-    function unwind(address flashloanProvider, IBorrow borrow, bytes calldata borrowData, 
+    function unwind(address flashloanProvider, IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateral, uint256 collateralAmount, IERC20 loanAsset, uint256 loanAmount) external;
 
     function shift(address flashloanProvider, 
-        IBorrow fromBorrowAdapter, bytes calldata fromBorrowData, 
-        IBorrow toBorrowAdapter, bytes calldata toBorrowData,
+        IFunding fromFundingModule, bytes calldata fromFacilityData, 
+        IFunding toFundingModule, bytes calldata toFacilityData,
         IERC20 collateral, uint256 collateralAmount, 
         IERC20 loanAsset, uint256 loanAmount) external;
+
+
+
 }

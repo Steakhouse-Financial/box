@@ -22,7 +22,7 @@ import {MorphoMarketV1Adapter} from "@vault-v2/src/adapters/MorphoMarketV1Adapte
 import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
-import {BorrowMorpho} from "../src/BorrowMorpho.sol";
+import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
 import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
 import {BoxAdapterCachedFactory} from "../src/BoxAdapterCachedFactory.sol";
@@ -43,7 +43,6 @@ contract DeployBaseScript is Script {
     BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x808F9fcf09921a21aa5Cd71D87BE50c0F05A5203);
     BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x09EA5EafbA623D9012124E05068ab884008f32BD);
 
-    BorrowMorpho borrowMorpho = BorrowMorpho(0x6d5178D8565134A78e1B861996fe7a28CB9bCc4C);
 
     address owner = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address curator = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
@@ -122,13 +121,6 @@ contract DeployBaseScript is Script {
         return vaultV2Factory_;
     }
 
-    function deployBorrowMorpho() public returns (BorrowMorpho) {
-        vm.startBroadcast();
-        BorrowMorpho borrowMorpho_ = new BorrowMorpho();
-        console.log("BorrowMorpho deployed at:", address(borrowMorpho_));
-        vm.stopBroadcast();
-        return borrowMorpho_;
-    }
 
     function deployOperationsLib() public {
         vm.startBroadcast();        
@@ -244,7 +236,7 @@ contract DeployBaseScript is Script {
         // Allow box 2 to invest in PT-USR-25SEP
         box2.addCollateral(ptusr25sep, ptusr25sepOracle);
 
-
+        FundingMorpho fundingMorpho = new FundingMorpho(address(box2), address(morpho));
         MarketParamsBlue memory fundingMarketParams = MarketParamsBlue({
             loanToken: address(usdc),
             collateralToken: address(ptusr25sep),
@@ -252,8 +244,11 @@ contract DeployBaseScript is Script {
             irm: 0x46415998764C29aB2a25CbeA6254146D50D22687,
             lltv: 915000000000000000
         });
-        bytes memory fundingData = borrowMorpho.morphoMarketToData(IMorphoBlue(address(morpho)), fundingMarketParams);
-        box2.addFunding(borrowMorpho, fundingData);
+        bytes memory facilityData = fundingMorpho.encodeFacilityData(fundingMarketParams);
+        box2.addFunding(fundingMorpho);
+        box2.addFundingFacility(fundingMorpho, facilityData);
+        box2.addFundingCollateral(fundingMorpho, ptusr25sep);
+        box2.addFundingDebt(fundingMorpho, usdc);
 
         box2.setIsAllocator(address(allocator1), true);
         box2.setIsAllocator(address(allocator2), true);

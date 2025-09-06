@@ -8,13 +8,13 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IBox, LoanFacility} from "./interfaces/IBox.sol";
+import {IBox} from "./interfaces/IBox.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ISwapper} from "./interfaces/ISwapper.sol";
 import "./lib/Constants.sol";
 import {ErrorsLib} from "./lib/ErrorsLib.sol";
 import {EventsLib} from "./lib/EventsLib.sol";
-import {IBorrow} from "./interfaces/IBorrow.sol";
+import {IFunding} from "./interfaces/IFunding.sol";
 import {OperationsLib} from "./lib/OperationsLib.sol";
 
 /**
@@ -72,9 +72,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     mapping(bytes4 => uint256) public timelock;
     mapping(bytes => uint256) public executableAt;
     
-
-    LoanFacility[] internal _fundings;
-    mapping(bytes32 => LoanFacility) internal _fundingMap;
+    // Funding modules
+    IFunding[] public fundings;
+    mapping(IFunding => bool) internal fundingMap;
 
     // ========== MODIFIERS ==========
         
@@ -774,40 +774,41 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             }
             unchecked { ++i; }
         }
-        // Process funding sources with deduplication
-        length = _fundings.length;
-        bytes32[] memory seenKeys = new bytes32[](length * 2); // collateral + debt keys
-        uint256 seenCount;
-        
+        // Loop over funding sources
+        length = fundings.length;
         for (uint256 i; i < length; i++) {
-            LoanFacility memory facility = _fundings[i];
-            
-            // Collateral
-            uint256 collateralBalance = facility.borrow.collateral(facility.data, address(this));
-            if (collateralBalance > 0) {
-                bytes32 key = facility.borrow.collateralPositionKey(facility.data);
-                if (!_contains(seenKeys, seenCount, key)) {
-                    seenKeys[seenCount++] = key;
-                    IOracle oracle = oracles[facility.collateralToken];
+            IFunding funding = fundings[i];
+            uint256 collateralLength = funding.collateralTokensLength();
+            for(uint256 c = 0; c <collateralLength; c++) {
+                IERC20 collateralToken = funding.collateralTokens(c);
+                uint256 collateralBalance = funding.collateralBalance(collateralToken);
+                if (collateralBalance == 0) {
+                    continue;
+                }
+                else if (address(collateralToken) == asset) {
+                    assets_ += collateralBalance;
+                }
+                else { // isTokenOrAsset
+                    IOracle oracle = oracles[collateralToken];
                     if (address(oracle) != address(0)) {
                         assets_ += collateralBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
-                    } else if (address(facility.collateralToken) == asset) {
-                        assets_ += collateralBalance;
                     }
                 }
             }
-
-            // Debt
-            uint256 debtBalance = facility.borrow.debt(facility.data, address(this));
-            if (debtBalance > 0) {
-                bytes32 key = facility.borrow.debtPositionKey(facility.data);
-                if (!_contains(seenKeys, seenCount, key)) {
-                    seenKeys[seenCount++] = key;
-                    IOracle oracle = oracles[facility.loanToken];
+            uint256 debtTokensLength = funding.debtTokensLength();
+            for(uint256 d = 0; d <debtTokensLength; d++) {
+                IERC20 debtToken = funding.debtTokens(d);
+                uint256 debtBalance = funding.debtBalance(debtToken);
+                if (debtBalance == 0) {
+                    continue;
+                }
+                else if (address(debtToken) == asset) {
+                    liabilities += debtBalance;
+                }
+                else { // isTokenOrAsset
+                    IOracle oracle = oracles[debtToken];
                     if (address(oracle) != address(0)) {
                         liabilities += debtBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
-                    } else if (address(facility.loanToken) == asset) {
-                        liabilities += debtBalance;
                     }
                 }
             }
@@ -826,24 +827,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
 
 
-
-    function fundings(uint256 index) external view override returns (LoanFacility memory) {
-        return _fundings[index];
-    }
-    function fundingMap(bytes32 fundingId) external view returns (LoanFacility memory) {
-        return _fundingMap[fundingId];
-    }
-
+    // ========== FUNDING VIEW FUNCTIONS ==========
     function fundingsLength() external view override returns (uint256) {
-        return _fundings.length;
+        return fundings.length;
     }
 
-    function fundingId(IBorrow borrowAdapter, bytes calldata data) public pure override returns (bytes32) {
-        return keccak256(abi.encodePacked(borrowAdapter, data));
-    }
-
-    function isFunding(IBorrow borrowAdapter, bytes calldata data) public view returns (bool) {
-        return _fundingMap[fundingId(borrowAdapter, data)].borrow == borrowAdapter;
+    function isFunding(IFunding fundingModule) public view returns (bool) {
+        return fundingMap[fundingModule];
     }
 
     function _delegateCall(
@@ -866,100 +856,115 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         }
     }
 
-
-    function addFunding(IBorrow borrow, bytes calldata data) external returns (bytes32 fundingId) {
+    /// @dev The fundingModule should be completely empty
+    function addFunding(IFunding fundingModule) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(!fundingMap[fundingModule], IBox.FundingAlreadyExists());
+        require(address(fundingModule) != address(0), ErrorsLib.InvalidAddress());
+        require(fundingModule.facilitiesLength() == 0, IBox.FundingNNotClean());
+        require(fundingModule.collateralTokensLength() == 0, IBox.FundingNNotClean());
+        require(fundingModule.debtTokensLength() == 0, IBox.FundingNNotClean());
 
-        fundingId = keccak256(abi.encodePacked(borrow, data));
-        require(address(_fundingMap[fundingId].borrow) == address(0), IBox.FundingAlreadyExists());
+        fundingMap[fundingModule] = true;
+        fundings.push(fundingModule);
 
-        IERC20 loanToken = IERC20(borrow.loanToken(data));
-        IERC20 collateralToken = IERC20(borrow.collateralToken(data));
+        emit IBox.FundingModuleAdded(fundingModule);
+    }
+    
+    function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
+        require(!fundingModule.isFacility(facilityData), IBox.FundingAlreadyExists());
 
-        // TODO: check that both are valid added tokens or the asset of the box
+        fundingModule.addFacility(facilityData);
 
-        //IOracle oracle = IOracle(borrow.morphoMarketToData(data).oracle);
-        //require(address(oracle) != address(0), NoOracleForToken());
-
-        _fundingMap[fundingId] = LoanFacility({
-            borrow: borrow,
-            data: data,
-            loanToken: loanToken,
-            collateralToken: collateralToken
-        });
-        _fundings.push(_fundingMap[fundingId]);
-
-        emit IBox.FundingAdded(borrow, data, loanToken, collateralToken, fundingId);
+        emit IBox.FundingFacilityAdded(fundingModule, facilityData);
     }
 
-    function repay(IBorrow borrowAdapter, bytes calldata data, uint256 assets) external {
+    function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
+        require(!fundingModule.isCollateralToken(collateralToken), IBox.FundingAlreadyExists());
+
+        fundingModule.addCollateralToken(collateralToken);
+
+        emit IBox.FundingCollateralAdded(fundingModule, collateralToken);
+    }
+
+    function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
+        require(!fundingModule.isDebtToken(debtToken), IBox.FundingAlreadyExists());
+
+        fundingModule.addDebtToken(debtToken);
+
+        emit IBox.FundingDebtAdded(fundingModule, debtToken);
+    }
+
+
+
+    function deposit(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(isFunding(borrowAdapter, data), IBox.FundingNotWhitelisted());
+        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
 
-        bytes memory callData = abi.encodeWithSelector(
-            IBorrow(borrowAdapter).repay.selector,
-            data,
-            assets
-        );
+        collateralToken.safeTransfer(address(fundingModule), collateralAmount);
+        fundingModule.deposit(facilityData, collateralToken, collateralAmount);
 
-        _delegateCall(address(borrowAdapter), callData);
+        emit IBox.FundingDeposit(fundingModule, facilityData, collateralToken, collateralAmount);
     }
 
-    function borrow(IBorrow borrowAdapter, bytes calldata data, uint256 assets) public {
+    function withdraw(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(isFunding(borrowAdapter, data), IBox.FundingNotWhitelisted());
+        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
 
-        bytes memory callData = abi.encodeWithSelector(
-            IBorrow(borrowAdapter).borrow.selector,
-            data,
-            assets
-        );
+        fundingModule.withdraw(facilityData, collateralToken, collateralAmount);
 
-        _delegateCall(address(borrowAdapter), callData);
+        emit IBox.FundingWithdraw(fundingModule, facilityData, collateralToken, collateralAmount);
     }
 
-    function supplyCollateral(IBorrow borrowAdapter, bytes calldata data, uint256 assets) public {
+    function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(isFunding(borrowAdapter, data), IBox.FundingNotWhitelisted());
+        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
 
-        bytes memory callData = abi.encodeWithSelector(
-            IBorrow(borrowAdapter).supplyCollateral.selector,
-            data,
-            assets
-        );
+        fundingModule.borrow(facilityData, debtToken, borrowAmount);
 
-        _delegateCall(address(borrowAdapter), callData);
+        emit IBox.FundingBorrow(fundingModule, facilityData, debtToken, borrowAmount);
     }
 
-    function withdrawCollateral(IBorrow borrowAdapter, bytes calldata data, uint256 assets) external {
+    function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(isFunding(borrowAdapter, data), IBox.FundingNotWhitelisted());
+        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
 
-        bytes memory callData = abi.encodeWithSelector(
-            IBorrow(borrowAdapter).withdrawCollateral.selector,
-            data,
-            assets
-        );
+        uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
 
-        _delegateCall(address(borrowAdapter), callData);
+        if(repayAmount == type(uint256).max) {
+            repayAmount = debtAmount;
+        }
+
+        debtToken.safeTransfer(address(fundingModule), repayAmount);
+        fundingModule.repay(facilityData, debtToken, repayAmount);
+
+        emit IBox.FundingRepay(fundingModule, facilityData, debtToken, repayAmount);
     }
+
+
 
     function wind(address flashloanProvider, 
-        IBorrow borrowAdapter, bytes calldata borrowData, 
+        IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateral, IERC20 loanAsset, uint256 loanAmount) external {
 
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         // Most checks will be done at the underlying actions
 
-        OperationsLib.wind(this, flashloanProvider, borrowAdapter, borrowData, 
+        OperationsLib.wind(this, flashloanProvider, fundingModule, facilityData, 
             swapper, swapData, collateral, loanAsset, loanAmount);
 
         // Events are already emitted at the underlying actions
     }
 
     function unwind(address flashloanProvider, 
-        IBorrow borrowAdapter, bytes calldata borrowData, 
+        IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateral, uint256 collateralAmount, 
         IERC20 loanAsset, uint256 loanAmount) external {
@@ -967,7 +972,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         // Most checks will be done at the underlying actions
 
-        OperationsLib.unwind(this, flashloanProvider, borrowAdapter, borrowData, 
+        OperationsLib.unwind(this, flashloanProvider, fundingModule, facilityData, 
             swapper, swapData, collateral, collateralAmount, loanAsset, loanAmount);
 
         // Events are already emitted at the underlying actions
@@ -975,8 +980,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
 
     function shift(address flashloanProvider, 
-        IBorrow fromBorrowAdapter, bytes calldata fromBorrowData, 
-        IBorrow toBorrowAdapter, bytes calldata toBorrowData,
+        IFunding fromFundingModule, bytes calldata fromFacilityData, 
+        IFunding toFundingModule, bytes calldata toFacilityData,
         IERC20 collateral, uint256 collateralAmount, 
         IERC20 loanAsset, uint256 loanAmount) external {
 
@@ -984,7 +989,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Most checks will be done at the underlying actions
 
         OperationsLib.shift(this, flashloanProvider, 
-            fromBorrowAdapter, fromBorrowData, toBorrowAdapter, toBorrowData, 
+            fromFundingModule, fromFacilityData, toFundingModule, toFacilityData, 
             collateral, collateralAmount, loanAsset, loanAmount);
 
         // Events are already emitted at the underlying actions

@@ -7,7 +7,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IBox} from "../interfaces/IBox.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {ISwapper} from "../interfaces/ISwapper.sol";
-import {IBorrow} from "../interfaces/IBorrow.sol";
+import {IFunding} from "../interfaces/IFunding.sol";
 import {ErrorsLib} from "./ErrorsLib.sol";
 import "./Constants.sol";
 
@@ -103,68 +103,68 @@ library OperationsLib {
     }
 
     function wind(IBox box, address flashloanProvider, 
-        IBorrow borrowAdapter, bytes calldata borrowData, 
+        IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateral, IERC20 loanAsset, uint256 loanAmount) external {
+        IERC20 collateralToken, IERC20 loanToken, uint256 loanAmount) external {
 
         // To be able to repay the flashloan
-        loanAsset.transferFrom(flashloanProvider, address(this), loanAmount);
+        loanToken.transferFrom(flashloanProvider, address(this), loanAmount);
 
-        uint256 before = collateral.balanceOf(address(this));
-        _swap(box, swapper, swapData, loanAsset, collateral, loanAmount);
-        uint256 afterBalance = collateral.balanceOf(address(this));
-        box.supplyCollateral(borrowAdapter, borrowData, afterBalance - before);
-        box.borrow(borrowAdapter, borrowData, loanAmount);
+        uint256 before = collateralToken.balanceOf(address(this));
+        _swap(box, swapper, swapData, loanToken, collateralToken, loanAmount);
+        uint256 afterBalance = collateralToken.balanceOf(address(this));
+        box.deposit(fundingModule, facilityData, collateralToken, afterBalance - before);
+        box.borrow(fundingModule, facilityData, loanToken, loanAmount);
 
         // So the adapter can repay the flash loan
-        loanAsset.safeTransfer(flashloanProvider, loanAmount);
+        loanToken.safeTransfer(flashloanProvider, loanAmount);
     }
 
 
     function unwind(IBox box, address flashloanProvider, 
-        IBorrow borrowAdapter, bytes calldata borrowData, 
+        IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateral, uint256 collateralAmount, IERC20 loanAsset, uint256 loanAmount) external {
+        IERC20 collateralToken, uint256 collateralAmount, IERC20 loanToken, uint256 loanAmount) external {
 
         if(loanAmount == type(uint256).max) {
-            loanAmount = borrowAdapter.debt(borrowData, address(this));
+            loanAmount = fundingModule.debtBalance(loanToken);
         }
 
         // To be able to repay the flashloan
-        loanAsset.transferFrom(flashloanProvider, address(this), loanAmount);
+        loanToken.transferFrom(flashloanProvider, address(this), loanAmount);
 
-        box.repay(borrowAdapter, borrowData, loanAmount);
-        box.withdrawCollateral(borrowAdapter, borrowData, collateralAmount);
+        box.repay(fundingModule, facilityData, loanToken, loanAmount);
+        box.withdraw(fundingModule, facilityData, collateralToken, collateralAmount);
 
-        _swap(box, swapper, swapData, collateral, loanAsset, collateralAmount);
+        _swap(box, swapper, swapData, collateralToken, loanToken, collateralAmount);
 
         // So the adapter can repay the flash loan
-        loanAsset.safeTransfer(flashloanProvider, loanAmount);
+        loanToken.safeTransfer(flashloanProvider, loanAmount);
     }
 
     function shift(IBox box, address flashloanProvider, 
-        IBorrow fromBorrowAdapter, bytes calldata fromBorrowData, 
-        IBorrow toBorrowAdapter, bytes calldata toBorrowData, 
-        IERC20 collateral, uint256 collateralAmount, IERC20 loanAsset, uint256 loanAmount) external {
+        IFunding fromFundingModule, bytes calldata fromFacilityData, 
+        IFunding toFundingModule, bytes calldata toFacilityData, 
+        IERC20 collateralToken, uint256 collateralAmount, IERC20 loanToken, uint256 loanAmount) external {
 
         if(loanAmount == type(uint256).max) {
-            loanAmount = fromBorrowAdapter.debt(fromBorrowData, address(this));
+            loanAmount = fromFundingModule.debtBalance(loanToken);
         }
         if(collateralAmount == type(uint256).max) {
-            collateralAmount = fromBorrowAdapter.collateral(fromBorrowData, address(this));
+            collateralAmount = fromFundingModule.collateralBalance(collateralToken);
         }
 
         // To be able to repay the flashloan
-        loanAsset.transferFrom(flashloanProvider, address(this), loanAmount);
+        loanToken.transferFrom(flashloanProvider, address(this), loanAmount);
 
-        box.repay(fromBorrowAdapter, fromBorrowData, loanAmount);
-        box.withdrawCollateral(fromBorrowAdapter, fromBorrowData, collateralAmount);
+        box.repay(fromFundingModule, fromFacilityData, loanToken, loanAmount);
+        box.withdraw(fromFundingModule, fromFacilityData, collateralToken, collateralAmount);
 
-        box.supplyCollateral(toBorrowAdapter, toBorrowData, collateralAmount);
-        box.borrow(toBorrowAdapter, toBorrowData, loanAmount);
+        box.deposit(toFundingModule, toFacilityData, collateralToken, collateralAmount);
+        box.borrow(toFundingModule, toFacilityData, loanToken, loanAmount);
 
         // So the adapter can repay the flash loan
-        loanAsset.safeTransfer(flashloanProvider, loanAmount);
+        loanToken.safeTransfer(flashloanProvider, loanAmount);
     }
 
 }

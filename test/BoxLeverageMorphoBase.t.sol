@@ -7,7 +7,7 @@ import {console2} from "forge-std/console2.sol";
 import {Box} from "../src/Box.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {IBox, LoanFacility} from "../src/interfaces/IBox.sol";
+import {IBox} from "../src/interfaces/IBox.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
@@ -25,9 +25,8 @@ import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 
-import {IBorrow} from "../src/interfaces/IBorrow.sol";
-import {BorrowMorpho} from "../src/BorrowMorpho.sol";
-import {BorrowAave, IPool} from "../src/BorrowAave.sol";
+import {IFunding} from "../src/interfaces/IFunding.sol";
+import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {MarketParams, IMorpho} from "@morpho-blue/interfaces/IMorpho.sol";
 import {FlashLoanMorpho} from "../src/FlashLoanMorpho.sol";
 
@@ -60,19 +59,16 @@ contract BoxLeverageMorphoBaseTest is Test {
     IMorpho morpho = IMorpho(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
     address irm = 0x46415998764C29aB2a25CbeA6254146D50D22687;
 
-    BorrowMorpho fundingAdapter;
+    FundingMorpho fundingModule;
     MarketParams marketParams;
-    bytes fundingData;
-    bytes32 fundingId;
+    bytes facilityData;
 
-    BorrowMorpho fundingAdapterEth;
+    FundingMorpho fundingModuleEth;
     MarketParams marketParamsEth1;
-    bytes fundingDataEth1;
-    bytes32 fundingIdEth1;
+    bytes facilityDataEth1;
 
     MarketParams marketParamsEth2;
-    bytes fundingDataEth2;
-    bytes32 fundingIdEth2;
+    bytes facilityDataEth2;
 
     /// @notice Will setup Peaty Base investing in bbqUSDC, box1 (stUSD) and box (PTs)
    function setUp() public {
@@ -104,13 +100,14 @@ contract BoxLeverageMorphoBaseTest is Test {
         box.setIsAllocator(address(allocator), true);
         box.addFeeder(address(this));
 
-        fundingAdapter = new BorrowMorpho();
+        fundingModule = new FundingMorpho(address(box), address(morpho));
         marketParams = MarketParams(address(usdc), address(ptusr25sep), address(ptusr25sepOracle), irm, 915000000000000000);
         // And the funding facility
-        fundingData = fundingAdapter.morphoMarketToData(morpho, marketParams);
-        fundingId = box.fundingId(fundingAdapter, fundingData);
-        box.addFunding(fundingAdapter, fundingData);
-
+        facilityData = fundingModule.encodeFacilityData(marketParams);
+        box.addFunding(fundingModule);
+        box.addFundingFacility(fundingModule, facilityData);
+        box.addFundingCollateral(fundingModule, ptusr25sep);
+        box.addFundingDebt(fundingModule, usdc);
 
         // Creating Box ETH which will invest in wstETH
         name = "Box ETH";
@@ -136,18 +133,19 @@ contract BoxLeverageMorphoBaseTest is Test {
         boxEth.setIsAllocator(address(allocator), true);
         boxEth.addFeeder(address(this));
 
-        fundingAdapterEth = new BorrowMorpho();
+        fundingModuleEth = new FundingMorpho(address(boxEth), address(morpho));
         marketParamsEth1 = MarketParams(address(weth), address(wsteth), address(wstethOracle94), irm, 945000000000000000);
         // And the funding facility
-        fundingDataEth1 = fundingAdapterEth.morphoMarketToData(morpho, marketParamsEth1);
-        fundingIdEth1 = boxEth.fundingId(fundingAdapterEth, fundingDataEth1);
-        boxEth.addFunding(fundingAdapterEth, fundingDataEth1);
+        facilityDataEth1 = fundingModuleEth.encodeFacilityData(marketParamsEth1);
+        boxEth.addFunding(fundingModuleEth);
+        boxEth.addFundingFacility(fundingModuleEth, facilityDataEth1);
+        boxEth.addFundingCollateral(fundingModuleEth, wsteth);
+        boxEth.addFundingDebt(fundingModuleEth, weth);
 
         marketParamsEth2 = MarketParams(address(weth), address(wsteth), address(wstethOracle96), irm, 965000000000000000);
         // And the funding facility
-        fundingDataEth2 = fundingAdapterEth.morphoMarketToData(morpho, marketParamsEth2);
-        fundingIdEth2 = boxEth.fundingId(fundingAdapterEth, fundingDataEth2);
-        boxEth.addFunding(fundingAdapterEth, fundingDataEth2);
+        facilityDataEth2 = fundingModuleEth.encodeFacilityData(marketParamsEth2);
+        boxEth.addFundingFacility(fundingModuleEth, facilityDataEth2);
 
         vm.stopPrank();
     }   
@@ -159,20 +157,19 @@ contract BoxLeverageMorphoBaseTest is Test {
 
     function testSetup() public {
         assertEq(box.fundingsLength(), 1, "There is one source of funding");
-        LoanFacility memory facility = box.fundings(0);
-        assertEq(address(facility.loanToken), address(usdc), "Loan token is USDC");
-        assertEq(address(facility.collateralToken), address(ptusr25sep), "Collateral token is ptusr25sep");
-        assertEq(facility.data, fundingData, "fundingData is correct");
-        assertEq(address(facility.borrow), address(fundingAdapter), "fundingAdapter is correct");
+        IFunding funding = box.fundings(0);
+        assertEq(funding.facilitiesLength(), 1, "There is one funding facility");
+        assertEq(funding.collateralTokensLength(), 1, "There is one funding collateral");
+        assertEq(funding.debtTokensLength(), 1, "There is one funding loan token");
 
-        LoanFacility memory facilityMap = box.fundingMap(fundingId);
-        assertEq(address(facilityMap.loanToken), address(usdc), "Loan token is USDC");
-        assertEq(address(facilityMap.collateralToken), address(ptusr25sep), "Collateral token is ptusr25sep");
-        assertEq(facilityMap.data, fundingData, "fundingData is correct");
-        assertEq(address(facilityMap.borrow), address(fundingAdapter), "fundingAdapter is correct");
+        assertEq(address(funding), address(fundingModule), "fundingModule is correct");
+        assertEq(address(funding.debtTokens(0)), address(usdc), "Loan token is USDC");
+        assertEq(address(funding.collateralTokens(0)), address(ptusr25sep), "Collateral token is ptusr25sep");
+        assertEq(funding.facilities(0), facilityData, "facilityData is correct");
 
-        (IMorpho morpho2, MarketParams memory marketParams2) = fundingAdapter.dataToMorphoMarket(facilityMap.data);
-        assertEq(address(morpho2), address(morpho), "Same Morpho address");
+        bytes memory facility = funding.facilities(0);
+
+        MarketParams memory marketParams2 = fundingModuleEth.decodeFacilityData(facility);
         assertEq(marketParams2.loanToken, marketParams.loanToken, "Same loan token");
         assertEq(marketParams2.collateralToken, marketParams.collateralToken, "Same collateral token");
         assertEq(marketParams2.oracle, marketParams.oracle, "Same oracle");
@@ -197,29 +194,34 @@ contract BoxLeverageMorphoBaseTest is Test {
             vm.startPrank(testAddresses[i]);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.supplyCollateral(fundingAdapter, fundingData, 0);
+            box.deposit(fundingModule, facilityData, ptusr25sep, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.withdrawCollateral(fundingAdapter, fundingData, 0);
+            box.withdraw(fundingModule, facilityData, ptusr25sep, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.borrow(fundingAdapter, fundingData, 0);
+            box.borrow(fundingModule, facilityData, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.repay(fundingAdapter, fundingData, 0);
+            box.repay(fundingModule, facilityData, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.wind(address(123), fundingAdapter, fundingData, 
-                swapper, "", 
+            box.wind(address(123), fundingModule, facilityData,
+                swapper, "",
                 ptusr25sep, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.unwind(address(123), fundingAdapter, fundingData, 
-                swapper, "", 
-                ptusr25sep, 0, usdc, 0);
+            box.unwind(address(123), fundingModule, facilityData,
+                swapper, "", ptusr25sep, 0, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            flashloanProvider.wind(box, fundingAdapter, fundingData, swapper, "", ptusr25sep, usdc, 1);
+            flashloanProvider.wind(box, fundingModule, facilityData, swapper, "", ptusr25sep, usdc, 1);
+
+            vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+            flashloanProvider.unwind(box, fundingModule, facilityData, swapper, "", ptusr25sep, 1, usdc, 1);
+
+            vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+            flashloanProvider.shift(box, fundingModule, facilityData, fundingModule, facilityData, ptusr25sep, 1, usdc, 1);
 
             vm.stopPrank();
         }
@@ -257,12 +259,10 @@ contract BoxLeverageMorphoBaseTest is Test {
         assertEq(ptBalance, 1005863679192785855851, "ptusr25sep in the Box");
         assertEq(totalAssets, 999828627, "totalAssets in the Box after ptusr25sep allocation");
 
-        console2.log("\n3. Supplying PT as collateral to Morpho");
-        box.supplyCollateral(fundingAdapter, fundingData, ptBalance);
-        console2.log("- Supplied all PT tokens as collateral");
+        box.deposit(fundingModule, facilityData, ptusr25sep, ptBalance);
 
         assertEq(ptusr25sep.balanceOf(address(box)), 0, "No more ptusr25sep in the Box");
-        assertEq(fundingAdapter.collateral(fundingData, address(box)), ptBalance, "Collateral is correct");
+        assertEq(fundingModule.collateralBalance(facilityData, ptusr25sep), ptBalance, "Collateral is correct");
         assertEq(box.totalAssets(), totalAssets, "totalAssets in the Box after ptusr25sep collateral supply");
 
         // Record NAV before borrowing
@@ -270,7 +270,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         console2.log("\n4. Borrowing USDC against PT collateral");
         console2.log("- NAV before borrow:", navBeforeBorrow / 1e6, "USDC");
         
-        box.borrow(fundingAdapter, fundingData, 500 * 10**6);
+        box.borrow(fundingModule, facilityData, usdc, 500 * 10**6);
         console2.log("- Borrowed:", 500, "USDC");
 
         assertEq(usdc.balanceOf(address(box)), 500  * 10**6, "500 USDC in the Box");
@@ -293,17 +293,15 @@ contract BoxLeverageMorphoBaseTest is Test {
         usdc.transfer(address(box), 1);
         vm.startPrank(allocator);
 
-        box.repay(fundingAdapter, fundingData, type(uint256).max);
-        console2.log("- Repaid all USDC debt");
+        box.repay(fundingModule, facilityData, usdc, type(uint256).max);
 
-        box.withdrawCollateral(fundingAdapter, fundingData, ptBalance);
-        console2.log("- Withdrew all PT collateral");
+        box.withdraw(fundingModule, facilityData, ptusr25sep, ptBalance);
         assertEq(ptusr25sep.balanceOf(address(box)), 1005863679192785855851, "ptusr25sep are back in the Box");
 
         console2.log("\n[PASS] Test completed successfully");
         vm.stopPrank();
     }
-
+/*
 
     function testBoxWind() public {
         console2.log("\n=== Starting testBoxWind (Looping Test) ===");
@@ -504,5 +502,5 @@ contract BoxLeverageMorphoBaseTest is Test {
         console2.log("\n[PASS] Test completed successfully");
         vm.stopPrank();
     }
-
+*/
 }

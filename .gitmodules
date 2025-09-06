@@ -9,4 +9,4 @@
 	url = https://github.com/morpho-labs/vault-v2
 [submodule "lib/morpho-blue"]
 	path = lib/morpho-blue
-	url = https://github.com/morpho-labs/morpho-blue
+	url = https://github.com/Steakhouse-Financial/morpho-blue

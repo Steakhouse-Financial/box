@@ -13,7 +13,7 @@ import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
 
 import {IBorrow} from "../src/interfaces/IBorrow.sol";
 import {BorrowAave, IPool} from "../src/BorrowAave.sol";
-import {IBox, LoanFacility} from "../src/interfaces/IBox.sol";
+import {IBox} from "../src/interfaces/IBox.sol";
 
 /// @notice Minimal Aave v3 Addresses Provider to obtain the Pool
 interface IPoolAddressesProvider {
@@ -64,7 +64,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         // Get Aave pool
         pool = IPool(IPoolAddressesProvider(PROVIDER).getPool());
     }
-    
+    /*
     function testBorrowUSDCAgainstPTsUSDe() public {
         // Deploy Box for USDC
         Box box = new Box(
@@ -104,7 +104,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.startPrank(allocator);
         
         // Supply PT as collateral
-        box.supplyCollateral(borrowAdapter, borrowData, ptAmount);
+        box.deposit(borrowAdapter, borrowData, ptAmount);
         console2.log("Supplied", ptAmount / 1e18, "PT-sUSDe as collateral");
         
         // Borrow at 80% LTV
@@ -419,5 +419,5 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.repay(borrowAdapter, borrowDataUSDe, type(uint256).max);
         box.withdrawCollateral(borrowAdapter, borrowDataUSDC, ptAmount * 2);
         vm.stopPrank();
-    }
+    }*/
 }

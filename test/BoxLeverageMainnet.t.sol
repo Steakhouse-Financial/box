@@ -11,11 +11,11 @@ import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
 
-import {IBorrow} from "../src/interfaces/IBorrow.sol";
-import {BorrowAave, IPool} from "../src/BorrowAave.sol";
-import {BorrowMorpho} from "../src/BorrowMorpho.sol";
+import {IFunding} from "../src/interfaces/IFunding.sol";
+import {FundingAave, IPool} from "../src/FundingAave.sol";
+import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {IMorpho, MarketParams, Id} from "@morpho-blue/interfaces/IMorpho.sol";
-import {IBox, LoanFacility} from "../src/interfaces/IBox.sol";
+import {IBox} from "../src/interfaces/IBox.sol";
 
 /// @notice Minimal Aave v3 Addresses Provider to obtain the Pool
 interface IPoolAddressesProvider {
@@ -81,22 +81,22 @@ contract BoxLeverageMainnetTest is Test {
         box.addFeeder(address(this));
         
         // Setup Aave adapter with e-mode 17 for stablecoins
-        BorrowAave aaveAdapter = new BorrowAave();
         uint8 eModeCategory = 17;
-        bytes memory aaveData = aaveAdapter.aaveParamsToDataWithEMode(
-            aavePool, 
-            address(usdc), 
-            address(ptSusde25Sep), 
-            2, 
-            eModeCategory
-        );
-        box.addFunding(aaveAdapter, aaveData);
+        FundingAave aaveModule = new FundingAave(address(box), aavePool, eModeCategory);
+        bytes memory aaveFacilityData = ""; // No extra data needed for Aave
+        box.addFunding(aaveModule);
+        box.addFundingFacility(aaveModule, aaveFacilityData);
+        box.addFundingCollateral(aaveModule, ptSusde25Sep);
+        box.addFundingDebt(aaveModule, usdc);
         
         // Setup Morpho adapter - get market params directly from Morpho
-        BorrowMorpho morphoAdapter = new BorrowMorpho();
+        FundingMorpho morphoModule = new FundingMorpho(address(box), address(morpho));
         MarketParams memory marketParams = morpho.idToMarketParams(Id.wrap(MORPHO_MARKET_ID));
-        bytes memory morphoData = morphoAdapter.morphoMarketToData(morpho, marketParams);
-        box.addFunding(morphoAdapter, morphoData);
+        bytes memory morphoFacilityData = morphoModule.encodeFacilityData(marketParams);
+        box.addFunding(morphoModule);
+        box.addFundingFacility(morphoModule, morphoFacilityData);
+        box.addFundingCollateral(morphoModule, ptSusde25Sep);
+        box.addFundingDebt(morphoModule, usdc);
         
         vm.stopPrank();
         
@@ -116,33 +116,33 @@ contract BoxLeverageMainnetTest is Test {
         
         // Supply 1000 PT to Aave
         uint256 aaveCollateralSupply = 1000 ether;
-        box.supplyCollateral(aaveAdapter, aaveData, aaveCollateralSupply);
+        box.deposit(aaveModule, aaveFacilityData, ptSusde25Sep, aaveCollateralSupply);
         console2.log("Supplied", aaveCollateralSupply / 1e18, "PT-sUSDe to Aave");
         
         // Supply 1000 PT to Morpho
         uint256 morphoCollateralSupply = 1000 ether;
-        box.supplyCollateral(morphoAdapter, morphoData, morphoCollateralSupply);
+        box.deposit(morphoModule, morphoFacilityData, ptSusde25Sep, morphoCollateralSupply);
         console2.log("Supplied", morphoCollateralSupply / 1e18, "PT-sUSDe to Morpho");
         
         // Check Aave collateral and borrow amount
-        uint256 aaveCollateralBalance = aaveAdapter.collateral(aaveData, address(box));
+        uint256 aaveCollateralBalance = aaveModule.collateralBalance(ptSusde25Sep);
         console2.log("Aave collateral balance:", aaveCollateralBalance / 1e18, "PT-sUSDe");
         
         // Borrow 500 USDC from Aave
         uint256 aaveBorrowAmount = 500e6;
-        box.borrow(aaveAdapter, aaveData, aaveBorrowAmount);
-        uint256 aaveLTVAfterBorrow = aaveAdapter.ltv(aaveData, address(box));
+        box.borrow(aaveModule, aaveFacilityData, usdc, aaveBorrowAmount);
+        uint256 aaveLTVAfterBorrow = aaveModule.ltv(aaveFacilityData);
         console2.log("Borrowed", aaveBorrowAmount / 1e6, "USDC from Aave");
         console2.log("Aave LTV after borrow:", aaveLTVAfterBorrow * 100 / 1e18, "%");
         
         // Check Morpho collateral and borrow amount
-        uint256 morphoCollateralBalance = morphoAdapter.collateral(morphoData, address(box));
+        uint256 morphoCollateralBalance = morphoModule.collateralBalance(ptSusde25Sep);
         console2.log("Morpho collateral balance:", morphoCollateralBalance / 1e18, "PT-sUSDe");
         
         // Borrow 600 USDC from Morpho
         uint256 morphoBorrowAmount = 600e6;
-        box.borrow(morphoAdapter, morphoData, morphoBorrowAmount);
-        uint256 morphoLTVAfterBorrow = morphoAdapter.ltv(morphoData, address(box));
+        box.borrow(morphoModule, morphoFacilityData, usdc, morphoBorrowAmount);
+        uint256 morphoLTVAfterBorrow = morphoModule.ltv(morphoFacilityData);
         console2.log("Borrowed", morphoBorrowAmount / 1e6, "USDC from Morpho");
         console2.log("Morpho LTV after borrow:", morphoLTVAfterBorrow * 100 / 1e18, "%");
         

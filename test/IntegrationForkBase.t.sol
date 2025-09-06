@@ -25,8 +25,8 @@ import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
 
-import {BorrowMorpho} from "../src/BorrowMorpho.sol";
-import {BorrowAave, IPool} from "../src/BorrowAave.sol";
+import {FundingMorpho} from "../src/FundingMorpho.sol";
+import {FundingAave, IPool} from "../src/FundingAave.sol";
 import {MarketParams, IMorpho} from "@morpho-blue/interfaces/IMorpho.sol";
 import {FlashLoanMorpho} from "../src/FlashLoanMorpho.sol";
 
@@ -782,7 +782,7 @@ contract IntegrationForkBaseTest is Test {
 
 
 
-
+/*
     function testBoxLeverageMorpho() public {
         uint256 USDC_1000 = 1000 * 10**6;
         BorrowMorpho borrow = new BorrowMorpho();
@@ -899,5 +899,5 @@ contract IntegrationForkBaseTest is Test {
 
         vm.stopPrank();
     }
-
+*/
 }

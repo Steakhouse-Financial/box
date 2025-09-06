@@ -1,0 +1,218 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.19;
+
+import {Test} from "forge-std/Test.sol";
+import {FundingMorpho} from "../src/FundingMorpho.sol";
+import {IMorpho, MarketParams, Position} from "@morpho-blue/interfaces/IMorpho.sol";
+import {Morpho} from "@morpho-blue/Morpho.sol";
+import {IrmMock} from "@morpho-blue/mocks/IrmMock.sol";
+import {OracleMock} from "@morpho-blue/mocks/OracleMock.sol";
+import {ERC20MockDecimals} from "./mocks/ERC20MockDecimals.sol";
+import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
+
+contract FundingMorphoTest is Test {
+    FundingMorpho fundingMorpho;
+    IMorpho morpho;
+    address owner = address(0x123);
+    address nonOwner = address(0x456);
+
+    ERC20MockDecimals collateralToken;
+    ERC20MockDecimals collateral2Token;
+    ERC20MockDecimals debtToken;
+    ERC20MockDecimals debt2Token;
+
+    uint256 lltv80 = 800000000000000000;
+    uint256 lltv90 = 900000000000000000;
+
+    OracleMock oracle;
+
+    MarketParams marketParamsLtv80;
+    MarketParams marketParamsLtv90;
+
+    address irm;
+
+    bytes facilityDataLtv80;
+    bytes facilityDataLtv90;
+
+    function setUp() public {
+        // Deploy a mock Morpho contract
+        morpho = IMorpho(address(new Morpho(address(this))));
+
+        collateralToken = new ERC20MockDecimals(18);
+        collateralToken.mint(address(this), 10 ether);
+        collateralToken.approve(address(morpho), 10 ether);
+        collateral2Token = new ERC20MockDecimals(6);
+        collateral2Token.mint(address(this), 10 ether);
+        collateral2Token.approve(address(morpho), 10 ether);
+        debtToken = new ERC20MockDecimals(18);
+        debtToken.mint(address(this), 10 ether);
+        debtToken.approve(address(morpho), 10 ether);
+        debt2Token = new ERC20MockDecimals(6);
+        debt2Token.mint(address(this), 10 ether);
+        debt2Token.approve(address(morpho), 10 ether);
+
+        irm = address(new IrmMock());
+
+        morpho.enableIrm(irm);
+        morpho.enableLltv(lltv80);
+        morpho.enableLltv(lltv90);
+
+        oracle = new OracleMock();
+        oracle.setPrice(1e36);
+
+        // Create a 80% lltv market and seed it
+        marketParamsLtv80 = MarketParams(address(debtToken), address(collateralToken), address(oracle), address(irm), lltv80);
+        morpho.createMarket(marketParamsLtv80);
+        morpho.supplyCollateral(marketParamsLtv80, 1 ether, address(this), "");
+        morpho.supply(marketParamsLtv80, 1 ether, 0, address(this), "");
+        morpho.borrow(marketParamsLtv80, 0.5 ether, 0, address(this), address(this));
+        facilityDataLtv80 = abi.encode(marketParamsLtv80);
+
+        // Create a 90% lltv market and seed it
+        marketParamsLtv90 = MarketParams(address(debtToken), address(collateralToken), address(oracle), address(irm), lltv90);
+        morpho.createMarket(marketParamsLtv90);
+        morpho.supplyCollateral(marketParamsLtv90, 1 ether, address(this), "");
+        morpho.supply(marketParamsLtv90, 1 ether, 0, address(this), "");
+        morpho.borrow(marketParamsLtv90, 0.5 ether, 0, address(this), address(this));
+        facilityDataLtv90 = abi.encode(marketParamsLtv90);
+
+        // Deploy the FundingMorpho contract
+        fundingMorpho = new FundingMorpho(owner, address(morpho));
+
+        vm.startPrank(owner);
+        fundingMorpho.addFacility(facilityDataLtv80);
+        fundingMorpho.addFacility(facilityDataLtv90);
+        fundingMorpho.addCollateralToken(collateralToken);
+        fundingMorpho.addDebtToken(debtToken);
+        vm.stopPrank();
+
+    }
+
+    /// @dev Ensure test setup was as expected
+    function testSetup() public view {
+        assertEq(fundingMorpho.facilitiesLength(), 2);
+        assertTrue(fundingMorpho.isFacility(facilityDataLtv80));
+        assertTrue(fundingMorpho.isFacility(facilityDataLtv90));
+
+        assertEq(fundingMorpho.collateralTokensLength(), 1);
+        assertTrue(fundingMorpho.isCollateralToken(collateralToken));
+        assertEq(fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken), 0 ether);
+        assertEq(fundingMorpho.collateralBalance(collateralToken), 0 ether);
+
+        assertEq(fundingMorpho.debtTokensLength(), 1);
+        assertTrue(fundingMorpho.isDebtToken(debtToken));
+        assertEq(fundingMorpho.debtBalance(facilityDataLtv80, debtToken), 0 ether);
+        assertEq(fundingMorpho.debtBalance(debtToken), 0 ether);
+
+        // When no collateral ltv is 0%
+        assertEq(fundingMorpho.ltv(facilityDataLtv80), 0);
+    }
+
+    /// @dev Test a simple funding cycle
+    function testSimpleCycle() public {
+
+        vm.startPrank(owner);
+
+        collateralToken.mint(address(owner), 1 ether);
+
+        // ========== Invalid operations ==========
+
+        // Revert because collateral wasn't transferred to the contract
+        vm.expectRevert();
+        fundingMorpho.deposit(facilityDataLtv80, collateralToken, 1 ether);
+
+        // Can't borrow without collateral
+        vm.expectRevert();
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.5 ether);
+
+        // Can't withdraw without collateral
+        vm.expectRevert();
+        fundingMorpho.withdraw(facilityDataLtv80, collateralToken, 1 ether);
+
+        // Can't repay without debt
+        vm.expectRevert();
+        fundingMorpho.repay(facilityDataLtv80, debtToken, 0.5 ether);
+
+
+        // ========== Valid cycle ==========
+
+        // Deposit collateral
+        collateralToken.transfer(address(fundingMorpho), 1 ether);
+        fundingMorpho.deposit(facilityDataLtv80, collateralToken, 1 ether);
+
+        assertEq(fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken), 1 ether);
+        assertEq(fundingMorpho.ltv(facilityDataLtv80), 0);
+
+        // Borrow some debt
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.5 ether);
+
+        assertEq(fundingMorpho.debtBalance(facilityDataLtv80, debtToken), 0.5 ether);
+        assertEq(fundingMorpho.ltv(facilityDataLtv80), 0.5 ether);
+
+        // Repay part of the debt, but forget to send debt tokens first
+        vm.expectRevert();
+        fundingMorpho.repay(facilityDataLtv80, debtToken, 0.25 ether);
+
+        // Repay part of the debt
+        debtToken.transfer(address(fundingMorpho), 0.25 ether);
+        fundingMorpho.repay(facilityDataLtv80, debtToken, 0.25 ether);
+
+        assertEq(fundingMorpho.debtBalance(facilityDataLtv80, debtToken), 0.25 ether);
+        assertEq(fundingMorpho.ltv(facilityDataLtv80), 0.25 ether);
+
+        // Withdrawing too much would revert
+        vm.expectRevert();
+        fundingMorpho.withdraw(facilityDataLtv80, collateralToken, 10 ether);
+
+        // Repay the rest of the debt
+        debtToken.transfer(address(fundingMorpho), 0.25 ether);
+        fundingMorpho.repay(facilityDataLtv80, debtToken, type(uint256).max);
+
+        assertEq(fundingMorpho.debtBalance(facilityDataLtv80, debtToken), 0);
+        assertEq(fundingMorpho.ltv(facilityDataLtv80), 0);
+
+        // Withdraw part of the collateral
+        fundingMorpho.withdraw(facilityDataLtv80, collateralToken, 0.5 ether);
+        assertEq(fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken), 0.5 ether);
+        assertEq(collateralToken.balanceOf(address(owner)), 0.5 ether);
+
+        // Withdraw the rest of the collateral
+        fundingMorpho.withdraw(facilityDataLtv80, collateralToken, 0.5 ether);
+        assertEq(fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken), 0);
+        assertEq(collateralToken.balanceOf(address(owner)), 1 ether);
+
+        vm.stopPrank();
+    }
+
+    function testOnlyOwner() public {
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        fundingMorpho.addFacility(facilityDataLtv80);
+
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        fundingMorpho.removeFacility(facilityDataLtv80);
+
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        fundingMorpho.addCollateralToken(collateralToken);
+
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        fundingMorpho.removeCollateralToken(collateralToken);
+
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        fundingMorpho.addDebtToken(debtToken);
+
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        fundingMorpho.removeDebtToken(debtToken);
+
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        fundingMorpho.deposit(facilityDataLtv80, collateralToken, 1 ether);
+
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        fundingMorpho.withdraw(facilityDataLtv80, collateralToken, 1 ether);
+
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, 1 ether);
+
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        fundingMorpho.repay(facilityDataLtv80, debtToken, 1 ether);
+    }
+}

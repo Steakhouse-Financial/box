@@ -23,6 +23,11 @@ interface IBorrow {
 
 
     /* FUNCTIONS */
+
+    
+
+
+
     function supplyCollateral(bytes calldata data, uint256 assets) external;
     function withdrawCollateral(bytes calldata data, uint256 assets) external;
     function borrow(bytes calldata data, uint256 borrowAmount) external;

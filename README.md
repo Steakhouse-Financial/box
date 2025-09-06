@@ -1,6 +1,9 @@
 # Box
 
-A box is an ERC4626 based currency (e.g. USDC) which it can hold and be used to deposit/redeem. It can also invest in others ERC20s called assets. 
+A box is an ERC4626-compatable contract that is allows to:
+- Hold an underlying asset (e.g. USDC) which is also used to `deposit`/`redeem`. 
+- `allocate`/`deallocate`/`reallocate` from the underlying asset to whitelisted tokens
+- Can use the tokens and/or the asset as collateral to get funding in tokens and/or asset using funding modules.
 
 ## Trust assumptions
 
@@ -12,7 +15,6 @@ Remaining trust assumptions are:
 - Assuming the allocator will not manipulate oracles for weak oracles when doing allocations
 
 Deposits are restricted to address call feeders to avoid arbitraging. No liquidity is expected in normal conditions so redeem can't be used for arbitraging.
-
 
 ## Control
 
@@ -36,12 +38,16 @@ Deposits are restricted to address call feeders to avoid arbitraging. No liquidi
     - Revoke a new proposal: adding an asset, changing an oracle, changing the backup swapper, changing the slippage
     - Trigger shutdown the box, which will let the feeder withdraw by deallocating automatically from the assets with a increasing slippage allowance over time
 
-## Swapping mechanic
+## Token management
 
 In normal times, the swapping between assets is done by the Allocator using a callback function. The result is enforced by slippage protection but nothing prevents the alloactor to use all the possible slippage.
 
 When shut down, the swapping can only be done do deallocate from assets using a backup hardcoded immutable swapper.
 
+
+## Funding
+
+The `curator` can add funding modules (`IFunding`)
 
 ## Arbitragers protection
 
@@ -55,3 +61,5 @@ Only whitelisted feeders can deposits into the smart contract mitigating this ri
 In case the owner/allocator are non responsible to replenish the liquidty, any holder of Box can call the `unbox()` function returning their share of underlying token.
 
 The issue is that it doesn't work if hold by Vault V2 as it calls redeem. The solution here is to allow anyone to deposit USDC, so a user can deposit USDC, call forceReallocateToIdle on the Vault V2 and get out and he can unbox the Box tokens he got (yes, it is convoluted already).
+
+
