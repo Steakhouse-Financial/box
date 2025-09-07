@@ -17,10 +17,10 @@ interface IBox is IERC4626 {
     event FundingCollateralAdded(IFunding indexed fundingModule, IERC20 collateralToken);
     event FundingDebtAdded(IFunding indexed fundingModule, IERC20 debtToken);
 
-    event FundingDeposit(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
-    event FundingWithdraw(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
-    event FundingBorrow(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 borrowAmount);
-    event FundingRepay(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 repayAmount);
+    event Pledge(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
+    event Depledge(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
+    event Borrow(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 borrowAmount);
+    event Repay(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 repayAmount);
 
     error FundingAlreadyExists();
     error FundingNotWhitelisted();
@@ -90,6 +90,7 @@ interface IBox is IERC4626 {
     function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external;
     function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external;
     function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external;
+    // TODO: remove functions
 
     // ========== FUNDING VIEW FUNCTIONS ==========
     function fundings(uint256 index) external view returns (IFunding);
@@ -97,26 +98,28 @@ interface IBox is IERC4626 {
     function isFunding(IFunding fundingModule) external view returns (bool);
 
     // ========== SIMPLE FUNDING OPERATIONS ==========
-    function deposit(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
-    function withdraw(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
+    function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
+    function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
     function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external;
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external;
 
     // ========== COMPLEX FUNDING OPERATIONS WITH FLASHLOAN AND SWAPPER ==========
-    function wind(address flashloanProvider, IFunding fundingModule, bytes calldata facilityData, 
+    function leverage(address flashloanProvider, IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateral, 
-        IERC20 loanAsset, uint256 loanAmount) external;
+        IERC20 collateralToken, 
+        IERC20 debtToken, uint256 debtAmount) external;
 
-    function unwind(address flashloanProvider, IFunding fundingModule, bytes calldata facilityData, 
+    function deleverage(address flashloanProvider, IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateral, uint256 collateralAmount, IERC20 loanAsset, uint256 loanAmount) external;
+        IERC20 collateralToken, uint256 collateralAmount, IERC20 debtToken, uint256 debtAmount) external;
 
-    function shift(address flashloanProvider, 
+    function refinance(address flashloanProvider, 
         IFunding fromFundingModule, bytes calldata fromFacilityData, 
         IFunding toFundingModule, bytes calldata toFacilityData,
-        IERC20 collateral, uint256 collateralAmount, 
-        IERC20 loanAsset, uint256 loanAmount) external;
+        IERC20 collateralToken, uint256 collateralAmount, 
+        IERC20 debtToken, uint256 debtAmount) external;
+
+    function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external;
 
 
 

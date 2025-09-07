@@ -25,8 +25,8 @@ interface IFunding {
     function debtTokensLength() external view returns (uint256);
 
     // ========== ACTIONS ==========
-    function deposit(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
-    function withdraw(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
+    function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
+    function depledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external;
     function repay(bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external;
 

@@ -102,7 +102,7 @@ library OperationsLib {
 
     }
 
-    function wind(IBox box, address flashloanProvider, 
+    function leverage(IBox box, address flashloanProvider, 
         IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateralToken, IERC20 loanToken, uint256 loanAmount) external {
@@ -113,7 +113,7 @@ library OperationsLib {
         uint256 before = collateralToken.balanceOf(address(this));
         _swap(box, swapper, swapData, loanToken, collateralToken, loanAmount);
         uint256 afterBalance = collateralToken.balanceOf(address(this));
-        box.deposit(fundingModule, facilityData, collateralToken, afterBalance - before);
+        box.pledge(fundingModule, facilityData, collateralToken, afterBalance - before);
         box.borrow(fundingModule, facilityData, loanToken, loanAmount);
 
         // So the adapter can repay the flash loan
@@ -121,7 +121,7 @@ library OperationsLib {
     }
 
 
-    function unwind(IBox box, address flashloanProvider, 
+    function deleverage(IBox box, address flashloanProvider, 
         IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateralToken, uint256 collateralAmount, IERC20 loanToken, uint256 loanAmount) external {
@@ -134,7 +134,7 @@ library OperationsLib {
         loanToken.transferFrom(flashloanProvider, address(this), loanAmount);
 
         box.repay(fundingModule, facilityData, loanToken, loanAmount);
-        box.withdraw(fundingModule, facilityData, collateralToken, collateralAmount);
+        box.depledge(fundingModule, facilityData, collateralToken, collateralAmount);
 
         _swap(box, swapper, swapData, collateralToken, loanToken, collateralAmount);
 
@@ -142,7 +142,7 @@ library OperationsLib {
         loanToken.safeTransfer(flashloanProvider, loanAmount);
     }
 
-    function shift(IBox box, address flashloanProvider, 
+    function refinance(IBox box, address flashloanProvider, 
         IFunding fromFundingModule, bytes calldata fromFacilityData, 
         IFunding toFundingModule, bytes calldata toFacilityData, 
         IERC20 collateralToken, uint256 collateralAmount, IERC20 loanToken, uint256 loanAmount) external {
@@ -158,9 +158,9 @@ library OperationsLib {
         loanToken.transferFrom(flashloanProvider, address(this), loanAmount);
 
         box.repay(fromFundingModule, fromFacilityData, loanToken, loanAmount);
-        box.withdraw(fromFundingModule, fromFacilityData, collateralToken, collateralAmount);
+        box.depledge(fromFundingModule, fromFacilityData, collateralToken, collateralAmount);
 
-        box.deposit(toFundingModule, toFacilityData, collateralToken, collateralAmount);
+        box.pledge(toFundingModule, toFacilityData, collateralToken, collateralAmount);
         box.borrow(toFundingModule, toFacilityData, loanToken, loanAmount);
 
         // So the adapter can repay the flash loan

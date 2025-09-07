@@ -190,7 +190,7 @@ contract FundingAave is IFunding {
 
     // ========== ACTIONS ==========
 
-    function deposit(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
+    function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(isFacility(facilityData), "Invalid facility");
         require(isCollateralToken(collateralToken), "Invalid collateral token");
@@ -201,7 +201,7 @@ contract FundingAave is IFunding {
     }
 
     /// @dev We don't check if valid facility/collateral, allowing donations
-    function withdraw(bytes calldata, IERC20 collateralToken, uint256 collateralAmount) external {
+    function depledge(bytes calldata, IERC20 collateralToken, uint256 collateralAmount) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
 
         pool.withdraw(address(collateralToken), collateralAmount, address(this));

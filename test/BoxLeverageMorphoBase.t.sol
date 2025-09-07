@@ -194,10 +194,10 @@ contract BoxLeverageMorphoBaseTest is Test {
             vm.startPrank(testAddresses[i]);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.deposit(fundingModule, facilityData, ptusr25sep, 0);
+            box.pledge(fundingModule, facilityData, ptusr25sep, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.withdraw(fundingModule, facilityData, ptusr25sep, 0);
+            box.depledge(fundingModule, facilityData, ptusr25sep, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
             box.borrow(fundingModule, facilityData, usdc, 0);
@@ -206,22 +206,22 @@ contract BoxLeverageMorphoBaseTest is Test {
             box.repay(fundingModule, facilityData, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.wind(address(123), fundingModule, facilityData,
+            box.leverage(address(123), fundingModule, facilityData,
                 swapper, "",
                 ptusr25sep, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.unwind(address(123), fundingModule, facilityData,
+            box.deleverage(address(123), fundingModule, facilityData,
                 swapper, "", ptusr25sep, 0, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            flashloanProvider.wind(box, fundingModule, facilityData, swapper, "", ptusr25sep, usdc, 1);
+            flashloanProvider.leverage(box, fundingModule, facilityData, swapper, "", ptusr25sep, usdc, 1);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            flashloanProvider.unwind(box, fundingModule, facilityData, swapper, "", ptusr25sep, 1, usdc, 1);
+            flashloanProvider.deleverage(box, fundingModule, facilityData, swapper, "", ptusr25sep, 1, usdc, 1);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            flashloanProvider.shift(box, fundingModule, facilityData, fundingModule, facilityData, ptusr25sep, 1, usdc, 1);
+            flashloanProvider.refinance(box, fundingModule, facilityData, fundingModule, facilityData, ptusr25sep, 1, usdc, 1);
 
             vm.stopPrank();
         }
@@ -259,7 +259,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         assertEq(ptBalance, 1005863679192785855851, "ptusr25sep in the Box");
         assertEq(totalAssets, 999828627, "totalAssets in the Box after ptusr25sep allocation");
 
-        box.deposit(fundingModule, facilityData, ptusr25sep, ptBalance);
+        box.pledge(fundingModule, facilityData, ptusr25sep, ptBalance);
 
         assertEq(ptusr25sep.balanceOf(address(box)), 0, "No more ptusr25sep in the Box");
         assertEq(fundingModule.collateralBalance(facilityData, ptusr25sep), ptBalance, "Collateral is correct");
@@ -295,7 +295,7 @@ contract BoxLeverageMorphoBaseTest is Test {
 
         box.repay(fundingModule, facilityData, usdc, type(uint256).max);
 
-        box.withdraw(fundingModule, facilityData, ptusr25sep, ptBalance);
+        box.depledge(fundingModule, facilityData, ptusr25sep, ptBalance);
         assertEq(ptusr25sep.balanceOf(address(box)), 1005863679192785855851, "ptusr25sep are back in the Box");
 
         console2.log("\n[PASS] Test completed successfully");

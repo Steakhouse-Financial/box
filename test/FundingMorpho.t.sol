@@ -119,7 +119,7 @@ contract FundingMorphoTest is Test {
 
         // Revert because collateral wasn't transferred to the contract
         vm.expectRevert();
-        fundingMorpho.deposit(facilityDataLtv80, collateralToken, 1 ether);
+        fundingMorpho.pledge(facilityDataLtv80, collateralToken, 1 ether);
 
         // Can't borrow without collateral
         vm.expectRevert();
@@ -127,7 +127,7 @@ contract FundingMorphoTest is Test {
 
         // Can't withdraw without collateral
         vm.expectRevert();
-        fundingMorpho.withdraw(facilityDataLtv80, collateralToken, 1 ether);
+        fundingMorpho.depledge(facilityDataLtv80, collateralToken, 1 ether);
 
         // Can't repay without debt
         vm.expectRevert();
@@ -138,7 +138,7 @@ contract FundingMorphoTest is Test {
 
         // Deposit collateral
         collateralToken.transfer(address(fundingMorpho), 1 ether);
-        fundingMorpho.deposit(facilityDataLtv80, collateralToken, 1 ether);
+        fundingMorpho.pledge(facilityDataLtv80, collateralToken, 1 ether);
 
         assertEq(fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken), 1 ether);
         assertEq(fundingMorpho.ltv(facilityDataLtv80), 0);
@@ -162,7 +162,7 @@ contract FundingMorphoTest is Test {
 
         // Withdrawing too much would revert
         vm.expectRevert();
-        fundingMorpho.withdraw(facilityDataLtv80, collateralToken, 10 ether);
+        fundingMorpho.depledge(facilityDataLtv80, collateralToken, 10 ether);
 
         // Repay the rest of the debt
         debtToken.transfer(address(fundingMorpho), 0.25 ether);
@@ -172,12 +172,12 @@ contract FundingMorphoTest is Test {
         assertEq(fundingMorpho.ltv(facilityDataLtv80), 0);
 
         // Withdraw part of the collateral
-        fundingMorpho.withdraw(facilityDataLtv80, collateralToken, 0.5 ether);
+        fundingMorpho.depledge(facilityDataLtv80, collateralToken, 0.5 ether);
         assertEq(fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken), 0.5 ether);
         assertEq(collateralToken.balanceOf(address(owner)), 0.5 ether);
 
         // Withdraw the rest of the collateral
-        fundingMorpho.withdraw(facilityDataLtv80, collateralToken, 0.5 ether);
+        fundingMorpho.depledge(facilityDataLtv80, collateralToken, 0.5 ether);
         assertEq(fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken), 0);
         assertEq(collateralToken.balanceOf(address(owner)), 1 ether);
 
@@ -204,10 +204,10 @@ contract FundingMorphoTest is Test {
         fundingMorpho.removeDebtToken(debtToken);
 
         vm.expectRevert(ErrorsLib.OnlyOwner.selector);
-        fundingMorpho.deposit(facilityDataLtv80, collateralToken, 1 ether);
+        fundingMorpho.pledge(facilityDataLtv80, collateralToken, 1 ether);
 
         vm.expectRevert(ErrorsLib.OnlyOwner.selector);
-        fundingMorpho.withdraw(facilityDataLtv80, collateralToken, 1 ether);
+        fundingMorpho.depledge(facilityDataLtv80, collateralToken, 1 ether);
 
         vm.expectRevert(ErrorsLib.OnlyOwner.selector);
         fundingMorpho.borrow(facilityDataLtv80, debtToken, 1 ether);

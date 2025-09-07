@@ -131,7 +131,7 @@ contract FundingMorpho is IFunding {
     // ========== ACTIONS ==========
 
     /// @dev Assume caller did transfer the collateral tokens to this contract before calling
-    function deposit(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
+    function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(isFacility(facilityData), "Invalid facility");
         require(isCollateralToken(collateralToken), "Invalid collateral token");
@@ -142,7 +142,7 @@ contract FundingMorpho is IFunding {
     }
 
     /// @dev We don't check if valid facility/collateral, allowing donations
-    function withdraw(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
+    function depledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
 
         MarketParams memory market = decodeFacilityData(facilityData);

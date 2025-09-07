@@ -116,12 +116,12 @@ contract BoxLeverageMainnetTest is Test {
         
         // Supply 1000 PT to Aave
         uint256 aaveCollateralSupply = 1000 ether;
-        box.deposit(aaveModule, aaveFacilityData, ptSusde25Sep, aaveCollateralSupply);
+        box.pledge(aaveModule, aaveFacilityData, ptSusde25Sep, aaveCollateralSupply);
         console2.log("Supplied", aaveCollateralSupply / 1e18, "PT-sUSDe to Aave");
         
         // Supply 1000 PT to Morpho
         uint256 morphoCollateralSupply = 1000 ether;
-        box.deposit(morphoModule, morphoFacilityData, ptSusde25Sep, morphoCollateralSupply);
+        box.pledge(morphoModule, morphoFacilityData, ptSusde25Sep, morphoCollateralSupply);
         console2.log("Supplied", morphoCollateralSupply / 1e18, "PT-sUSDe to Morpho");
         
         // Check Aave collateral and borrow amount

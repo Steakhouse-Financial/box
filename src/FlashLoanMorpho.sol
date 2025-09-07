@@ -56,16 +56,16 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
         ISwapper swapper;
         bytes memory swapData;
 
-        if (operation == FlashLoanMorpho.wind.selector) {
+        if (operation == FlashLoanMorpho.leverage.selector) {
             (operation, box, fundingModule, facilityData, collateralToken,
                 loanToken, loanAmount, swapper, swapData) = abi.decode(data,
                 (bytes4, IBox, IFunding, bytes, IERC20, IERC20, uint256, ISwapper, bytes));
 
             // The flash loan is allowed for the box to grab
             loanToken.forceApprove(address(box), assets);
-            box.wind(address(this), fundingModule, facilityData, swapper, swapData, collateralToken, loanToken, loanAmount);
+            box.leverage(address(this), fundingModule, facilityData, swapper, swapData, collateralToken, loanToken, loanAmount);
 
-        } else if (operation == FlashLoanMorpho.unwind.selector) {
+        } else if (operation == FlashLoanMorpho.deleverage.selector) {
 
             (operation, box, fundingModule, facilityData, collateralToken, collateralAmount,
                 loanToken, loanAmount, swapper, swapData) = abi.decode(data,
@@ -73,10 +73,10 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
 
             // The flash loan is allowed for the box to grab
             loanToken.forceApprove(address(box), assets);
-            box.unwind(address(this), fundingModule, facilityData, swapper, swapData, collateralToken, collateralAmount,
+            box.deleverage(address(this), fundingModule, facilityData, swapper, swapData, collateralToken, collateralAmount,
                 loanToken, loanAmount);
 
-        } else if (operation == FlashLoanMorpho.shift.selector) {
+        } else if (operation == FlashLoanMorpho.refinance.selector) {
 
             (operation, box, fundingModule, facilityData, fundingModule2, facilityData2,
                 collateralToken, collateralAmount, loanToken, loanAmount) = abi.decode(data,
@@ -84,7 +84,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
 
             // The flash loan is allowed for the box to grab
             loanToken.forceApprove(address(box), assets);
-            box.shift(address(this), fundingModule, facilityData, fundingModule2, facilityData2, collateralToken, collateralAmount,
+            box.refinance(address(this), fundingModule, facilityData, fundingModule2, facilityData2, collateralToken, collateralAmount,
                 loanToken, loanAmount);
 
         } else {
@@ -96,19 +96,19 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
 
     }
 
-    function wind(IBox box, IFunding fundingModule, bytes calldata facilityData, 
+    function leverage(IBox box, IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateralToken, IERC20 loanToken, uint256 loanAmount) external {
 
         require(box.isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
 
-        bytes4 operation = FlashLoanMorpho.wind.selector;
+        bytes4 operation = FlashLoanMorpho.leverage.selector;
         bytes memory data = abi.encode(operation, address(box), fundingModule, facilityData, collateralToken, loanToken,
             loanAmount, swapper, swapData);
         MORPHO.flashLoan(address(loanToken), loanAmount, data);
     }
 
-    function unwind(IBox box, IFunding fundingModule, bytes calldata facilityData, 
+    function deleverage(IBox box, IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateralToken, uint256 collateralAmount, IERC20 loanToken, uint256 loanAmount) external {
 
@@ -118,13 +118,13 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
             loanAmount = fundingModule.debtBalance(loanToken);
         }
 
-        bytes4 operation = FlashLoanMorpho.unwind.selector;
+        bytes4 operation = FlashLoanMorpho.deleverage.selector;
         bytes memory data = abi.encode(operation, address(box), fundingModule, facilityData, collateralToken, collateralAmount, 
             loanToken, loanAmount, swapper, swapData);
         MORPHO.flashLoan(address(loanToken), loanAmount, data);
     }
 
-    function shift(IBox box, 
+    function refinance(IBox box, 
         IFunding fromFundingModule, bytes calldata fromFacilityData, 
         IFunding toFundingModule, bytes calldata toFacilityData,
         IERC20 collateralToken, uint256 collateralAmount, IERC20 loanToken, uint256 loanAmount) external {
@@ -138,7 +138,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
             collateralAmount = fromFundingModule.collateralBalance(collateralToken);
         }
 
-        bytes4 operation = FlashLoanMorpho.shift.selector;
+        bytes4 operation = FlashLoanMorpho.refinance.selector;
         bytes memory data = abi.encode(operation, address(box), 
             fromFundingModule, fromFacilityData, toFundingModule, toFacilityData,
             collateralToken, collateralAmount, loanToken, loanAmount);

@@ -107,7 +107,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.startPrank(allocator);
         
         // Supply PT as collateral
-        box.deposit(fundingModule, facilityData, ptSusde25Sep, ptAmount);
+        box.pledge(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         console2.log("Supplied", ptAmount / 1e18, "PT-sUSDe as collateral");
         
         // Borrow at 80% LTV
@@ -136,7 +136,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         // Clean up
         deal(address(usdc), address(box), usdc.balanceOf(address(box)) + targetBorrowAmount + 100e6);
         box.repay(fundingModule, facilityData, usdc, type(uint256).max);
-        box.withdraw(fundingModule, facilityData, ptSusde25Sep, ptAmount);
+        box.depledge(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         vm.stopPrank();
     }
     
@@ -183,7 +183,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.startPrank(allocator);
         
         // Supply PT as collateral
-        box.deposit(fundingModule, facilityData, ptSusde25Sep, ptAmount);
+        box.pledge(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         console2.log("Supplied", ptAmount / 1e18, "PT-sUSDe as collateral");
         
         // Borrow at 80% LTV
@@ -215,7 +215,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         //deal(address(usde), address(box), usde.balanceOf(address(box)) + targetBorrowAmount + 100e18);
         vm.startPrank(allocator);
         box.repay(fundingModule, facilityData, usde, type(uint256).max);
-        box.withdraw(fundingModule, facilityData, ptSusde25Sep, ptAmount);
+        box.depledge(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         vm.stopPrank();
     }
     
@@ -248,10 +248,10 @@ contract BoxLeverageAaveMainnetTest is Test {
             vm.startPrank(testAddresses[i]);
             
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.deposit(fundingModule, facilityData, usdc, 0);
-            
+            box.pledge(fundingModule, facilityData, usdc, 0);
+
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.withdraw(fundingModule, facilityData, usdc, 0);
+            box.depledge(fundingModule, facilityData, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
             box.borrow(fundingModule, facilityData, usdc, 0);
@@ -324,10 +324,10 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.startPrank(allocator);
         
         // Supply collaterals
-        box.deposit(fundingModulePTsUSDe, facilityDataPTsUSDe, ptSusde25Sep, ptSusdeAmount);
+        box.pledge(fundingModulePTsUSDe, facilityDataPTsUSDe, ptSusde25Sep, ptSusdeAmount);
         console2.log("Supplied", ptSusdeAmount / 1e18, "PT-sUSDe for e-mode 17");
 
-        box.deposit(fundingModuleSUSDe, facilityDataSUSDe, sUsde, sUsdeAmount);
+        box.pledge(fundingModuleSUSDe, facilityDataSUSDe, sUsde, sUsdeAmount);
         console2.log("Supplied", sUsdeAmount / 1e18, "sUSDe for e-mode 2");
         
         // Borrow with different e-modes
@@ -411,7 +411,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         console2.log("NAV before operations:", navBefore / 1e6, "USDC");
         
         // Step 1: Supply collateral and borrow USDC at 60% LTV
-        box.deposit(fundingModule, facilityData, ptSusde25Sep, ptAmount);
+        box.pledge(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         console2.log("Step 1: Supplied", ptAmount / 1e18, "PT-sUSDe");
         
         (uint256 collateralValue1, , , , , ) = pool.getUserAccountData(address(fundingModule));
@@ -421,7 +421,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         
         // Step 2: Supply more collateral and borrow USDe at 80% LTV
         (uint256 collateralAfterUSDC, , , , , ) = pool.getUserAccountData(address(fundingModule));
-        box.deposit(fundingModule, facilityData, ptSusde25Sep, ptAmount);
+        box.pledge(fundingModule, facilityData, ptSusde25Sep, ptAmount);
         console2.log("Step 2: Supplied", ptAmount / 1e18, "more PT-sUSDe");
 
         (uint256 collateralValue2, , , , , ) = pool.getUserAccountData(address(fundingModule));
@@ -450,7 +450,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.startPrank(allocator);
         box.repay(fundingModule, facilityData, usdc, type(uint256).max);
         box.repay(fundingModule, facilityData, usde, type(uint256).max);
-        box.withdraw(fundingModule, facilityData, ptSusde25Sep, ptAmount * 2);
+        box.depledge(fundingModule, facilityData, ptSusde25Sep, ptAmount * 2);
         vm.stopPrank();
     }
 }

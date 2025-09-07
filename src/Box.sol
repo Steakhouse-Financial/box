@@ -776,10 +776,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         }
         // Loop over funding sources
         length = fundings.length;
-        for (uint256 i; i < length; i++) {
+        for (uint256 i; i < length; ) {
             IFunding funding = fundings[i];
             uint256 collateralLength = funding.collateralTokensLength();
-            for(uint256 c = 0; c <collateralLength; c++) {
+            for(uint256 c = 0; c < collateralLength; c++) {
                 IERC20 collateralToken = funding.collateralTokens(c);
                 uint256 collateralBalance = funding.collateralBalance(collateralToken);
                 if (collateralBalance == 0) {
@@ -796,7 +796,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
                 }
             }
             uint256 debtTokensLength = funding.debtTokensLength();
-            for(uint256 d = 0; d <debtTokensLength; d++) {
+            for(uint256 d = 0; d < debtTokensLength; d++) {
                 IERC20 debtToken = funding.debtTokens(d);
                 uint256 debtBalance = funding.debtBalance(debtToken);
                 if (debtBalance == 0) {
@@ -812,6 +812,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
                     }
                 }
             }
+            unchecked { ++i; }
         }
 
         nav = int256(assets_) - int256(liabilities);
@@ -903,23 +904,23 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
 
 
-    function deposit(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
+    function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
 
         collateralToken.safeTransfer(address(fundingModule), collateralAmount);
-        fundingModule.deposit(facilityData, collateralToken, collateralAmount);
+        fundingModule.pledge(facilityData, collateralToken, collateralAmount);
 
-        emit IBox.FundingDeposit(fundingModule, facilityData, collateralToken, collateralAmount);
+        emit IBox.Pledge(fundingModule, facilityData, collateralToken, collateralAmount);
     }
 
-    function withdraw(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
+    function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
 
-        fundingModule.withdraw(facilityData, collateralToken, collateralAmount);
+        fundingModule.depledge(facilityData, collateralToken, collateralAmount);
 
-        emit IBox.FundingWithdraw(fundingModule, facilityData, collateralToken, collateralAmount);
+        emit IBox.Depledge(fundingModule, facilityData, collateralToken, collateralAmount);
     }
 
     function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
@@ -928,7 +929,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         fundingModule.borrow(facilityData, debtToken, borrowAmount);
 
-        emit IBox.FundingBorrow(fundingModule, facilityData, debtToken, borrowAmount);
+        emit IBox.Borrow(fundingModule, facilityData, debtToken, borrowAmount);
     }
 
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external {
@@ -944,12 +945,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         debtToken.safeTransfer(address(fundingModule), repayAmount);
         fundingModule.repay(facilityData, debtToken, repayAmount);
 
-        emit IBox.FundingRepay(fundingModule, facilityData, debtToken, repayAmount);
+        emit IBox.Repay(fundingModule, facilityData, debtToken, repayAmount);
     }
 
 
 
-    function wind(address flashloanProvider, 
+    function leverage(address flashloanProvider, 
         IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateral, IERC20 loanAsset, uint256 loanAmount) external {
@@ -957,13 +958,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         // Most checks will be done at the underlying actions
 
-        OperationsLib.wind(this, flashloanProvider, fundingModule, facilityData, 
+        OperationsLib.leverage(this, flashloanProvider, fundingModule, facilityData, 
             swapper, swapData, collateral, loanAsset, loanAmount);
 
         // Events are already emitted at the underlying actions
     }
 
-    function unwind(address flashloanProvider, 
+    function deleverage(address flashloanProvider, 
         IFunding fundingModule, bytes calldata facilityData, 
         ISwapper swapper, bytes calldata swapData, 
         IERC20 collateral, uint256 collateralAmount, 
@@ -972,14 +973,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         // Most checks will be done at the underlying actions
 
-        OperationsLib.unwind(this, flashloanProvider, fundingModule, facilityData, 
+        OperationsLib.deleverage(this, flashloanProvider, fundingModule, facilityData, 
             swapper, swapData, collateral, collateralAmount, loanAsset, loanAmount);
 
         // Events are already emitted at the underlying actions
     }
 
 
-    function shift(address flashloanProvider, 
+    function refinance(address flashloanProvider, 
         IFunding fromFundingModule, bytes calldata fromFacilityData, 
         IFunding toFundingModule, bytes calldata toFacilityData,
         IERC20 collateral, uint256 collateralAmount, 
@@ -988,12 +989,16 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         // Most checks will be done at the underlying actions
 
-        OperationsLib.shift(this, flashloanProvider, 
+        OperationsLib.refinance(this, flashloanProvider, 
             fromFundingModule, fromFacilityData, toFundingModule, toFacilityData, 
             collateral, collateralAmount, loanAsset, loanAmount);
 
         // Events are already emitted at the underlying actions
     }
 
+    function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external view {
+        // TODO: tx flashamount, call a callback on the msg.sender, approve flashamount to msg.sender
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+    }
 
 }
