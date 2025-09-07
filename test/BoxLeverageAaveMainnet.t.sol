@@ -127,7 +127,11 @@ contract BoxLeverageAaveMainnetTest is Test {
         console2.log("NAV after borrow:", navAfter / 1e6, "USDC");
         console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, E-mode:", pool.getUserEMode(address(fundingModule)));
         
+        // Verify NAV stability
         assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
+        
+        // Verify e-mode enabled higher LTV than standard mode
+        assertGt(finalLTV, 0.7e18, "E-mode should enable >70% LTV");
         
         // Clean up
         deal(address(usdc), address(box), usdc.balanceOf(address(box)) + targetBorrowAmount + 100e6);
@@ -199,7 +203,11 @@ contract BoxLeverageAaveMainnetTest is Test {
         console2.log("NAV after borrow:", navAfter / 1e18, "USDe");
         console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, E-mode:", pool.getUserEMode(address(fundingModule)));
         
+        // Verify NAV stability
         assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
+        
+        // Verify e-mode enabled higher LTV than standard mode
+        assertGt(finalLTV, 0.7e18, "E-mode should enable >70% LTV");
         
         // Clean up
         vm.stopPrank();
@@ -333,14 +341,21 @@ contract BoxLeverageAaveMainnetTest is Test {
         console2.log("Borrowed", borrowAmount2 / 1e6, "USDC with e-mode 2");
         
         // Verify final state
-        uint256 finalLTV = fundingModulePTsUSDe.ltv(facilityDataPTsUSDe);
-        uint256 finalEMode = pool.getUserEMode(address(fundingModulePTsUSDe));
+        uint256 finalLTV1 = fundingModulePTsUSDe.ltv(facilityDataPTsUSDe);
+        uint256 finalLTV2 = fundingModuleSUSDe.ltv(facilityDataSUSDe);
+        uint256 finalEMode1 = pool.getUserEMode(address(fundingModulePTsUSDe));
+        uint256 finalEMode2 = pool.getUserEMode(address(fundingModuleSUSDe));
         uint256 navAfter = box.totalAssets();
         console2.log("NAV after operations:", navAfter / 1e6, "USDC");
-        console2.log("Final LTV:", finalLTV * 100 / 1e18, "%, Final e-mode:", finalEMode);
-        // TODO: Add a check for the above for both funding modules
+        console2.log("PT-sUSDe adapter - LTV:", finalLTV1 * 100 / 1e18, "%, E-mode:", finalEMode1);
+        console2.log("sUSDe adapter - LTV:", finalLTV2 * 100 / 1e18, "%, E-mode:", finalEMode2);
 
+        // Verify NAV stability
         assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
+        
+        // Verify different e-modes are set correctly for each adapter
+        assertEq(finalEMode1, 17, "PT-sUSDe adapter should use e-mode 17");
+        assertEq(finalEMode2, 2, "sUSDe adapter should use e-mode 2");
         
         vm.stopPrank();
     }
@@ -422,8 +437,11 @@ contract BoxLeverageAaveMainnetTest is Test {
         console2.log("NAV after operations:", navAfter / 1e6, "USDC");
         console2.log("Combined LTV:", finalLTV * 100 / 1e18, "% (expected ~70%)");
         
-        assertApproxEqAbs(finalLTV, 0.7e18, 0.005e18, "Combined LTV should be ~70%");
+        // Verify NAV stability
         assertApproxEqRel(navAfter, navBefore, 0.001e18, "NAV should remain constant");
+        
+        // Verify combined LTV from two different debt types
+        assertApproxEqAbs(finalLTV, 0.7e18, 0.005e18, "Combined LTV should be ~70%");
         
         // Clean up
         vm.stopPrank();
