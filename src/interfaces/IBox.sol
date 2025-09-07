@@ -16,15 +16,16 @@ interface IBox is IERC4626 {
     event FundingFacilityAdded(IFunding indexed fundingModule, bytes facilityData);
     event FundingCollateralAdded(IFunding indexed fundingModule, IERC20 collateralToken);
     event FundingDebtAdded(IFunding indexed fundingModule, IERC20 debtToken);
+    event FundingModuleRemoved(IFunding indexed fundingModule);
+    event FundingFacilityRemoved(IFunding indexed fundingModule, bytes facilityData);
+    event FundingCollateralRemoved(IFunding indexed fundingModule, IERC20 collateralToken);
+    event FundingDebtRemoved(IFunding indexed fundingModule, IERC20 debtToken);
 
     event Pledge(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
     event Depledge(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
     event Borrow(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 borrowAmount);
     event Repay(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 repayAmount);
 
-    error FundingAlreadyExists();
-    error FundingNotWhitelisted();
-    error FundingNNotClean();
     /* FUNCTIONS */
 
     // ========== STATE FUNCTIONS ==========
@@ -90,7 +91,10 @@ interface IBox is IERC4626 {
     function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external;
     function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external;
     function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external;
-    // TODO: remove functions
+    function removeFunding(IFunding fundingModule) external;
+    function removeFundingFacility(IFunding fundingModule, bytes calldata facilityData) external;
+    function removeFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external;
+    function removeFundingDebt(IFunding fundingModule, IERC20 debtToken) external;
 
     // ========== FUNDING VIEW FUNCTIONS ==========
     function fundings(uint256 index) external view returns (IFunding);

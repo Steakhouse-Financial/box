@@ -43,14 +43,14 @@ contract FundingMorpho is IFunding {
 
     function addFacility(bytes calldata facilityData) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(!isFacility(facilityData), "Facility already added");
+        require(!isFacility(facilityData), ErrorsLib.AlreadyWhitelisted());
 
         facilities.push(facilityData);
     }
 
     function removeFacility(bytes calldata facilityData) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(!_isFacilityUsed(facilityData), "Facility is still in use");
+        require(!_isFacilityUsed(facilityData), ErrorsLib.CannotRemove());
 
         uint256 index = _findFacilityIndex(facilityData);
         facilities[index] = facilities[facilities.length - 1];
@@ -72,14 +72,14 @@ contract FundingMorpho is IFunding {
 
     function addCollateralToken(IERC20 collateralToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(!isCollateralToken(collateralToken), "Collateral token already added");
+        require(!isCollateralToken(collateralToken), ErrorsLib.AlreadyWhitelisted());
 
         collateralTokens.push(collateralToken);
     }
 
     function removeCollateralToken(IERC20 collateralToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(_collateralBalance(collateralToken) == 0, "Collateral token is still in use");
+        require(_collateralBalance(collateralToken) == 0, ErrorsLib.CannotRemove());
 
         uint256 index = _findCollateralTokenIndex(collateralToken);
         collateralTokens[index] = collateralTokens[collateralTokens.length - 1];
@@ -101,14 +101,14 @@ contract FundingMorpho is IFunding {
 
     function addDebtToken(IERC20 debtToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(!isDebtToken(debtToken), "Debt token already added");
+        require(!isDebtToken(debtToken), ErrorsLib.AlreadyWhitelisted());
 
         debtTokens.push(debtToken);
     }
 
     function removeDebtToken(IERC20 debtToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(_debtBalance(debtToken) == 0, "Debt token is still in use");
+        require(_debtBalance(debtToken) == 0, ErrorsLib.CannotRemove());
 
         uint256 index = _findDebtTokenIndex(debtToken);
         debtTokens[index] = debtTokens[debtTokens.length - 1];

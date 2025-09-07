@@ -6,6 +6,10 @@ library ErrorsLib {
     // General errors
     error InvalidAddress();
     error InvalidAmount();
+    error CannotRemove();
+    error AlreadyWhitelisted();
+    error NotWhitelisted();
+    error NotClean();
 
     // Access control errors
     error OnlyOwner();

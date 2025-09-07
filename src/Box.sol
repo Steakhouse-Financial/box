@@ -860,11 +860,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @dev The fundingModule should be completely empty
     function addFunding(IFunding fundingModule) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(!fundingMap[fundingModule], IBox.FundingAlreadyExists());
+        require(!fundingMap[fundingModule], ErrorsLib.AlreadyWhitelisted());
         require(address(fundingModule) != address(0), ErrorsLib.InvalidAddress());
-        require(fundingModule.facilitiesLength() == 0, IBox.FundingNNotClean());
-        require(fundingModule.collateralTokensLength() == 0, IBox.FundingNNotClean());
-        require(fundingModule.debtTokensLength() == 0, IBox.FundingNNotClean());
+        require(fundingModule.facilitiesLength() == 0, ErrorsLib.NotClean());
+        require(fundingModule.collateralTokensLength() == 0, ErrorsLib.NotClean());
+        require(fundingModule.debtTokensLength() == 0, ErrorsLib.NotClean());
 
         fundingMap[fundingModule] = true;
         fundings.push(fundingModule);
@@ -874,8 +874,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     
     function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
-        require(!fundingModule.isFacility(facilityData), IBox.FundingAlreadyExists());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
         fundingModule.addFacility(facilityData);
 
@@ -884,8 +883,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
-        require(!fundingModule.isCollateralToken(collateralToken), IBox.FundingAlreadyExists());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
         fundingModule.addCollateralToken(collateralToken);
 
@@ -894,19 +892,59 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
-        require(!fundingModule.isDebtToken(debtToken), IBox.FundingAlreadyExists());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
         fundingModule.addDebtToken(debtToken);
 
         emit IBox.FundingDebtAdded(fundingModule, debtToken);
     }
 
+    function removeFunding(IFunding fundingModule) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
+        require(fundingModule.facilitiesLength() == 0, ErrorsLib.NotClean());
+        require(fundingModule.collateralTokensLength() == 0, ErrorsLib.NotClean());
+        require(fundingModule.debtTokensLength() == 0, ErrorsLib.NotClean());
+
+        fundingMap[fundingModule] = false;
+        uint256 index = _findFundingIndex(fundingModule);
+        fundings[index] = fundings[fundings.length - 1];
+        fundings.pop();
+
+        emit IBox.FundingModuleRemoved(fundingModule);
+    }
+
+    function removeFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        fundingModule.removeFacility(facilityData);
+
+        emit IBox.FundingFacilityRemoved(fundingModule, facilityData);
+    }
+
+    function removeFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        fundingModule.removeCollateralToken(collateralToken);
+
+        emit IBox.FundingCollateralRemoved(fundingModule, collateralToken);
+    }
+
+    function removeFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        fundingModule.removeDebtToken(debtToken);
+
+        emit IBox.FundingDebtRemoved(fundingModule, debtToken);
+    }
 
     function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
         collateralToken.safeTransfer(address(fundingModule), collateralAmount);
         fundingModule.pledge(facilityData, collateralToken, collateralAmount);
@@ -916,7 +954,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
         fundingModule.depledge(facilityData, collateralToken, collateralAmount);
 
@@ -925,7 +963,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
         fundingModule.borrow(facilityData, debtToken, borrowAmount);
 
@@ -934,7 +972,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(isFunding(fundingModule), IBox.FundingNotWhitelisted());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
         uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
 
@@ -1001,4 +1039,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
     }
 
+
+    function _findFundingIndex(IFunding fundingData) internal view returns (uint256) {
+        for (uint256 i = 0; i < fundings.length; i++) {
+            if (fundings[i] == fundingData) {
+                return i;
+            }
+        }
+        revert ErrorsLib.NotWhitelisted();
+    }
 }

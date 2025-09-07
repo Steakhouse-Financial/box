@@ -215,4 +215,48 @@ contract FundingMorphoTest is Test {
         vm.expectRevert(ErrorsLib.OnlyOwner.selector);
         fundingMorpho.repay(facilityDataLtv80, debtToken, 1 ether);
     }
+
+    function testCleanFundingModule() public {
+        // Setup
+        collateralToken.mint(address(fundingMorpho), 1 ether);
+
+        vm.startPrank(owner);
+        fundingMorpho.pledge(facilityDataLtv80, collateralToken, 1 ether);
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.5 ether);
+
+        // Can't remove facility while it has activity
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        fundingMorpho.removeFacility(facilityDataLtv80);
+
+        // This one should work as there is no activity
+        fundingMorpho.removeFacility(facilityDataLtv90);
+
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        fundingMorpho.removeCollateralToken(collateralToken);
+
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        fundingMorpho.removeDebtToken(debtToken);
+
+        debtToken.transfer(address(fundingMorpho), 
+            fundingMorpho.debtBalance(facilityDataLtv80, debtToken));
+        fundingMorpho.repay(facilityDataLtv80, debtToken, 
+            fundingMorpho.debtBalance(facilityDataLtv80, debtToken));
+        fundingMorpho.depledge(facilityDataLtv80, collateralToken, 
+            fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken));
+
+        assertEq(fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken), 0 ether);
+        assertEq(fundingMorpho.debtBalance(facilityDataLtv80, debtToken), 0 ether);
+
+        // Remove facilities and tokens
+        fundingMorpho.removeFacility(facilityDataLtv80);
+        fundingMorpho.removeCollateralToken(collateralToken);
+        fundingMorpho.removeDebtToken(debtToken);
+
+
+        assertEq(fundingMorpho.facilitiesLength(), 0);
+        assertEq(fundingMorpho.collateralTokensLength(), 0);
+        assertEq(fundingMorpho.debtTokensLength(), 0);
+
+        vm.stopPrank();
+    }
 }
