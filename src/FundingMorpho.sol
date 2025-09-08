@@ -260,7 +260,7 @@ contract FundingMorpho is IFunding {
                 return i;
             }
         }
-        revert("Facility not found");
+        revert ErrorsLib.NotWhitelisted();
     }
 
     function _findCollateralTokenIndex(IERC20 collateralToken) internal view returns (uint256) {
@@ -269,7 +269,7 @@ contract FundingMorpho is IFunding {
                 return i;
             }
         }
-        revert("Collateral token not found");
+        revert ErrorsLib.NotWhitelisted();
     }
 
     function _findDebtTokenIndex(IERC20 debtToken) internal view returns (uint256) {
@@ -278,6 +278,6 @@ contract FundingMorpho is IFunding {
                 return i;
             }
         }
-        revert("Debt token not found");
+        revert ErrorsLib.NotWhitelisted();
     }
 }

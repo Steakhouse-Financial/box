@@ -903,9 +903,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
-        require(fundingModule.facilitiesLength() == 0, ErrorsLib.NotClean());
-        require(fundingModule.collateralTokensLength() == 0, ErrorsLib.NotClean());
-        require(fundingModule.debtTokensLength() == 0, ErrorsLib.NotClean());
+        require(fundingModule.facilitiesLength() == 0, ErrorsLib.CannotRemove());
+        require(fundingModule.collateralTokensLength() == 0, ErrorsLib.CannotRemove());
+        require(fundingModule.debtTokensLength() == 0, ErrorsLib.CannotRemove());
 
         fundingMap[fundingModule] = false;
         uint256 index = _findFundingIndex(fundingModule);

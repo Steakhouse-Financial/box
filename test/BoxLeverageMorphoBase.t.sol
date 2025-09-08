@@ -227,6 +227,88 @@ contract BoxLeverageMorphoBaseTest is Test {
         }
     }
 
+    function testRemoveFundingModule() public {
+        uint256 USDC_1000 = 1000 * 10**6;
+        uint256 USDC_500 = 500 * 10**6;
+
+        // Setup
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        usdc.transfer(address(this), USDC_1000); // Transfer 1000 USDC to this contract
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
+        usdc.transfer(address(box), 1); // Transfer 1 to the box contarct to repay the debt later
+        usdc.approve(address(box), USDC_1000);
+        box.deposit(USDC_1000, address(this)); // Deposit 1000 USDC     
+
+        vm.startPrank(allocator);
+        box.allocate(ptusr25sep, USDC_1000, swapper, "");
+        uint256 ptBalance = ptusr25sep.balanceOf(address(box));
+        box.pledge(fundingModule, facilityData, ptusr25sep, ptBalance);
+        box.borrow(fundingModule, facilityData, usdc, USDC_500);
+        vm.stopPrank();
+
+        // Test starts here
+        vm.startPrank(curator);
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFunding(fundingModule);
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFundingFacility(fundingModule, facilityData);
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFundingCollateral(fundingModule, ptusr25sep);
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFundingDebt(fundingModule, usdc);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.repay(fundingModule, facilityData, usdc, USDC_500 + 1);
+        assertEq(fundingModule.debtBalance(facilityData, usdc), 0, "No more debt");
+
+        vm.startPrank(curator);
+        // Can remove debt USDC now
+        box.removeFundingDebt(fundingModule, usdc);
+
+        // Can't remove twice
+        vm.expectRevert(ErrorsLib.NotWhitelisted.selector);
+        box.removeFundingDebt(fundingModule, usdc);
+
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFunding(fundingModule);
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFundingFacility(fundingModule, facilityData);
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFundingCollateral(fundingModule, ptusr25sep);
+        vm.stopPrank();
+
+        vm.prank(allocator);
+        box.depledge(fundingModule, facilityData, ptusr25sep, ptBalance);
+
+        vm.startPrank(curator);
+
+        // Can remove collateral ptusr25sep now
+        box.removeFundingCollateral(fundingModule, ptusr25sep); 
+
+        // Can't remove twice
+        vm.expectRevert(ErrorsLib.NotWhitelisted.selector);
+        box.removeFundingCollateral(fundingModule, ptusr25sep); 
+
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFunding(fundingModule);
+
+        // Can remove facility now
+        box.removeFundingFacility(fundingModule, facilityData);
+        // Can't remove twice
+        vm.expectRevert(ErrorsLib.NotWhitelisted.selector);
+        box.removeFundingFacility(fundingModule, facilityData);
+
+        // Can remove funding module as well
+        box.removeFunding(fundingModule);
+        // Can't remove twice
+        vm.expectRevert(ErrorsLib.NotWhitelisted.selector);
+        box.removeFunding(fundingModule);
+
+        assertEq(box.fundingsLength(), 0, "There is no more source of funding");
+
+        vm.stopPrank();
+    }
 
     /////////////////////////////
     /// SCENARIOS
