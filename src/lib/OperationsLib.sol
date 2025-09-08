@@ -20,10 +20,10 @@ library OperationsLib {
         IERC20 asset,
         IERC20 token,
         uint256 assetsAmount,
-        uint256 maxSlippage,
-        IOracle oracle,
         ISwapper swapper,
-        bytes calldata data
+        bytes calldata data,
+        IOracle oracle,
+        uint256 slippageTolerance
     ) external returns (uint256 tokensReceived, uint256 assetsSpent, int256 slippage, int256 slippagePct) {
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
         require(assetsAmount > 0, ErrorsLib.InvalidAmount());
@@ -41,7 +41,7 @@ library OperationsLib {
 
         // Validate slippage
         uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oracle.price());
-        uint256 minTokens = expectedTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
+        uint256 minTokens = expectedTokens.mulDiv(PRECISION - slippageTolerance, PRECISION);
         slippage = int256(expectedTokens) - int256(tokensReceived);
         slippagePct = expectedTokens == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedTokens);
 
@@ -58,21 +58,20 @@ library OperationsLib {
         ISwapper swapper,
         bytes calldata data,
         IOracle oracle,
-        address boxAddress,
         uint256 slippageTolerance
     ) external returns (uint256 assetsReceived, uint256 tokensSpent, int256 slippage, int256 slippagePct) {
         require(tokensAmount > 0, ErrorsLib.InvalidAmount());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
         require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
 
-        uint256 assetsBefore = asset.balanceOf(boxAddress);
-        uint256 tokensBefore = token.balanceOf(boxAddress);
+        uint256 assetsBefore = asset.balanceOf(address(this));
+        uint256 tokensBefore = token.balanceOf(address(this));
 
         token.forceApprove(address(swapper), tokensAmount);
         swapper.sell(token, asset, tokensAmount, data);
 
-        assetsReceived = asset.balanceOf(boxAddress) - assetsBefore;
-        tokensSpent = tokensBefore - token.balanceOf(boxAddress);
+        assetsReceived = asset.balanceOf(address(this)) - assetsBefore;
+        tokensSpent = tokensBefore - token.balanceOf(address(this));
 
         require(tokensSpent <= tokensAmount, ErrorsLib.SwapperDidSpendTooMuch());
 

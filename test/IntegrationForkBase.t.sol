@@ -29,6 +29,7 @@ import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {FundingAave, IPool} from "../src/FundingAave.sol";
 import {MarketParams, IMorpho} from "@morpho-blue/interfaces/IMorpho.sol";
 import {FlashLoanMorpho} from "../src/FlashLoanMorpho.sol";
+import "../src/lib/Constants.sol";
 
 /// @notice Minimal WETH interface for testing
 interface IWETH {
@@ -627,7 +628,7 @@ contract IntegrationForkBaseTest is Test {
 
         vm.startPrank(user);
         uint256 dealloc = ptusr25sep.balanceOf(address(box2));
-        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrShutdown.selector);
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         box2.deallocate(ptusr25sep, dealloc, swapper, "");
         vm.stopPrank();
 
@@ -636,11 +637,12 @@ contract IntegrationForkBaseTest is Test {
         box2.shutdown();
 
         dealloc = ptusr25sep.balanceOf(address(box1));
-        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrShutdown.selector);
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         box2.deallocate(ptusr25sep, dealloc, swapper, "");
 
 
-        vm.warp(block.timestamp + 15 days); // Move time forward to allow the shutdown to take effect
+        // Move forward enough to have the maximum allowed slippage
+        vm.warp(block.timestamp + SHUTDOWN_WARMUP + box2.shutdownSlippageDuration());
 
         vault.resetFirstTotalAssets();
 

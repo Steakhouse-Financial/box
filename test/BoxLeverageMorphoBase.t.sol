@@ -196,13 +196,13 @@ contract BoxLeverageMorphoBaseTest is Test {
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
             box.pledge(fundingModule, facilityData, ptusr25sep, 0);
 
-            vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+            vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
             box.depledge(fundingModule, facilityData, ptusr25sep, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
             box.borrow(fundingModule, facilityData, usdc, 0);
 
-            vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+            vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
             box.repay(fundingModule, facilityData, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
@@ -210,13 +210,14 @@ contract BoxLeverageMorphoBaseTest is Test {
                 swapper, "",
                 ptusr25sep, usdc, 0);
 
-            vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+            vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
             box.deleverage(address(123), fundingModule, facilityData,
                 swapper, "", ptusr25sep, 0, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
             flashloanProvider.leverage(box, fundingModule, facilityData, swapper, "", ptusr25sep, usdc, 1);
 
+            // TODO maybe thise one should be allowed for shutdown as well?
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
             flashloanProvider.deleverage(box, fundingModule, facilityData, swapper, "", ptusr25sep, 1, usdc, 1);
 
@@ -383,7 +384,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         console2.log("\n[PASS] Test completed successfully");
         vm.stopPrank();
     }
-/*
+
 
     function testBoxWind() public {
         console2.log("\n=== Starting testBoxWind (Looping Test) ===");
@@ -413,11 +414,11 @@ contract BoxLeverageMorphoBaseTest is Test {
         assertEq(ptBalance, 1005863679192785855851, "ptusr25sep in the Box");
 
         console2.log("\n3. Supplying PT as collateral");
-        box.supplyCollateral(fundingAdapter, fundingData, ptBalance);
+        box.pledge(fundingModule, facilityData, ptusr25sep, ptBalance);
         console2.log("- Initial collateral supplied:", ptBalance / 1e18, "PT tokens");
 
         assertEq(ptusr25sep.balanceOf(address(box)), 0, "No more ptusr25sep in the Box");
-        assertEq(fundingAdapter.collateral(fundingData, address(box)), ptBalance, "Collateral is correct");
+        assertEq(fundingModule.collateralBalance(ptusr25sep), ptBalance, "Collateral is correct");
 
         console2.log("\n4. Setting up flashloan provider");
         FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
@@ -432,14 +433,14 @@ contract BoxLeverageMorphoBaseTest is Test {
         console2.log("\n5. Executing wind operation (leverage loop)");
         console2.log("- NAV before wind:", navBeforeWind / 1e6, "USDC");
 
-        flashloanProvider.wind(box, fundingAdapter, fundingData, swapper, "", ptusr25sep, usdc, USDC_500);
+        flashloanProvider.leverage(box, fundingModule, facilityData, swapper, "", ptusr25sep, usdc, USDC_500);
         console2.log("- Wind operation completed with", USDC_500 / 1e6, "USDC borrowed");
 
-        assertEq(fundingAdapter.debt(fundingData, address(box)), USDC_500 + 1, "Debt is correct");
-        assertEq(fundingAdapter.collateral(fundingData, address(box)), 1508804269763505704594, "Collateral after wind is correct");
-        
-        console2.log("- New collateral amount:", fundingAdapter.collateral(fundingData, address(box)) / 1e18, "PT tokens");
-        console2.log("- Debt amount:", fundingAdapter.debt(fundingData, address(box)) / 1e6, "USDC");
+        assertEq(fundingModule.debtBalance(usdc), USDC_500 + 1, "Debt is correct");
+        assertEq(fundingModule.collateralBalance(ptusr25sep), 1508804269763505704594, "Collateral after wind is correct");
+
+        console2.log("- New collateral amount:", fundingModule.collateralBalance(ptusr25sep) / 1e18, "PT tokens");
+        console2.log("- Debt amount:", fundingModule.debtBalance(usdc) / 1e6, "USDC");
 
         // Check NAV after wind
         uint256 navAfterWind = box.totalAssets();
@@ -453,13 +454,13 @@ contract BoxLeverageMorphoBaseTest is Test {
         assertApproxEqRel(navAfterWind, navBeforeWind, 0.01e18, "NAV should remain approximately constant after wind");
 
         console2.log("\n6. Executing unwind operation (deleverage)");
-        flashloanProvider.unwind(box, fundingAdapter, fundingData, swapper, "", 
-            ptusr25sep, fundingAdapter.collateral(fundingData, address(box)), 
+        flashloanProvider.deleverage(box, fundingModule, facilityData, swapper, "", 
+            ptusr25sep, fundingModule.collateralBalance(ptusr25sep), 
             usdc, type(uint256).max);
         console2.log("- Unwind operation completed");
 
-        assertEq(fundingAdapter.debt(fundingData, address(box)), 0, "Debt is fully repaid");
-        assertEq(fundingAdapter.collateral(fundingData, address(box)), 0, "No collateral left on Morpho");
+        assertEq(fundingModule.debtBalance(usdc), 0, "Debt is fully repaid");
+        assertEq(fundingModule.collateralBalance(ptusr25sep), 0, "No collateral left on Morpho");
         assertEq(ptusr25sep.balanceOf(address(box)), 0, "No ptusr25sep are in the Box");
         assertEq(usdc.balanceOf(address(box)), 999371412, "USDC is back in the Box");
 
@@ -506,11 +507,11 @@ contract BoxLeverageMorphoBaseTest is Test {
 
         // Supply wsteth collateral to first market
         console2.log("\n3. Supplying collateral to Market 1 (94% LLTV)");
-        boxEth.supplyCollateral(fundingAdapterEth, fundingDataEth1, wstEthBalance);
+        boxEth.pledge(fundingModuleEth, facilityDataEth1, wsteth, wstEthBalance);
         console2.log("- Supplied:", wstEthBalance / 1e18, "wstETH to Market 1");
-        assertEq(fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)), wstEthBalance);
-        assertEq(fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)), 0 ether);
-        assertEq(fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)), 0 ether);
+        assertEq(fundingModuleEth.collateralBalance(facilityDataEth1, wsteth), wstEthBalance);
+        assertEq(fundingModuleEth.collateralBalance(facilityDataEth2, wsteth), 0 ether);
+        assertEq(fundingModuleEth.ltv(facilityDataEth1), 0 ether);
 
         // Prepare flashloan facility
         console2.log("\n4. Setting up flashloan provider");
@@ -526,19 +527,19 @@ contract BoxLeverageMorphoBaseTest is Test {
         console2.log("- NAV before leverage:", navBeforeLeverage / 1e18, "WETH");
 
         // Leverage on the first market
-        flashloanProvider.wind(boxEth, fundingAdapterEth, fundingDataEth1, swapper, "", wsteth, weth, 5 ether);
+        flashloanProvider.leverage(boxEth, fundingModuleEth, facilityDataEth1, swapper, "", wsteth, weth, 5 ether);
         console2.log("- Leveraged with 5 WETH borrowed");
 
-        console2.log("- Market 1 collateral:", fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)) / 1e18, "wstETH");
-        console2.log("- Market 1 debt:", fundingAdapterEth.debt(fundingDataEth1, address(boxEth)) / 1e18, "WETH");
-        console2.log("- Market 1 LTV:", fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)) * 100 / 1e18, "%");
+        console2.log("- Market 1 collateral:", fundingModuleEth.collateralBalance(facilityDataEth1, wsteth) / 1e18, "wstETH");
+        console2.log("- Market 1 debt:", fundingModuleEth.debtBalance(facilityDataEth1, weth) / 1e18, "WETH");
+        console2.log("- Market 1 LTV:", fundingModuleEth.ltv(facilityDataEth1) * 100 / 1e18, "%");
         
         // Approximate values since we're using 10x scale
-        assertApproxEqRel(fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)), 12382329159449028340, 0.01e18, "Market 1 collateral");
-        assertEq(fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)), 0);
-        assertApproxEqRel(fundingAdapterEth.debt(fundingDataEth1, address(boxEth)), 5000000000000000010, 0.01e18, "Market 1 debt");
-        assertEq(fundingAdapterEth.debt(fundingDataEth2, address(boxEth)), 0 ether);
-        assertApproxEqRel(fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)), 332938470795156227, 0.01e18, "Market 1 LTV");
+        assertApproxEqRel(fundingModuleEth.collateralBalance(facilityDataEth1, wsteth), 12382329159449028340, 0.01e18, "Market 1 collateral");
+        assertEq(fundingModuleEth.collateralBalance(facilityDataEth2, wsteth), 0);
+        assertApproxEqRel(fundingModuleEth.debtBalance(facilityDataEth1, weth), 5000000000000000010, 0.01e18, "Market 1 debt");
+        assertEq(fundingModuleEth.debtBalance(facilityDataEth2, weth), 0 ether);
+        assertApproxEqRel(fundingModuleEth.ltv(facilityDataEth1), 332938470795156227, 0.01e18, "Market 1 LTV");
 
         // Check NAV after leverage
         uint256 navAfterLeverage = boxEth.totalAssets();
@@ -553,22 +554,22 @@ contract BoxLeverageMorphoBaseTest is Test {
 
         // Shift all the position to the second market
         console2.log("\n6. Shifting position from Market 1 to Market 2 (96% LLTV)");
-        flashloanProvider.shift(boxEth, fundingAdapterEth, fundingDataEth1, fundingAdapterEth, fundingDataEth2, 
+        flashloanProvider.refinance(boxEth, fundingModuleEth, facilityDataEth1, fundingModuleEth, facilityDataEth2,
             wsteth, type(uint256).max, weth, type(uint256).max);
         console2.log("- Position shifted to Market 2");
 
-        console2.log("- Market 1 collateral:", fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)) / 1e18, "wstETH");
-        console2.log("- Market 1 debt:", fundingAdapterEth.debt(fundingDataEth1, address(boxEth)) / 1e18, "WETH");
-        console2.log("- Market 2 collateral:", fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)) / 1e18, "wstETH");
-        console2.log("- Market 2 debt:", fundingAdapterEth.debt(fundingDataEth2, address(boxEth)) / 1e18, "WETH");
-        console2.log("- Market 2 LTV:", fundingAdapterEth.ltv(fundingDataEth2, address(boxEth)) * 100 / 1e18, "%");
+        console2.log("- Market 1 collateral:", fundingModuleEth.collateralBalance(facilityDataEth1, wsteth) / 1e18, "wstETH");
+        console2.log("- Market 1 debt:", fundingModuleEth.debtBalance(facilityDataEth1, weth) / 1e18, "WETH");
+        console2.log("- Market 2 collateral:", fundingModuleEth.collateralBalance(facilityDataEth2, wsteth) / 1e18, "wstETH");
+        console2.log("- Market 2 debt:", fundingModuleEth.debtBalance(facilityDataEth2, weth) / 1e18, "WETH");
+        console2.log("- Market 2 LTV:", fundingModuleEth.ltv(facilityDataEth2) * 100 / 1e18, "%");
 
-        assertEq(fundingAdapterEth.collateral(fundingDataEth1, address(boxEth)), 0);
-        assertApproxEqRel(fundingAdapterEth.collateral(fundingDataEth2, address(boxEth)), 12382329159449028340, 0.01e18, "Market 2 collateral");
-        assertEq(fundingAdapterEth.debt(fundingDataEth1, address(boxEth)), 0 ether);
-        assertApproxEqRel(fundingAdapterEth.debt(fundingDataEth2, address(boxEth)), 5000000000000000020, 0.01e18, "Market 2 debt");
-        assertEq(fundingAdapterEth.ltv(fundingDataEth1, address(boxEth)), 0 ether);
-        assertApproxEqRel(fundingAdapterEth.ltv(fundingDataEth2, address(boxEth)), 332938470795156228, 0.01e18, "Market 2 LTV");
+        assertEq(fundingModuleEth.collateralBalance(facilityDataEth1, wsteth), 0, "No more market 1 collateral");
+        assertApproxEqRel(fundingModuleEth.collateralBalance(facilityDataEth2, wsteth), 12382329159449028340, 0.01e18, "Market 2 collateral");
+        assertEq(fundingModuleEth.debtBalance(facilityDataEth1, weth), 0 ether, "No more market 1 debt");
+        assertApproxEqRel(fundingModuleEth.debtBalance(facilityDataEth2, weth), 5000000000000000020, 0.01e18, "Market 2 debt");
+        assertEq(fundingModuleEth.ltv(facilityDataEth1), 0 ether, "Market 1 LTV should be 0");
+        assertApproxEqRel(fundingModuleEth.ltv(facilityDataEth2), 332938470795156228, 0.01e18, "Market 2 LTV");
 
         // Check NAV after shift
         uint256 navAfterShift = boxEth.totalAssets();
@@ -584,5 +585,4 @@ contract BoxLeverageMorphoBaseTest is Test {
         console2.log("\n[PASS] Test completed successfully");
         vm.stopPrank();
     }
-*/
 }

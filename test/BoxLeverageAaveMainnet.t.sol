@@ -250,13 +250,13 @@ contract BoxLeverageAaveMainnetTest is Test {
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
             box.pledge(fundingModule, facilityData, usdc, 0);
 
-            vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+            vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
             box.depledge(fundingModule, facilityData, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
             box.borrow(fundingModule, facilityData, usdc, 0);
 
-            vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+            vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
             box.repay(fundingModule, facilityData, usdc, 0);
 
             vm.stopPrank();

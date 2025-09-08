@@ -19,15 +19,15 @@ library ErrorsLib {
     error OnlyAllocators();
     error OnlyFeeders();
     error OnlySkimRecipient();
-    error OnlyAllocatorsOrShutdown();
+    error OnlyAllocatorsOrWinddown();
     error OnlyMorpho();
     error InvalidOwner();
-    
+    error CannotDuringShutdown();
+    error CannotDuringWinddown();
+
     // Deposit/Mint errors
     error CannotDepositZero();
     error CannotMintZero();
-    error CannotDepositIfShutdown();
-    error CannotMintIfShutdown();
     
     // Withdraw/Redeem errors
     error InsufficientShares();
@@ -57,8 +57,6 @@ library ErrorsLib {
     error OnlyGuardianCanRecover();
     error AlreadyShutdown();
     error NotShutdown();
-    error CannotAllocateIfShutdown();
-    error CannotReallocateIfShutdown();
 
     // Timelock errors
     error TimelockNotExpired();

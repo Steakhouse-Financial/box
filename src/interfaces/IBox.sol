@@ -12,19 +12,6 @@ import {IFunding} from "./IFunding.sol";
 
 interface IBox is IERC4626 {
 
-    event FundingModuleAdded(IFunding indexed fundingModule);
-    event FundingFacilityAdded(IFunding indexed fundingModule, bytes facilityData);
-    event FundingCollateralAdded(IFunding indexed fundingModule, IERC20 collateralToken);
-    event FundingDebtAdded(IFunding indexed fundingModule, IERC20 debtToken);
-    event FundingModuleRemoved(IFunding indexed fundingModule);
-    event FundingFacilityRemoved(IFunding indexed fundingModule, bytes facilityData);
-    event FundingCollateralRemoved(IFunding indexed fundingModule, IERC20 collateralToken);
-    event FundingDebtRemoved(IFunding indexed fundingModule, IERC20 debtToken);
-
-    event Pledge(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
-    event Depledge(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
-    event Borrow(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 borrowAmount);
-    event Repay(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 repayAmount);
 
     /* FUNCTIONS */
 
@@ -83,6 +70,7 @@ interface IBox is IERC4626 {
     function isTokenOrAsset(IERC20 token) external view returns (bool);
     function tokensLength() external view returns (uint256);
     function isShutdown() external view returns (bool);
+    function isWinddown() external view returns (bool);
 
 
 

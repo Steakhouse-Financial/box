@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test, console2} from "forge-std/Test.sol";
 import {Box} from "../src/Box.sol";
 import {BoxFactory} from "../src/BoxFactory.sol";
 import {IBoxFactory} from "../src/interfaces/IBoxFactory.sol";
@@ -482,7 +482,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
 
-        vm.expectRevert(ErrorsLib.CannotDepositIfShutdown.selector);
+        vm.expectRevert(ErrorsLib.CannotDuringShutdown.selector);
         box.deposit(100e18, feeder);
         vm.stopPrank();
     }
@@ -519,7 +519,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
         
-        vm.expectRevert(ErrorsLib.CannotMintIfShutdown.selector);
+        vm.expectRevert(ErrorsLib.CannotDuringShutdown.selector);
         box.mint(100e18, feeder);
         vm.stopPrank();
     }
@@ -767,7 +767,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         vm.prank(nonAuthorized);
         box.allocate(token1, 50e18, swapper, "");
     }
@@ -781,7 +781,18 @@ contract BoxTest is Test {
         vm.prank(guardian);
         box.shutdown();
 
-        vm.expectRevert(ErrorsLib.CannotAllocateIfShutdown.selector);
+        // Still work during shutdown
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        // But fails when we reach wind-down mode
+        vm.warp(block.timestamp + SHUTDOWN_WARMUP);
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        vm.prank(guardian);
+        box.recover();
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
     }
@@ -874,11 +885,12 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
+        // TODO why do we have this?
         // make sure timestamp is realistic, setting it in August 15, 2025
-        vm.warp(1755247499);
+        //vm.warp(1755247499);
 
         vm.startPrank(nonAuthorized);
-        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrShutdown.selector);
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         box.deallocate(token1, 25e18, swapper, "");
         vm.stopPrank();
     }
@@ -938,10 +950,25 @@ contract BoxTest is Test {
     }
 
     function testReallocateWhenShutdown() public {
+        // Setup and allocate to token1
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+        vm.prank(allocator);
+        box.allocate(token1, 50e18, swapper, "");
+
+        // Entering shutdown mode
         vm.prank(guardian);
         box.shutdown();
 
-        vm.expectRevert(ErrorsLib.CannotReallocateIfShutdown.selector);
+        // Can reallocate during shutdown
+        vm.prank(allocator);
+        box.reallocate(token1, token2, 25e18, swapper, "");
+
+        // But no longer when wind-down mode is reached
+        vm.warp(block.timestamp + SHUTDOWN_WARMUP);
+        vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, swapper, "");
     }
@@ -1187,7 +1214,7 @@ contract BoxTest is Test {
         vm.startPrank(nonAuthorized);
 
         // But need to wait SHUTDOWN_WARMUP before deallocation
-        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrShutdown.selector);
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         box.deallocate(token1, 25e18, swapper, "");
 
         // After warmup it should work
@@ -1365,16 +1392,16 @@ contract BoxTest is Test {
         uint256 timelockDurationExplicit = 1 days;
         assertEq(box.timelock(selector), 1 days);
         assertEq(timelockDuration, timelockDurationExplicit);
-        
-        console.log("=== WTF ARITHMETIC BUG ===");
-        console.log("currentTime:", currentTime);
-        console.log("timelockDuration (1 days):", timelockDuration);
-        console.log("timelockDurationExplicit (1 days):", timelockDurationExplicit);
-        console.log("currentTime + timelockDuration = ", currentTime + timelockDuration);
-        console.log("currentTime + timelockDurationExplicit =", currentTime + timelockDurationExplicit);
-        console.log("Expected result: 86402 + 86400 = 172802");
-        console.log("=====================================");
-        
+
+        console2.log("=== WTF ARITHMETIC BUG ===");
+        console2.log("currentTime:", currentTime);
+        console2.log("timelockDuration (1 days):", timelockDuration);
+        console2.log("timelockDurationExplicit (1 days):", timelockDurationExplicit);
+        console2.log("currentTime + timelockDuration = ", currentTime + timelockDuration);
+        console2.log("currentTime + timelockDurationExplicit =", currentTime + timelockDurationExplicit);
+        console2.log("Expected result: 86402 + 86400 = 172802");
+        console2.log("=====================================");
+
         box.submit(slippageData);
         assertEq(box.executableAt(slippageData), currentTime + timelockDuration);
         vm.stopPrank();
