@@ -2,14 +2,23 @@
 pragma solidity ^0.8.13;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ISwapper} from "../interfaces/ISwapper.sol";
-import {IOracle} from "../interfaces/IOracle.sol";
-import {IFunding} from "../interfaces/IFunding.sol";
+import {IFunding} from "./../interfaces/IFunding.sol";
+import {IOracle} from "./../interfaces/IOracle.sol";
+import {ISwapper} from "./../interfaces/ISwapper.sol";
 
 library EventsLib {
     // ========== FACTORIES ==========
-    event BoxCreated(address indexed box, address indexed asset, address indexed owner, address curator, string name, string symbol, 
-        uint256 maxSlippage, uint256 slippageEpochDuration, uint256 shutdownSlippageDuration);
+    event BoxCreated(
+        address indexed box,
+        address indexed asset,
+        address indexed owner,
+        address curator,
+        string name,
+        string symbol,
+        uint256 maxSlippage,
+        uint256 slippageEpochDuration,
+        uint256 shutdownSlippageDuration
+    );
 
     // ========== ACCESS CONTROL ==========
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
@@ -17,11 +26,19 @@ library EventsLib {
     event GuardianUpdated(address indexed previousGuardian, address indexed newGuardian);
     event AllocatorUpdated(address indexed account, bool isAllocator);
     event FeederUpdated(address indexed account, bool isFeeder);
-    
+
     // ========== INVESTMENT MANAGEMENT ==========
     event Allocation(IERC20 indexed token, uint256 assets, uint256 tokens, int256 slippagePct, ISwapper indexed swapper, bytes data);
     event Deallocation(IERC20 indexed token, uint256 tokens, uint256 assets, int256 slippagePct, ISwapper indexed swapper, bytes data);
-    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 tokensFrom, uint256 tokensTo, int256 slippagePct, ISwapper indexed swapper, bytes data);
+    event Reallocation(
+        IERC20 indexed fromToken,
+        IERC20 indexed toToken,
+        uint256 tokensFrom,
+        uint256 tokensTo,
+        int256 slippagePct,
+        ISwapper indexed swapper,
+        bytes data
+    );
     event Pledge(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
     event Depledge(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
     event Borrow(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 borrowAmount);
@@ -31,7 +48,7 @@ library EventsLib {
     event SlippageAccumulated(uint256 amount, uint256 total);
     event SlippageEpochReset(uint256 newEpochStart);
     event MaxSlippageUpdated(uint256 previousMaxSlippage, uint256 newMaxSlippage);
-    event Unbox(address indexed user, uint256 shares);    
+    event Unbox(address indexed user, uint256 shares);
     event Skim(IERC20 indexed token, address indexed recipient, uint256 amount);
 
     // ========== CONFIGURATION ==========

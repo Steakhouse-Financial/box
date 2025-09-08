@@ -44,7 +44,6 @@ interface IPoolAddressesProvider {
 }
 
 contract TestableVaultV2 is VaultV2 {
-
     constructor(address owner, address asset) VaultV2(owner, asset) {}
 
     function resetFirstTotalAssets() external {
@@ -59,11 +58,11 @@ contract IntegrationForkBaseTest is Test {
     using BoxLib for Box;
     using VaultV2Lib for TestableVaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
-    
+
     TestableVaultV2 vault;
-    Box box1;  // Will hold stUSD
+    Box box1; // Will hold stUSD
     Box box1b; // Will hold stUSD but with a cached adapter
-    Box box2;  // Will hold a PT with a cached adapter
+    Box box2; // Will hold a PT with a cached adapter
     IBoxAdapter adapter1;
     BoxAdapterCached adapter1b;
     BoxAdapterCached adapter2;
@@ -78,27 +77,26 @@ contract IntegrationForkBaseTest is Test {
     IERC20 usdc = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
 
     IERC4626 bbqusdc = IERC4626(0xBeeFa74640a5f7c28966cbA82466EED5609444E0); // bbqUSDC on Base
-    
+
     IERC4626 stusd = IERC4626(0x0022228a2cc5E7eF0274A7Baa600d44da5aB5776);
     IOracle stusdOracle = IOracle(0x2eede25066af6f5F2dfc695719dB239509f69915);
-    
+
     IERC20 ptusr25sep = IERC20(0xa6F0A4D18B6f6DdD408936e81b7b3A8BEFA18e77);
     IOracle ptusr25sepOracle = IOracle(0x6AdeD60f115bD6244ff4be46f84149bA758D9085);
-    
+
     ISwapper swapper = ISwapper(0x5C9dA86ECF5B35C8BF700a31a51d8a63fA53d1f6);
 
     IMorpho morpho = IMorpho(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
     address irm = 0x46415998764C29aB2a25CbeA6254146D50D22687;
 
-
     IBoxAdapterFactory boxAdapterFactory;
     IBoxAdapterFactory boxAdapterCachedFactory;
 
     /// @notice Will setup Peaty Base investing in bbqUSDC, box1 (stUSD) and box2 (PTs)
-   function setUp() public {
+    function setUp() public {
         // Fork base on a recent block (December 2024)
         // Note: Using a recent block to ensure Aave V3 is deployed
-        uint256 forkId = vm.createFork(vm.rpcUrl("base"), 34194011);  // Use latest block
+        uint256 forkId = vm.createFork(vm.rpcUrl("base"), 34194011); // Use latest block
         vm.selectFork(forkId);
 
         boxAdapterFactory = new BoxAdapterFactory();
@@ -112,17 +110,14 @@ contract IntegrationForkBaseTest is Test {
         vm.stopPrank();
 
         vm.startPrank(curator);
-        vault.addAllocator(address(allocator)); 
+        vault.addAllocator(address(allocator));
         vm.stopPrank();
 
         // Setting the vault to use bbqUSDC as the asset
-        bbqusdcAdapter = new MorphoVaultV1Adapter(
-            address(vault), 
-            address(bbqusdc)
-        );
+        bbqusdcAdapter = new MorphoVaultV1Adapter(address(vault), address(bbqusdc));
 
         vm.startPrank(curator);
-        vault.addCollateral(address(bbqusdcAdapter), bbqusdcAdapter.data(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vault.addCollateral(address(bbqusdcAdapter), bbqusdcAdapter.data(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
         vm.stopPrank();
 
         vm.startPrank(allocator);
@@ -135,22 +130,10 @@ contract IntegrationForkBaseTest is Test {
         uint256 maxSlippage = 0.01 ether; // 1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
-        box1 = new Box(
-            address(usdc), 
-            owner, 
-            curator, 
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration
-        );
+        box1 = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
 
         // Creating the ERC4626 adapter between the vault and box1
-        adapter1 = boxAdapterFactory.createBoxAdapter(
-            address(vault), 
-            box1
-        );
+        adapter1 = boxAdapterFactory.createBoxAdapter(address(vault), box1);
 
         // Allow box 1 to invest in stUSD
         vm.startPrank(curator);
@@ -158,10 +141,8 @@ contract IntegrationForkBaseTest is Test {
         box1.addCollateral(stusd, stusdOracle);
         box1.setIsAllocator(address(allocator), true);
         box1.addFeeder(address(adapter1));
-        vault.addCollateral(address(adapter1), adapter1.adapterData(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        vault.addCollateral(address(adapter1), adapter1.adapterData(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
         vm.stopPrank();
-
-
 
         // Creating Box 2 which will invest in PT-USR-25SEP
         name = "Box 1b";
@@ -169,21 +150,9 @@ contract IntegrationForkBaseTest is Test {
         maxSlippage = 0.01 ether; // 1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
-        box1b = new Box(
-            address(usdc),
-            owner,
-            curator,
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration
-        );
+        box1b = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
         // Creating the Box adapter between the vault and box1b
-        adapter1b = BoxAdapterCached(address(boxAdapterCachedFactory.createBoxAdapter(
-            address(vault), 
-            box1b
-        )));
+        adapter1b = BoxAdapterCached(address(boxAdapterCachedFactory.createBoxAdapter(address(vault), box1b)));
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);
@@ -191,10 +160,9 @@ contract IntegrationForkBaseTest is Test {
         box1b.addCollateral(stusd, stusdOracle);
         box1b.setIsAllocator(address(allocator), true);
         box1b.addFeeder(address(adapter1b));
-        vault.addCollateral(address(adapter1b), adapter1b.adapterData(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vault.addCollateral(address(adapter1b), adapter1b.adapterData(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
         vault.setPenaltyFee(address(adapter1b), 0.005 ether); // 0.5% penalty
         vm.stopPrank();
-
 
         // Creating Box 2 which will invest in PT-USR-25SEP
         name = "Box 2";
@@ -202,21 +170,9 @@ contract IntegrationForkBaseTest is Test {
         maxSlippage = 0.01 ether; // 1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
-        box2 = new Box(
-            address(usdc),
-            owner,
-            curator,
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration
-        );
+        box2 = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
         // Creating the ERC4626 adapter between the vault and box2
-        adapter2 = BoxAdapterCached(address(boxAdapterCachedFactory.createBoxAdapter(
-            address(vault), 
-            box2
-        )));
+        adapter2 = BoxAdapterCached(address(boxAdapterCachedFactory.createBoxAdapter(address(vault), box2)));
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);
@@ -224,7 +180,7 @@ contract IntegrationForkBaseTest is Test {
         box2.addCollateral(ptusr25sep, ptusr25sepOracle);
         box2.setIsAllocator(address(allocator), true);
         box2.addFeeder(address(adapter2));
-        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
         vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
         vm.stopPrank();
     }
@@ -235,12 +191,12 @@ contract IntegrationForkBaseTest is Test {
 
     /// @notice Test a simple flow
     function testDepositAllocationRedeem() public {
-        uint256 USDC_1000 = 1000 * 10**6;
-        uint256 USDC_500 = 500 * 10**6;
-        uint256 USDC_250 = 250 * 10**6;
+        uint256 USDC_1000 = 1000 * 10 ** 6;
+        uint256 USDC_500 = 500 * 10 ** 6;
+        uint256 USDC_250 = 250 * 10 ** 6;
 
         // Cleaning the balance of USDC in case of
-        usdc.transfer(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb, usdc.balanceOf(address(this))); 
+        usdc.transfer(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb, usdc.balanceOf(address(this)));
 
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
         usdc.transfer(address(this), USDC_1000); // Transfer 1000 USDC to this contract
@@ -258,9 +214,11 @@ contract IntegrationForkBaseTest is Test {
         assertEq(vault.balanceOf(address(this)), 1000 ether);
 
         // Allocating 1000 USDC to the box1 as it is the liquidity adapter
-        assertEq(bbqusdc.balanceOf(address(bbqusdcAdapter)), 
-            bbqusdc.previewDeposit(USDC_1000), 
-            "Allocation to bbqUSDC should result in gettiong the shares");
+        assertEq(
+            bbqusdc.balanceOf(address(bbqusdcAdapter)),
+            bbqusdc.previewDeposit(USDC_1000),
+            "Allocation to bbqUSDC should result in gettiong the shares"
+        );
 
         //////////////////////////////////////////////////////
         // Allocating 500 USDC to stUSD in Box1
@@ -270,21 +228,16 @@ contract IntegrationForkBaseTest is Test {
         vault.deallocate(address(bbqusdcAdapter), "", USDC_500);
         vault.allocate(address(adapter1), "", USDC_500);
 
-        assertEq(usdc.balanceOf(address(box1)), USDC_500,
-            "500 USDC deposited in the Box1 contract but not yet invested");
-        
-        box1.allocate(stusd, USDC_250, swapper, "");
-        assertEq(usdc.balanceOf(address(box1)), USDC_250,
-            "Only 250 USDC left as half was allocated to stUSD");
+        assertEq(usdc.balanceOf(address(box1)), USDC_500, "500 USDC deposited in the Box1 contract but not yet invested");
 
         box1.allocate(stusd, USDC_250, swapper, "");
-        assertEq(usdc.balanceOf(address(box1)), 0,
-            "No USDC left as all was allocated to stUSD");
-        assertEq(stusd.previewRedeem(stusd.balanceOf(address(box1))), 500 ether - 3,
-            "Almost 500 USDA equivalent of stUSD (3 round down)");
+        assertEq(usdc.balanceOf(address(box1)), USDC_250, "Only 250 USDC left as half was allocated to stUSD");
+
+        box1.allocate(stusd, USDC_250, swapper, "");
+        assertEq(usdc.balanceOf(address(box1)), 0, "No USDC left as all was allocated to stUSD");
+        assertEq(stusd.previewRedeem(stusd.balanceOf(address(box1))), 500 ether - 3, "Almost 500 USDA equivalent of stUSD (3 round down)");
 
         vm.stopPrank();
-
 
         //////////////////////////////////////////////////////
         // Allocating 500 USDC to Box2
@@ -295,13 +248,11 @@ contract IntegrationForkBaseTest is Test {
         uint256 remainingUSDC = bbqusdc.previewRedeem(bbqusdc.balanceOf(address(bbqusdcAdapter)));
 
         vault.deallocate(address(bbqusdcAdapter), "", remainingUSDC);
-        vault.allocate(address(adapter2), "", remainingUSDC );
+        vault.allocate(address(adapter2), "", remainingUSDC);
 
-        assertEq(usdc.balanceOf(address(box2)), remainingUSDC,
-            "All USDC in bbqUSDC is now is Box2");
+        assertEq(usdc.balanceOf(address(box2)), remainingUSDC, "All USDC in bbqUSDC is now is Box2");
 
         vm.stopPrank();
-        
 
         //////////////////////////////////////////////////////
         // Unwinding
@@ -309,7 +260,7 @@ contract IntegrationForkBaseTest is Test {
 
         // No liquidity is available so we except a revert here
         vm.expectRevert();
-        vault.withdraw(10 * 10**6, address(this), address(this));
+        vault.withdraw(10 * 10 ** 6, address(this), address(this));
 
         // We exit stUSD but leave it in box1 for now
         vm.startPrank(allocator);
@@ -317,7 +268,7 @@ contract IntegrationForkBaseTest is Test {
         vm.stopPrank();
 
         vm.expectRevert();
-        vault.withdraw(10 * 10**6, address(this), address(this));
+        vault.withdraw(10 * 10 ** 6, address(this), address(this));
 
         // We deallocate from box 1 to the vault liquidity sleeve
         uint256 box1Balance = usdc.balanceOf(address(box1));
@@ -357,17 +308,14 @@ contract IntegrationForkBaseTest is Test {
         vm.stopPrank();
     }
 
-
-
     /// @notice Test a simple flow
     function testCachedVsNonCached() public {
-        uint256 USDC_1000 = 1000 * 10**6;
-        uint256 USDC_250 = 250 * 10**6;
-        uint256 USDC_125 = 125 * 10**6;
-
+        uint256 USDC_1000 = 1000 * 10 ** 6;
+        uint256 USDC_250 = 250 * 10 ** 6;
+        uint256 USDC_125 = 125 * 10 ** 6;
 
         // Cleaning the balance of USDC in case of
-        usdc.transfer(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb, usdc.balanceOf(address(this))); 
+        usdc.transfer(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb, usdc.balanceOf(address(this)));
 
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
         usdc.transfer(address(user), USDC_1000); // Transfer 1000 USDC to this contract
@@ -391,34 +339,27 @@ contract IntegrationForkBaseTest is Test {
         usdc.transfer(address(vault), 1); // Transfer 1 to convert the conversion loss
 
         vm.startPrank(allocator);
-        vault.deallocate(address(bbqusdcAdapter), "", bbqusdc.previewRedeem(977216327917259790879)); 
+        vault.deallocate(address(bbqusdcAdapter), "", bbqusdc.previewRedeem(977216327917259790879));
 
-        vault.allocate(address(adapter1), "", USDC_250);  
+        vault.allocate(address(adapter1), "", USDC_250);
         box1.allocate(stusd, USDC_125, swapper, "");
-        assertEq(stusd.previewRedeem(stusd.balanceOf(address(box1))), 125 ether - 1,
-            "Almost 125 USDA equivalent of stUSD (1 round down)");
-        assertEq(box1.totalAssets(), USDC_250 - 2,
-            "Almost 250 USDC of total assets in Box1");
+        assertEq(stusd.previewRedeem(stusd.balanceOf(address(box1))), 125 ether - 1, "Almost 125 USDA equivalent of stUSD (1 round down)");
+        assertEq(box1.totalAssets(), USDC_250 - 2, "Almost 250 USDC of total assets in Box1");
 
-        vault.allocate(address(adapter1b), "", USDC_250);  
+        vault.allocate(address(adapter1b), "", USDC_250);
         box1b.allocate(stusd, USDC_125, swapper, "");
-        assertEq(stusd.previewRedeem(stusd.balanceOf(address(box1b))), 125 ether - 1,
-            "Almost 125 USDA equivalent of stUSD (1 round down)");
-        assertEq(box1b.totalAssets(), USDC_250 - 2,
-            "Almost 250 USDC of total assets in Box1b");
+        assertEq(stusd.previewRedeem(stusd.balanceOf(address(box1b))), 125 ether - 1, "Almost 125 USDA equivalent of stUSD (1 round down)");
+        assertEq(box1b.totalAssets(), USDC_250 - 2, "Almost 250 USDC of total assets in Box1b");
 
         vm.stopPrank();
 
         // Test the real asset function on the adapters
 
-        assertEq(adapter1.realAssets(), USDC_250 - 2,
-            "Almost 250 USDC equivalent of stUSD");
+        assertEq(adapter1.realAssets(), USDC_250 - 2, "Almost 250 USDC equivalent of stUSD");
 
         vm.prank(allocator);
         adapter1b.updateTotalAssets();
-        assertEq(adapter1b.realAssets(), USDC_250 - 2,
-            "Almost 250 USDC equivalent of stUSD");
-
+        assertEq(adapter1b.realAssets(), USDC_250 - 2, "Almost 250 USDC equivalent of stUSD");
 
         //////////////////////////////////////////////////////
         // Check real assets update with time
@@ -426,22 +367,16 @@ contract IntegrationForkBaseTest is Test {
 
         vm.warp(block.timestamp + 1 days);
 
-        assertGt(adapter1.realAssets(), USDC_250 - 2,
-            "Adapter1 accrued value");
+        assertGt(adapter1.realAssets(), USDC_250 - 2, "Adapter1 accrued value");
 
-        assertEq(adapter1b.realAssets(), USDC_250 - 2,
-            "Adapter1b doesn't accrue value");
+        assertEq(adapter1b.realAssets(), USDC_250 - 2, "Adapter1b doesn't accrue value");
 
         vm.prank(allocator);
         adapter1b.updateTotalAssets();
-        assertGt(adapter1b.realAssets(), USDC_250 - 2 ,
-            "Adapter1b accrued value");
-
+        assertGt(adapter1b.realAssets(), USDC_250 - 2, "Adapter1b accrued value");
 
         vm.startPrank(guardian);
         vm.stopPrank();
-
-
 
         //////////////////////////////////////////////////////
         // Test who can cache
@@ -470,14 +405,12 @@ contract IntegrationForkBaseTest is Test {
         vm.warp(adapter1b.totalAssetsTimestamp() + 1 days + 1);
 
         adapter1b.updateTotalAssets();
-
     }
-
 
     /// @notice Test a Box with 2 feeders
     function testSharedBox() public {
-        uint256 USDC_1000 = 1000 * 10**6;
-        uint256 USDC_500 = 500 * 10**6;
+        uint256 USDC_1000 = 1000 * 10 ** 6;
+        uint256 USDC_500 = 500 * 10 ** 6;
 
         // deactivate bbqusdc as the liquidity
         vm.prank(allocator);
@@ -494,12 +427,10 @@ contract IntegrationForkBaseTest is Test {
         usdc.approve(address(vault), USDC_1000); // Approve the vault to spend USDC
         vault.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
 
-
         vm.prank(curator);
         box1.addFeeder(address(this));
         usdc.approve(address(box1), USDC_1000); // Approve the vault to spend USDC
         box1.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
-
 
         assertEq(vault.totalAssets(), USDC_1000, "Vault value is 1000 USDC");
         assertEq(box1.totalAssets(), 2 * USDC_1000, "Box value is 1000 USDC");
@@ -511,13 +442,12 @@ contract IntegrationForkBaseTest is Test {
 
         assertEq(box1.totalAssets(), USDC_1000, "Box value is now only 1000 USDC");
         assertEq(vault.totalAssets(), USDC_500, "Vault value is now down to 500 USDC");
-
     }
 
-        /// @notice Test a Box with 2 feeders
+    /// @notice Test a Box with 2 feeders
     function testSharedBoxCached() public {
-        uint256 USDC_1000 = 1000 * 10**6;
-        uint256 USDC_500 = 500 * 10**6;
+        uint256 USDC_1000 = 1000 * 10 ** 6;
+        uint256 USDC_500 = 500 * 10 ** 6;
 
         // deactivate bbqusdc as the liquidity
         vm.prank(allocator);
@@ -534,12 +464,10 @@ contract IntegrationForkBaseTest is Test {
         usdc.approve(address(vault), USDC_1000); // Approve the vault to spend USDC
         vault.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
 
-
         vm.prank(curator);
         box1b.addFeeder(address(this));
         usdc.approve(address(box1b), USDC_1000); // Approve the vault to spend USDC
         box1b.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
-
 
         assertEq(vault.totalAssets(), USDC_1000, "Vault value is 1000 USDC");
         assertEq(box1b.totalAssets(), 2 * USDC_1000, "Box value is 1000 USDC");
@@ -566,7 +494,7 @@ contract IntegrationForkBaseTest is Test {
         assertEq(vault.totalAssets(), USDC_500, "Vault value is still 500 USDC as no update");
         assertEq(vault.allocation(adapter1b.ids()[0]), USDC_500, "Allocation is still 500 USDC");
 
-        vm.prank(allocator); 
+        vm.prank(allocator);
         vault.allocate(address(adapter1b), "", 0); // We also test allocate
 
         // Vault V2 is limiting the value accrual per day
@@ -577,16 +505,14 @@ contract IntegrationForkBaseTest is Test {
         vault.resetFirstTotalAssets(); // transient issue for testing
         assertEq(vault.totalAssets(), USDC_1000, "Vault value is back 1000 USDC due to update");
         assertEq(vault.allocation(adapter1b.ids()[0]), USDC_1000, "Allocation is back to 1000 USDC");
-
     }
 
     /// @notice Test guardian controlled shutdown
     function testGuardianControlledShutdown() public {
-        uint256 USDC_1000 = 1000 * 10**6;
+        uint256 USDC_1000 = 1000 * 10 ** 6;
 
         // Cleaning the balance of USDC in case of
-        usdc.transfer(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb, usdc.balanceOf(address(this))); 
-
+        usdc.transfer(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb, usdc.balanceOf(address(this)));
 
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
         usdc.transfer(address(user), USDC_1000); // Transfer 1000 USDC to this contract
@@ -609,14 +535,12 @@ contract IntegrationForkBaseTest is Test {
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
         usdc.transfer(address(vault), 1); // Transfer 1 to convert the conversion loss
 
-
         vm.startPrank(allocator);
-        vault.deallocate(address(bbqusdcAdapter), "", bbqusdc.previewRedeem(977216327917259790879)); 
+        vault.deallocate(address(bbqusdcAdapter), "", bbqusdc.previewRedeem(977216327917259790879));
         assertEq(usdc.balanceOf(address(vault)), USDC_1000);
-        vault.allocate(address(adapter2), "", USDC_1000);  
+        vault.allocate(address(adapter2), "", USDC_1000);
         box2.allocate(ptusr25sep, USDC_1000, swapper, "");
-        assertApproxEqRel(box2.totalAssets(), USDC_1000, 0.005 ether,
-            "Around 1000 USDC of value in Box2");
+        assertApproxEqRel(box2.totalAssets(), USDC_1000, 0.005 ether, "Around 1000 USDC of value in Box2");
 
         vm.stopPrank();
 
@@ -640,7 +564,6 @@ contract IntegrationForkBaseTest is Test {
         vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         box2.deallocate(ptusr25sep, dealloc, swapper, "");
 
-
         // Move forward enough to have the maximum allowed slippage
         vm.warp(block.timestamp + SHUTDOWN_WARMUP + box2.shutdownSlippageDuration());
 
@@ -654,12 +577,17 @@ contract IntegrationForkBaseTest is Test {
         vault.redeem(vault.balanceOf(user), user, user);
         vm.stopPrank();
 
-        assertApproxEqRel(usdc.balanceOf(user), 980 * 10**6, 0.005 ether, "User should have received the USDC after redeem (minus penalty and slippage)");
+        assertApproxEqRel(
+            usdc.balanceOf(user),
+            980 * 10 ** 6,
+            0.005 ether,
+            "User should have received the USDC after redeem (minus penalty and slippage)"
+        );
     }
 
     /// @notice Test slippage events and reset in a Box
     function testSlippage() public {
-        uint256 USDC_AMOUNT = 10_000 * 10**6;
+        uint256 USDC_AMOUNT = 10_000 * 10 ** 6;
 
         // Disable bbqUSDC as liquidity
         vm.prank(allocator);
@@ -677,17 +605,15 @@ contract IntegrationForkBaseTest is Test {
         vm.startPrank(allocator);
 
         assertEq(usdc.balanceOf(address(vault)), USDC_AMOUNT);
-        vault.allocate(address(adapter2), "", USDC_AMOUNT);  
-        
+        vault.allocate(address(adapter2), "", USDC_AMOUNT);
+
         assertEq(box2.totalAssets(), 10000000000, "Total asset before allocate doesn't match");
         assertEq(box2.accumulatedSlippage(), 0, "Before the start, accumulated slippage should be 0");
 
         vm.expectEmit(true, true, true, true);
         emit EventsLib.SlippageAccumulated(430674700893582, 430674700893582);
         vm.expectEmit(true, true, true, true);
-        emit EventsLib.Allocation(IERC20(ptusr25sep), 
-            USDC_AMOUNT,
-            10098450142215613367131, 430489300239495, ISwapper(swapper), "");
+        emit EventsLib.Allocation(IERC20(ptusr25sep), USDC_AMOUNT, 10098450142215613367131, 430489300239495, ISwapper(swapper), "");
         box2.allocate(ptusr25sep, USDC_AMOUNT, swapper, "");
 
         assertEq(box2.totalAssets(), 9995695106, "Total asset after allocate doesn't match");
@@ -696,15 +622,20 @@ contract IntegrationForkBaseTest is Test {
         vm.expectEmit(true, true, true, true);
         emit EventsLib.SlippageAccumulated(464070846766503, 894745547660085);
         vm.expectEmit(true, true, true, true);
-        emit EventsLib.Deallocation(IERC20(ptusr25sep), 
+        emit EventsLib.Deallocation(
+            IERC20(ptusr25sep),
             ptusr25sep.balanceOf(address(box2)),
-            9991058547, 463855584912435, ISwapper(swapper), "");
+            9991058547,
+            463855584912435,
+            ISwapper(swapper),
+            ""
+        );
         box2.deallocate(ptusr25sep, ptusr25sep.balanceOf(address(box2)), swapper, "");
 
         assertEq(box2.totalAssets(), 9991058547, "Total asset after deallocate doesn't match");
         assertEq(box2.accumulatedSlippage(), 894745547660085, "Accumulated slippage after deallocate doesn't match");
 
-        vm.warp(block.timestamp + 8 days);    
+        vm.warp(block.timestamp + 8 days);
 
         assertEq(box2.accumulatedSlippage(), 894745547660085, "Slippage doesn't change just by passage of time");
 
@@ -721,9 +652,8 @@ contract IntegrationForkBaseTest is Test {
 
     /// @notice Test impact of a loss in a Box
     function testBoxLoss() public {
-        uint256 USDC_1000 = 1000 * 10**6;
-        uint256 USDC_500 = 500 * 10**6;
-
+        uint256 USDC_1000 = 1000 * 10 ** 6;
+        uint256 USDC_500 = 500 * 10 ** 6;
 
         //////////////////////////////////////////////////////
         // Setup 500 USDC liquid and 500 USDC in Box1
@@ -742,12 +672,9 @@ contract IntegrationForkBaseTest is Test {
         vm.prank(allocator);
         vault.allocate(address(adapter1), "", USDC_500);
 
-        assertEq(usdc.balanceOf(address(box1)), USDC_500,
-            "500 USDC deposited in the Box1 contract but not yet invested");
-        assertEq(usdc.balanceOf(address(vault)), USDC_500,
-            "500 USDC liquid in the vault");
-        assertEq(vault.totalAssets(), USDC_1000,
-            "Vault value is 1000 USDC");
+        assertEq(usdc.balanceOf(address(box1)), USDC_500, "500 USDC deposited in the Box1 contract but not yet invested");
+        assertEq(usdc.balanceOf(address(vault)), USDC_500, "500 USDC liquid in the vault");
+        assertEq(vault.totalAssets(), USDC_1000, "Vault value is 1000 USDC");
 
         //////////////////////////////////////////////////////
         // Simulating a loss in Box1
@@ -755,36 +682,24 @@ contract IntegrationForkBaseTest is Test {
 
         vm.prank(address(box1));
         usdc.transfer(address(this), USDC_500);
-        assertEq(usdc.balanceOf(address(box1)), 0,
-            "No more USDC in the Box1 contract");        
-        assertEq(box1.totalAssets(), 0,
-            "Total assets at Box1 level is 0"); 
+        assertEq(usdc.balanceOf(address(box1)), 0, "No more USDC in the Box1 contract");
+        assertEq(box1.totalAssets(), 0, "Total assets at Box1 level is 0");
 
         // Just to allow totalAssets to work
         vault.resetFirstTotalAssets();
-        assertEq(vault.totalAssets(), USDC_500,
-            "Vault value is 500 USDC an");
+        assertEq(vault.totalAssets(), USDC_500, "Vault value is 500 USDC an");
 
         usdc.transfer(address(box1), USDC_500);
 
-        assertEq(usdc.balanceOf(address(box1)), USDC_500,
-            "500 USDC back in the Box1 contract");        
-        assertEq(box1.totalAssets(), USDC_500,
-            "Total assets at Box1 level is again 0"); 
+        assertEq(usdc.balanceOf(address(box1)), USDC_500, "500 USDC back in the Box1 contract");
+        assertEq(box1.totalAssets(), USDC_500, "Total assets at Box1 level is again 0");
 
         // Just to allow totalAssets to work
         vault.resetFirstTotalAssets();
-        assertEq(vault.totalAssets(), USDC_1000,
-            "Vault value is back to 1000 USDC an");
-
+        assertEq(vault.totalAssets(), USDC_1000, "Vault value is back to 1000 USDC an");
     }
 
-
-
-
-
-
-/*
+    /*
     function testBoxLeverageMorpho() public {
         uint256 USDC_1000 = 1000 * 10**6;
         BorrowMorpho borrow = new BorrowMorpho();

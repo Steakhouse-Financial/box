@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Morpho Association, Steakhouse Financial
-pragma solidity >=0.5.0;
+pragma solidity >=0.8.0;
 
-import {Box} from "../Box.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Box} from "./../Box.sol";
 
 interface IBoxFactory {
     /* EVENTS */
@@ -24,7 +24,7 @@ interface IBoxFactory {
     /* FUNCTIONS */
 
     function isBox(address account) external view returns (bool);
-    function createBox(    
+    function createBox(
         IERC20 _currency,
         address _owner,
         address _curator,
@@ -33,5 +33,6 @@ interface IBoxFactory {
         uint256 _maxSlippage,
         uint256 _slippageEpochDuration,
         uint256 _shutdownSlippageDuration,
-        bytes32 salt) external returns (Box box);
+        bytes32 salt
+    ) external returns (Box box);
 }

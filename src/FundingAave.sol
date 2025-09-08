@@ -2,12 +2,11 @@
 // Copyright (c) 2025 Steakhouse Financial
 pragma solidity ^0.8.13;
 
-import {IFunding} from "./interfaces/IFunding.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MathLib} from "@morpho-blue/libraries/MathLib.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IFunding} from "./interfaces/IFunding.sol";
 import {ErrorsLib} from "./lib/ErrorsLib.sol";
-
 
 interface IPool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
@@ -17,19 +16,14 @@ interface IPool {
     function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
     function setUserEMode(uint8 categoryId) external;
     function getUserEMode(address user) external view returns (uint256);
-    function getEModeCategoryData(uint8 categoryId)
-        external
-        view
-        returns (
-            uint16 ltv,
-            uint16 liquidationThreshold,
-            uint16 liquidationBonus,
-            address priceSource,
-            string memory label
-        );
+    function getEModeCategoryData(
+        uint8 categoryId
+    ) external view returns (uint16 ltv, uint16 liquidationThreshold, uint16 liquidationBonus, address priceSource, string memory label);
     function getReserveEModeCategory(address asset) external view returns (uint256);
 
-    function getUserAccountData(address user)
+    function getUserAccountData(
+        address user
+    )
         external
         view
         returns (
@@ -41,7 +35,9 @@ interface IPool {
             uint256 healthFactor
         );
 
-    function getReserveData(address asset)
+    function getReserveData(
+        address asset
+    )
         external
         view
         returns (
@@ -69,7 +65,6 @@ interface IScaledBalanceToken {
     function scaledBalanceOf(address user) external view returns (uint256);
 }
 
-
 contract FundingAave is IFunding {
     using SafeERC20 for IERC20;
     using MathLib for uint256;
@@ -90,7 +85,7 @@ contract FundingAave is IFunding {
     constructor(address _owner, IPool _pool, uint8 _eMode) {
         owner = _owner;
         pool = _pool;
-        eMode = _eMode;     
+        eMode = _eMode;
         if (pool.getUserEMode(address(this)) != eMode) {
             pool.setUserEMode(eMode);
         }
@@ -174,7 +169,7 @@ contract FundingAave is IFunding {
         debtTokens.pop();
     }
 
-    function isDebtToken(IERC20 debtToken) public view override returns (bool)  {
+    function isDebtToken(IERC20 debtToken) public view override returns (bool) {
         for (uint i = 0; i < debtTokens.length; i++) {
             if (address(debtTokens[i]) == address(debtToken)) {
                 return true;
@@ -187,14 +182,13 @@ contract FundingAave is IFunding {
         return debtTokens.length;
     }
 
-
     // ========== ACTIONS ==========
 
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(isFacility(facilityData), "Invalid facility");
         require(isCollateralToken(collateralToken), "Invalid collateral token");
-        
+
         IERC20(collateralToken).forceApprove(address(pool), collateralAmount);
         pool.supply(address(collateralToken), collateralAmount, address(this), 0);
         pool.setUserUseReserveAsCollateral(address(collateralToken), true);
@@ -226,7 +220,7 @@ contract FundingAave is IFunding {
         pool.repay(address(debtToken), repayAmount, rateMode, address(this));
     }
 
-/* TODO: We probably don't need this anymore, type(uint256).max for repayAmount is fixing it, but let me know if we do
+    /* TODO: We probably don't need this anymore, type(uint256).max for repayAmount is fixing it, but let me know if we do
     function repayShares(bytes calldata data, uint256 shares) external {
         (IPool pool, address loanAsset, , uint256 rateMode,) = dataToAaveParams(data);
 
@@ -245,18 +239,10 @@ contract FundingAave is IFunding {
     }
 */
 
-
     // ========== POSITION ==========
 
     function ltv(bytes calldata data) external view returns (uint256) {
-        (
-            uint256 totalCollateralBase,
-            uint256 totalDebtBase,
-            ,
-            ,
-            ,
-            
-        ) = pool.getUserAccountData(address(this));
+        (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
         return totalCollateralBase == 0 ? 0 : totalDebtBase.wDivUp(totalCollateralBase);
     }
@@ -264,7 +250,7 @@ contract FundingAave is IFunding {
     function debtBalance(bytes calldata facilityData, IERC20 debtToken) public view returns (uint256) {
         return _debtBalance(debtToken);
     }
-/*
+    /*
     function debtShares(bytes calldata data, address who) external view returns (uint256) {
         (IPool pool, address loanAsset, , uint256 rateMode,) = dataToAaveParams(data);
         if (rateMode == 2) {
@@ -280,14 +266,14 @@ contract FundingAave is IFunding {
         return _collateralBalance(collateralToken);
     }
 
-    function debtBalance(IERC20 debtToken) external override view returns (uint256) {
+    function debtBalance(IERC20 debtToken) external view override returns (uint256) {
         return _debtBalance(debtToken);
     }
 
-    function collateralBalance(IERC20 collateralToken) external override view returns (uint256) {
+    function collateralBalance(IERC20 collateralToken) external view override returns (uint256) {
         return _collateralBalance(collateralToken);
     }
-/*
+    /*
     function dataToAaveParams(bytes calldata data)
         public
         pure
@@ -332,27 +318,19 @@ contract FundingAave is IFunding {
     }
     */
 
-
     function _debtBalance(IERC20 debtToken) internal view returns (uint256 balance) {
-        (,,,,,,,, , address stableDebtToken, address variableDebtToken,,,,) = pool.getReserveData(address(debtToken));
+        (, , , , , , , , , address stableDebtToken, address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
         address aDebtToken = rateMode == 2 ? variableDebtToken : stableDebtToken;
         return IERC20(aDebtToken).balanceOf(address(this));
     }
 
     function _collateralBalance(IERC20 collateralToken) internal view returns (uint256 balance) {
-        (,,,,,,,, address aTokenAddress, , ,,,,) = pool.getReserveData(address(collateralToken));
+        (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(address(collateralToken));
         return IERC20(aTokenAddress).balanceOf(address(this));
     }
 
     function _isFacilityUsed(bytes calldata facilityData) internal view returns (bool) {
-        (
-            uint256 totalCollateralBase,
-            uint256 totalDebtBase,
-            ,
-            ,
-            ,
-            
-        ) = pool.getUserAccountData(address(this));
+        (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
         return totalCollateralBase > 0 || totalDebtBase > 0;
     }
@@ -384,5 +362,3 @@ contract FundingAave is IFunding {
         revert("Debt token not found");
     }
 }
-
-

@@ -2,18 +2,17 @@
 // Copyright (c) 2025 Steakhouse Financial
 pragma solidity ^0.8.13;
 
-import {IFunding} from "./interfaces/IFunding.sol";
 import {IMorpho, Id, MarketParams, Position} from "@morpho-blue/interfaces/IMorpho.sol";
 import {IOracle} from "@morpho-blue/interfaces/IOracle.sol";
+import "@morpho-blue/libraries/ConstantsLib.sol";
 import {MarketParamsLib} from "@morpho-blue/libraries/MarketParamsLib.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {MathLib} from "../lib/morpho-blue/src/libraries/MathLib.sol";
 import {MorphoBalancesLib} from "@morpho-blue/libraries/periphery/MorphoBalancesLib.sol";
 import {MorphoLib} from "@morpho-blue/libraries/periphery/MorphoLib.sol";
-import "@morpho-blue/libraries/ConstantsLib.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {MathLib} from "./../lib/morpho-blue/src/libraries/MathLib.sol";
+import {IFunding} from "./interfaces/IFunding.sol";
 import {ErrorsLib} from "./lib/ErrorsLib.sol";
-
 
 contract FundingMorpho is IFunding {
     using SafeERC20 for IERC20;
@@ -24,7 +23,6 @@ contract FundingMorpho is IFunding {
 
     address public immutable owner;
     IMorpho public immutable morpho;
-
 
     bytes[] public facilities;
     IERC20[] public collateralTokens;
@@ -115,7 +113,7 @@ contract FundingMorpho is IFunding {
         debtTokens.pop();
     }
 
-    function isDebtToken(IERC20 debtToken) public view override returns (bool)  {
+    function isDebtToken(IERC20 debtToken) public view override returns (bool) {
         for (uint i = 0; i < debtTokens.length; i++) {
             if (address(debtTokens[i]) == address(debtToken)) {
                 return true;
@@ -170,7 +168,7 @@ contract FundingMorpho is IFunding {
 
         uint256 debtAmount = morpho.expectedBorrowAssets(market, address(this));
 
-        if(repayAmount == type(uint256).max) {
+        if (repayAmount == type(uint256).max) {
             repayAmount = debtAmount;
         }
 
@@ -178,17 +176,16 @@ contract FundingMorpho is IFunding {
 
         // If the amount repaid is all the debt, we convert to all shares
         // amount repaid would internally get translated to more shares that there is to repaid
-        if(repayAmount == debtAmount) {
+        if (repayAmount == debtAmount) {
             morpho.repay(market, 0, morpho.borrowShares(market.id(), address(this)), address(this), "");
-        }
-        else {
+        } else {
             morpho.repay(market, repayAmount, 0, address(this), "");
         }
     }
 
     // ========== POSITION ==========
 
-    function ltv(bytes calldata facilityData) external override view returns (uint256) {
+    function ltv(bytes calldata facilityData) external view override returns (uint256) {
         MarketParams memory market = decodeFacilityData(facilityData);
         Id marketId = market.id();
         uint256 borrowedAssets = morpho.expectedBorrowAssets(market, address(this));
@@ -198,23 +195,23 @@ contract FundingMorpho is IFunding {
         return (collateralValue == 0) ? 0 : borrowedAssets.wDivUp(collateralValue);
     }
 
-    function debtBalance(bytes calldata facilityData, IERC20 debtToken) external override view returns (uint256) {
+    function debtBalance(bytes calldata facilityData, IERC20 debtToken) external view override returns (uint256) {
         MarketParams memory market = decodeFacilityData(facilityData);
         require(address(debtToken) == market.loanToken, "FundingModuleMorpho: Wrong debt token");
         return morpho.expectedBorrowAssets(market, address(this));
     }
 
-    function collateralBalance(bytes calldata facilityData, IERC20 collateralToken) external override view returns (uint256) {
+    function collateralBalance(bytes calldata facilityData, IERC20 collateralToken) external view override returns (uint256) {
         MarketParams memory market = decodeFacilityData(facilityData);
         require(address(collateralToken) == market.collateralToken, "FundingModuleMorpho: Wrong collateral token");
         return morpho.collateral(market.id(), address(this));
     }
 
-    function debtBalance(IERC20 debtToken) external override view returns (uint256) {
+    function debtBalance(IERC20 debtToken) external view override returns (uint256) {
         return _debtBalance(debtToken);
     }
 
-    function collateralBalance(IERC20 collateralToken) external override view returns (uint256) {
+    function collateralBalance(IERC20 collateralToken) external view override returns (uint256) {
         return _collateralBalance(collateralToken);
     }
 
@@ -228,7 +225,7 @@ contract FundingMorpho is IFunding {
     function encodeFacilityData(MarketParams memory market) public pure returns (bytes memory) {
         return abi.encode(market);
     }
-    
+
     // ========== Internal functions ==========
     function _debtBalance(IERC20 debtToken) internal view returns (uint256 balance) {
         for (uint256 i = 0; i < facilities.length; i++) {

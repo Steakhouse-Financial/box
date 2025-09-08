@@ -82,11 +82,11 @@ contract MockSwapper is ISwapper {
 
     function sell(IERC20 input, IERC20 output, uint256 amountIn, bytes calldata) external {
         require(!shouldRevert, "Swapper: Forced revert");
-        
+
         input.transferFrom(msg.sender, address(this), amountIn);
-        
+
         // Apply slippage
-        uint256 amountOut = amountIn * (100 - slippagePercent) / 100;
+        uint256 amountOut = (amountIn * (100 - slippagePercent)) / 100;
         output.transfer(msg.sender, amountOut);
     }
 }
@@ -108,8 +108,8 @@ contract PriceAwareSwapper is ISwapper {
         input.transferFrom(msg.sender, address(this), amountIn);
 
         // Pay out assets according to oracle price, minus slippage
-        uint256 expectedOut = amountIn * oracle.price() / ORACLE_PRECISION;
-        uint256 amountOut = expectedOut * (100 - slippagePercent) / 100;
+        uint256 expectedOut = (amountIn * oracle.price()) / ORACLE_PRECISION;
+        uint256 amountOut = (expectedOut * (100 - slippagePercent)) / 100;
         output.transfer(msg.sender, amountOut);
     }
 }
@@ -130,28 +130,27 @@ contract MaliciousSwapper is ISwapper {
         scenario = _scenario;
     }
 
-    function sell(IERC20 input, IERC20 output, uint256 amountIn, bytes calldata data) external {        
+    function sell(IERC20 input, IERC20 output, uint256 amountIn, bytes calldata data) external {
         input.transferFrom(msg.sender, address(this), amountIn);
-        
+
         step--;
-        
-        if(step > 0) {
+
+        if (step > 0) {
             // Recursively call sell to simulate reentrancy
-            if(scenario == 0) {
+            if (scenario == 0) {
                 box.allocate(output, amountIn, this, data);
-            } else if(scenario == 1) {
+            } else if (scenario == 1) {
                 box.deallocate(input, amountIn, this, data);
-            } else if(scenario == 2) {
+            } else if (scenario == 2) {
                 box.reallocate(input, output, amountIn, this, data);
             }
         }
 
-        if(step == 0) {
+        if (step == 0) {
             output.transfer(msg.sender, amountIn);
         }
 
         step++;
-
     }
 }
 
@@ -185,7 +184,15 @@ contract BoxTest is Test {
     event Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
     event Allocation(IERC20 indexed token, uint256 assets, uint256 tokens, int256 slippagePct, ISwapper indexed swapper, bytes data);
     event Deallocation(IERC20 indexed token, uint256 tokens, uint256 assets, int256 slippagePct, ISwapper indexed swapper, bytes data);
-    event Reallocation(IERC20 indexed fromToken, IERC20 indexed toToken, uint256 fromAmount, uint256 toAmount, int256 slippagePct, ISwapper indexed swapper, bytes data);
+    event Reallocation(
+        IERC20 indexed fromToken,
+        IERC20 indexed toToken,
+        uint256 fromAmount,
+        uint256 toAmount,
+        int256 slippagePct,
+        ISwapper indexed swapper,
+        bytes data
+    );
     event Shutdown(address indexed guardian);
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -203,7 +210,6 @@ contract BoxTest is Test {
         badSwapper = new MockSwapper();
         maliciousSwapper = new MaliciousSwapper();
 
-
         boxFactory = new BoxFactory();
 
         //  Vault parameters
@@ -214,8 +220,8 @@ contract BoxTest is Test {
         uint256 shutdownSlippageDuration = 10 days;
 
         box = boxFactory.createBox(
-            asset, 
-            owner, 
+            asset,
+            owner,
             owner, // Initially owner is also curator
             name,
             symbol,
@@ -232,55 +238,51 @@ contract BoxTest is Test {
         box.setCurator(curator);
         vm.stopPrank();
 
-
         vm.startPrank(curator);
-       
+
         // Add guardian
         bytes memory guardianData = abi.encodeWithSelector(box.setGuardian.selector, guardian);
         box.submit(guardianData);
-        box.setGuardian(guardian); 
+        box.setGuardian(guardian);
 
-        
         // Add feeder role
         bytes memory feederData = abi.encodeWithSelector(box.setIsFeeder.selector, feeder, true);
         box.submit(feederData);
-        (bool success,) = address(box).call(feederData);
+        (bool success, ) = address(box).call(feederData);
         require(success, "Failed to set feeder");
 
         // Add allocator role
         bytes memory allocatorData = abi.encodeWithSelector(box.setIsAllocator.selector, allocator, true);
         box.submit(allocatorData);
-        (success,) = address(box).call(allocatorData);
+        (success, ) = address(box).call(allocatorData);
         require(success, "Failed to set allocator");
 
         // Add allocator role
         bytes memory maliciousSwapperData = abi.encodeWithSelector(box.setIsAllocator.selector, maliciousSwapper, true);
         box.submit(maliciousSwapperData);
-        (success,) = address(box).call(maliciousSwapperData);
+        (success, ) = address(box).call(maliciousSwapperData);
         require(success, "Failed to set allocator");
 
         // Add tokens
         bytes memory token1Data = abi.encodeWithSelector(box.addToken.selector, token1, oracle1);
         box.submit(token1Data);
-        (success,) = address(box).call(token1Data);
+        (success, ) = address(box).call(token1Data);
         require(success, "Failed to add token1");
 
         bytes memory token2Data = abi.encodeWithSelector(box.addToken.selector, token2, oracle2);
         box.submit(token2Data);
-        (success,) = address(box).call(token2Data);
+        (success, ) = address(box).call(token2Data);
         require(success, "Failed to add token2");
 
         // Add user1 as feeder so they can withdraw
         bytes memory userData = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
         box.submit(userData);
-        (bool userSuccess,) = address(box).call(userData);
+        (bool userSuccess, ) = address(box).call(userData);
         require(userSuccess, "Failed to set user1 as feeder");
-
 
         // Add timelocks
         box.increaseTimelock(box.setMaxSlippage.selector, 1 days);
         box.increaseTimelock(box.setGuardian.selector, 1 days);
-
 
         vm.stopPrank();
 
@@ -308,12 +310,20 @@ contract BoxTest is Test {
         asset.mint(address(maliciousSwapper), 10000e18);
     }
 
-
     /////////////////////////////
     /// BASIC TESTS
     /////////////////////////////
-    function testBoxCreation(address asset_, address owner_, address curator_, string memory name_, string memory symbol_, 
-        uint256 maxSlippage_, uint256 slippageEpochDuration_, uint256 shutdownSlippageDuration_, bytes32 salt) public {
+    function testBoxCreation(
+        address asset_,
+        address owner_,
+        address curator_,
+        string memory name_,
+        string memory symbol_,
+        uint256 maxSlippage_,
+        uint256 slippageEpochDuration_,
+        uint256 shutdownSlippageDuration_,
+        bytes32 salt
+    ) public {
         vm.assume(asset_ != address(0));
         vm.assume(owner_ != address(0));
         vm.assume(curator_ != address(0));
@@ -323,16 +333,7 @@ contract BoxTest is Test {
 
         bytes memory initCode = abi.encodePacked(
             type(Box).creationCode,
-            abi.encode(
-                asset_,
-                owner_,
-                curator_,
-                name_,
-                symbol_,
-                maxSlippage_,
-                slippageEpochDuration_,
-                shutdownSlippageDuration_
-            )
+            abi.encode(asset_, owner_, curator_, name_, symbol_, maxSlippage_, slippageEpochDuration_, shutdownSlippageDuration_)
         );
 
         address predicted = vm.computeCreate2Address(
@@ -423,14 +424,13 @@ contract BoxTest is Test {
         assertEq(box.totalSupply(), 0);
         assertEq(box.convertToShares(100e18), 100e18); // 1:1 when empty
         assertEq(box.convertToAssets(100e18), 100e18); // 1:1 when empty
-        
+
         // Test max functions when not shutdown
         assertEq(box.maxDeposit(feeder), type(uint256).max);
         assertEq(box.maxMint(feeder), type(uint256).max);
         assertEq(box.maxWithdraw(feeder), 0); // No shares yet
         assertEq(box.maxRedeem(feeder), 0); // No shares yet
     }
-
 
     function testERC4626SharesNoAssets() public {
         assertEq(box.convertToShares(100e18), 100e18); // 1:1 when empty
@@ -446,7 +446,7 @@ contract BoxTest is Test {
 
         // Will revert if there is at least a share an no more assets
         vm.expectRevert();
-        box.convertToShares(100e18); 
+        box.convertToShares(100e18);
     }
 
     function testDeposit() public {
@@ -455,7 +455,7 @@ contract BoxTest is Test {
 
         vm.expectEmit(true, true, true, true);
         emit Deposit(feeder, feeder, 100e18, 100e18);
-        
+
         uint256 shares = box.deposit(100e18, feeder);
         vm.stopPrank();
 
@@ -469,7 +469,7 @@ contract BoxTest is Test {
     function testDepositNonFeeder() public {
         vm.startPrank(nonAuthorized);
         asset.approve(address(box), 100e18);
-        
+
         vm.expectRevert(ErrorsLib.OnlyFeeders.selector);
         box.deposit(100e18, nonAuthorized);
         vm.stopPrank();
@@ -493,7 +493,7 @@ contract BoxTest is Test {
 
         vm.expectEmit(true, true, true, true);
         emit Deposit(feeder, feeder, 100e18, 100e18);
-        
+
         uint256 assets = box.mint(100e18, feeder);
         vm.stopPrank();
 
@@ -506,7 +506,7 @@ contract BoxTest is Test {
     function testMintNonFeeder() public {
         vm.startPrank(nonAuthorized);
         asset.approve(address(box), 100e18);
-        
+
         vm.expectRevert(ErrorsLib.OnlyFeeders.selector);
         box.mint(100e18, nonAuthorized);
         vm.stopPrank();
@@ -518,7 +518,7 @@ contract BoxTest is Test {
 
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
-        
+
         vm.expectRevert(ErrorsLib.CannotDuringShutdown.selector);
         box.mint(100e18, feeder);
         vm.stopPrank();
@@ -529,11 +529,11 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
-        
+
         // Then withdraw
         vm.expectEmit(true, true, true, true);
         emit Withdraw(feeder, feeder, feeder, 50e18, 50e18);
-        
+
         uint256 shares = box.withdraw(50e18, feeder, feeder);
         vm.stopPrank();
 
@@ -548,7 +548,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
-        
+
         vm.expectRevert(ErrorsLib.InsufficientShares.selector);
         box.withdraw(200e18, feeder, feeder);
         vm.stopPrank();
@@ -567,7 +567,7 @@ contract BoxTest is Test {
         bytes memory userData = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
         box.submit(userData);
         vm.warp(block.timestamp + 1 days + 1);
-        (bool userSuccess,) = address(box).call(userData);
+        (bool userSuccess, ) = address(box).call(userData);
         require(userSuccess, "Failed to set user1 as feeder");
         vm.stopPrank();
 
@@ -593,7 +593,7 @@ contract BoxTest is Test {
         bytes memory userData = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
         box.submit(userData);
         vm.warp(block.timestamp + 1 days + 1);
-        (bool userSuccess,) = address(box).call(userData);
+        (bool userSuccess, ) = address(box).call(userData);
         require(userSuccess, "Failed to set user1 as feeder");
         vm.stopPrank();
 
@@ -607,11 +607,11 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
-        
+
         // Then redeem
         vm.expectEmit(true, true, true, true);
         emit Withdraw(feeder, feeder, feeder, 50e18, 50e18);
-        
+
         uint256 assets = box.redeem(50e18, feeder, feeder);
         vm.stopPrank();
 
@@ -625,7 +625,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
-        
+
         vm.expectRevert(ErrorsLib.InsufficientShares.selector);
         box.redeem(200e18, feeder, feeder);
         vm.stopPrank();
@@ -640,10 +640,10 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
-        
+
         vm.expectEmit(true, true, true, true);
         emit Transfer(feeder, user1, 50e18);
-        
+
         bool success = box.transfer(user1, 50e18);
         vm.stopPrank();
 
@@ -656,7 +656,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
-        
+
         vm.expectRevert();
         box.transfer(user1, 200e18);
         vm.stopPrank();
@@ -664,10 +664,10 @@ contract BoxTest is Test {
 
     function testERC20Approve() public {
         vm.startPrank(feeder);
-        
+
         vm.expectEmit(true, true, true, true);
         emit Approval(feeder, user1, 100e18);
-        
+
         bool success = box.approve(user1, 100e18);
         vm.stopPrank();
 
@@ -685,7 +685,7 @@ contract BoxTest is Test {
 
         vm.expectEmit(true, true, true, true);
         emit Transfer(feeder, user2, 30e18);
-        
+
         vm.prank(user1);
         bool success = box.transferFrom(feeder, user2, 30e18);
 
@@ -842,7 +842,7 @@ contract BoxTest is Test {
 
         // Set swapper to have 0.5% slippage
         swapper.setSlippage(1); // 1% slippage
-        
+
         // This should work as 1% is within the 1% max slippage
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
@@ -996,7 +996,7 @@ contract BoxTest is Test {
         // Set oracle prices to make reallocation expensive
         oracle1.setPrice(1e36); // 1 token1 = 1 asset
         oracle2.setPrice(0.5e36); // 1 token2 = 0.5 asset (so we expect 2 token2 for 1 token1)
-        
+
         // But swapper gives 1:1, so we get less than expected (50% slippage)
         vm.expectRevert(ErrorsLib.ReallocationSlippageTooHigh.selector);
         vm.prank(allocator);
@@ -1016,7 +1016,7 @@ contract BoxTest is Test {
         // Set oracle prices with small difference
         oracle1.setPrice(1e36); // 1 token1 = 1 asset
         oracle2.setPrice(0.995e36); // 1 token2 = 0.995 asset (expect ~1.005 token2 for 1 token1)
-        
+
         // Swapper gives 1:1, which is within 1% slippage tolerance
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, swapper, "");
@@ -1131,7 +1131,6 @@ contract BoxTest is Test {
         // Multiple larger allocations that accumulate slippage faster
         // Each 100e18 allocation with 1% slippage should contribute more significantly
         box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
-        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage  
         box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
         box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
         box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
@@ -1139,7 +1138,8 @@ contract BoxTest is Test {
         box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
         box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
         box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
-        
+        box.allocate(token1, 100e18, swapper, ""); // ~0.1% slippage
+
         // This should fail as it would exceed 1% total slippage
         vm.expectRevert(ErrorsLib.TooMuchAccumulatedSlippage.selector);
         box.allocate(token1, 100e18, swapper, ""); // Would push over 1% total
@@ -1157,10 +1157,10 @@ contract BoxTest is Test {
         vm.startPrank(allocator);
         // Use up most of slippage budget
         box.allocate(token1, 90e18, swapper, ""); // 0.09% slippage
-        
+
         // Warp forward 8 days to reset epoch
         vm.warp(block.timestamp + 8 days);
-        
+
         // Should work again as epoch reset
         box.allocate(token1, 90e18, swapper, "");
         vm.stopPrank();
@@ -1173,7 +1173,7 @@ contract BoxTest is Test {
     function testShutdown() public {
         vm.expectEmit(true, true, true, true);
         emit Shutdown(guardian);
-        
+
         vm.prank(guardian);
         box.shutdown();
 
@@ -1220,7 +1220,6 @@ contract BoxTest is Test {
         // After warmup it should work
         vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
         box.deallocate(token1, 25e18, swapper, "");
-
 
         assertEq(token1.balanceOf(address(box)), 25e18);
     }
@@ -1317,7 +1316,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
-        
+
         vm.expectRevert(ErrorsLib.InsufficientShares.selector);
         box.unbox(200e18);
         vm.stopPrank();
@@ -1327,7 +1326,7 @@ contract BoxTest is Test {
         vm.startPrank(feeder);
         asset.approve(address(box), 100e18);
         box.deposit(100e18, feeder);
-        
+
         vm.expectRevert(ErrorsLib.CannotUnboxZeroShares.selector);
         box.unbox(0);
         vm.stopPrank();
@@ -1339,24 +1338,24 @@ contract BoxTest is Test {
 
     function testTimelockPattern() public {
         vm.startPrank(curator);
-        
+
         // Test setting max slippage with new timelock pattern
         uint256 newSlippage = 0.02 ether; // 2%
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, newSlippage);
         box.submit(slippageData);
-        
+
         // Try to execute too early - should fail
         vm.expectRevert(ErrorsLib.TimelockNotExpired.selector);
-        (bool success,) = address(box).call(slippageData);
-        
+        (bool success, ) = address(box).call(slippageData);
+
         // Warp to after timelock
         vm.warp(block.timestamp + 1 days + 1);
-        
+
         // Execute the change
-        (success,) = address(box).call(slippageData);
+        (success, ) = address(box).call(slippageData);
         require(success, "Failed to set slippage");
         assertEq(box.maxSlippage(), newSlippage);
-        
+
         vm.stopPrank();
     }
 
@@ -1376,13 +1375,12 @@ contract BoxTest is Test {
 
         box.revoke(slippageData);
         assertEq(box.executableAt(slippageData), 0);
-        
+
         // Should fail to execute after revoke
         vm.warp(block.timestamp + 1 days + 1);
         vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
-        (bool success,) = address(box).call(slippageData);
+        (bool success, ) = address(box).call(slippageData);
         vm.stopPrank();
-
 
         // Curator should also be able to revoke a submitted action
         vm.startPrank(curator);
@@ -1410,12 +1408,12 @@ contract BoxTest is Test {
         box.revoke(slippageData);
         assertEq(box.executableAt(slippageData), 0);
         vm.stopPrank();
-        
+
         // Should fail to execute after revoke
         vm.startPrank(curator);
         vm.warp(block.timestamp + 1 days + 1);
         vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
-        (success,) = address(box).call(slippageData);
+        (success, ) = address(box).call(slippageData);
         vm.stopPrank();
     }
 
@@ -1431,7 +1429,7 @@ contract BoxTest is Test {
 
     function testCuratorSubmitAccept() public {
         address newCurator = address(0x99);
-        
+
         vm.prank(owner); // setCurator requires owner
         box.setCurator(newCurator);
 
@@ -1439,13 +1437,13 @@ contract BoxTest is Test {
     }
 
     function testGuardianSubmitAccept() public {
-        address newGuardian = address(0x99);        
-        
+        address newGuardian = address(0x99);
+
         vm.startPrank(curator);
         bytes memory guardianData = abi.encodeWithSelector(box.setGuardian.selector, newGuardian);
         box.submit(guardianData);
         vm.warp(block.timestamp + 1 days + 1);
-        (bool success,) = address(box).call(guardianData);
+        (bool success, ) = address(box).call(guardianData);
         require(success, "Failed to set guardian");
         vm.stopPrank();
 
@@ -1461,12 +1459,12 @@ contract BoxTest is Test {
 
     function testAllocatorSubmitAccept() public {
         address newAllocator = address(0x99);
-        
-        vm.startPrank(curator); 
+
+        vm.startPrank(curator);
         bytes memory allocatorData = abi.encodeWithSelector(box.setIsAllocator.selector, newAllocator, true);
         box.submit(allocatorData);
         vm.warp(block.timestamp + 1 days + 1);
-        (bool success,) = address(box).call(allocatorData);
+        (bool success, ) = address(box).call(allocatorData);
         require(success, "Failed to set allocator");
         vm.stopPrank();
 
@@ -1478,7 +1476,7 @@ contract BoxTest is Test {
         bytes memory allocatorData = abi.encodeWithSelector(box.setIsAllocator.selector, allocator, false);
         box.submit(allocatorData);
         vm.warp(block.timestamp + 1 days + 1);
-        (bool success,) = address(box).call(allocatorData);
+        (bool success, ) = address(box).call(allocatorData);
         require(success, "Failed to remove allocator");
         vm.stopPrank();
 
@@ -1487,12 +1485,12 @@ contract BoxTest is Test {
 
     function testFeederSubmitAccept() public {
         address newFeeder = address(0x99);
-        
+
         vm.startPrank(curator);
         bytes memory feederData = abi.encodeWithSelector(box.setIsFeeder.selector, newFeeder, true);
         box.submit(feederData);
         vm.warp(block.timestamp + 1 days + 1);
-        (bool success,) = address(box).call(feederData);
+        (bool success, ) = address(box).call(feederData);
         require(success, "Failed to set feeder");
         vm.stopPrank();
 
@@ -1506,7 +1504,7 @@ contract BoxTest is Test {
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, newSlippage);
         box.submit(slippageData);
         vm.warp(block.timestamp + 1 days + 1);
-        (bool success,) = address(box).call(slippageData);
+        (bool success, ) = address(box).call(slippageData);
         require(success, "Failed to set slippage");
         vm.stopPrank();
 
@@ -1528,7 +1526,7 @@ contract BoxTest is Test {
         bytes memory tokenData = abi.encodeWithSelector(box.addToken.selector, token3, oracle3);
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
-        (bool success,) = address(box).call(tokenData);
+        (bool success, ) = address(box).call(tokenData);
         require(success, "Failed to add investment token");
         vm.stopPrank();
 
@@ -1542,7 +1540,7 @@ contract BoxTest is Test {
         bytes memory tokenData = abi.encodeWithSelector(box.removeToken.selector, token1);
         box.submit(tokenData);
         vm.warp(block.timestamp + 1 days + 1);
-        (bool success,) = address(box).call(tokenData);
+        (bool success, ) = address(box).call(tokenData);
         require(success, "Failed to remove investment token");
         vm.stopPrank();
 
@@ -1573,7 +1571,7 @@ contract BoxTest is Test {
 
     function testOwnerChange() public {
         address newOwner = address(0x99);
-        
+
         vm.prank(owner);
         box.transferOwnership(newOwner);
 
@@ -1595,7 +1593,6 @@ contract BoxTest is Test {
     /////////////////////////////
     /// EDGE CASE TESTS
     /////////////////////////////
-
 
     function testTooManyTokensAdded() public {
         vm.startPrank(curator);
@@ -1663,7 +1660,7 @@ contract BoxTest is Test {
     function testPreviewFunctionsConsistency() public {
         vm.startPrank(feeder);
         asset.approve(address(box), 200e18);
-        
+
         // Test preview deposit
         uint256 previewShares = box.previewDeposit(100e18);
         uint256 actualShares = box.deposit(100e18, feeder);
@@ -1683,7 +1680,7 @@ contract BoxTest is Test {
         uint256 previewRedeemAssets = box.previewRedeem(50e18);
         uint256 actualRedeemAssets = box.redeem(50e18, feeder, feeder);
         assertEq(previewRedeemAssets, actualRedeemAssets);
-        
+
         vm.stopPrank();
     }
 
@@ -1722,7 +1719,7 @@ contract BoxTest is Test {
         vm.prank(guardian);
         box.recover();
         assertEq(box.isShutdown(), false);
-    
+
         assertEq(box.maxDeposit(feeder), type(uint256).max);
         assertEq(box.maxMint(feeder), type(uint256).max);
         assertEq(box.maxWithdraw(feeder), 100e18); // Can still withdraw
@@ -1738,7 +1735,7 @@ contract BoxTest is Test {
 
     function testComplexScenario() public {
         // Complex scenario with multiple users, tokens, and operations
-        
+
         // Setup multiple users
         asset.mint(user1, 1000e18);
         asset.mint(user2, 1000e18);
@@ -1747,13 +1744,13 @@ contract BoxTest is Test {
         bytes memory user1Data = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
         box.submit(user1Data);
         vm.warp(block.timestamp + 1 days + 1);
-        (bool success,) = address(box).call(user1Data);
+        (bool success, ) = address(box).call(user1Data);
         require(success, "Failed to set user1 as feeder");
-        
+
         bytes memory user2Data = abi.encodeWithSelector(box.setIsFeeder.selector, user2, true);
         box.submit(user2Data);
         vm.warp(block.timestamp + 1 days + 1);
-        (success,) = address(box).call(user2Data);
+        (success, ) = address(box).call(user2Data);
         require(success, "Failed to set user2 as feeder");
         vm.stopPrank();
 
@@ -1950,7 +1947,7 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
-        // Set oracle to expect fewer assets  
+        // Set oracle to expect fewer assets
         oracle1.setPrice(0.9e36); // 1 token = 0.9 assets, so we expect 22.5 assets for 25 tokens
 
         // Expect event with negative slippage percentage (positive performance)
@@ -2101,7 +2098,7 @@ contract BoxTest is Test {
 
         // Warp halfway through shutdown slippage duration (5 days out of 10)
         vm.warp(block.timestamp + 5 days);
-        
+
         // Now slippage tolerance should be ~5%, so this should work
         vm.expectEmit(true, true, true, true);
         emit Deallocation(token1, 25e18, 23.75e18, 50000000000000000, highSlippageSwapper, ""); // 5% slippage
@@ -2214,9 +2211,9 @@ contract BoxTest is Test {
         uint256 tokensToSell = 2e18; // expects 1000 assets, loses 10 assets (1%)
 
         // Hypothetical values under the old bug (loss converted by price again)
-        uint256 expectedAssets = tokensToSell * price / ORACLE_PRECISION; // 1000 assets
+        uint256 expectedAssets = (tokensToSell * price) / ORACLE_PRECISION; // 1000 assets
         uint256 expectedLoss = expectedAssets / 100; // 1% loss = 10 assets
-        uint256 inflatedValue = expectedLoss * price / ORACLE_PRECISION; // 10 * 500 = 5000 assets
+        uint256 inflatedValue = (expectedLoss * price) / ORACLE_PRECISION; // 10 * 500 = 5000 assets
 
         // Execute deallocation with fixed logic - should NOT revert
         vm.prank(allocator);
@@ -2224,11 +2221,11 @@ contract BoxTest is Test {
 
         // With the buggy logic, accumulated slippage would have been inflatedValue / totalAssets
         uint256 totalAfter = box.totalAssets();
-        uint256 oldBugPct = inflatedValue * PRECISION / totalAfter; // in 1e18 precision
+        uint256 oldBugPct = (inflatedValue * PRECISION) / totalAfter; // in 1e18 precision
         assertGe(oldBugPct, box.maxSlippage(), "Old buggy accounting would not have reverted as expected");
 
         // Actual accumulated slippage must equal actual loss / totalAfter
-        uint256 expectedAccumulated = expectedLoss * PRECISION / totalAfter;
+        uint256 expectedAccumulated = (expectedLoss * PRECISION) / totalAfter;
         assertApproxEqAbs(box.accumulatedSlippage(), expectedAccumulated, 1);
         assertLt(box.accumulatedSlippage(), box.maxSlippage());
     }
@@ -2301,13 +2298,13 @@ contract BoxTest is Test {
 
         // Create a malicious swapper that tries to spend more than authorized
         MockSwapper greedySwapper = new MockSwapper();
-        
+
         // Mock the behavior: swapper tries to take 60 but is only authorized 50
         // The actual transfer will fail due to insufficient allowance
         // But let's test the require check in the contract
-        
+
         vm.prank(allocator);
         vm.expectRevert(); // Will revert in transferFrom due to trying to take too much
         box.allocate(token1, 50e18, greedySwapper, "");
     }
-} 
+}

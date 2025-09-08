@@ -4,17 +4,16 @@ pragma solidity ^0.8.13;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {IBox} from "../interfaces/IBox.sol";
-import {IOracle} from "../interfaces/IOracle.sol";
-import {ISwapper} from "../interfaces/ISwapper.sol";
-import {IFunding} from "../interfaces/IFunding.sol";
-import {ErrorsLib} from "./ErrorsLib.sol";
+import {IBox} from "./../interfaces/IBox.sol";
+import {IFunding} from "./../interfaces/IFunding.sol";
+import {IOracle} from "./../interfaces/IOracle.sol";
+import {ISwapper} from "./../interfaces/ISwapper.sol";
 import "./Constants.sol";
+import {ErrorsLib} from "./ErrorsLib.sol";
 
 library OperationsLib {
     using SafeERC20 for IERC20;
     using Math for uint256;
-
 
     function allocate(
         IERC20 asset,
@@ -43,7 +42,7 @@ library OperationsLib {
         uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oracle.price());
         uint256 minTokens = expectedTokens.mulDiv(PRECISION - slippageTolerance, PRECISION);
         slippage = int256(expectedTokens) - int256(tokensReceived);
-        slippagePct = expectedTokens == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedTokens);
+        slippagePct = expectedTokens == 0 ? int256(0) : (slippage * int256(PRECISION)) / int256(expectedTokens);
 
         require(tokensReceived >= minTokens, ErrorsLib.AllocationTooExpensive());
 
@@ -82,30 +81,32 @@ library OperationsLib {
         uint256 expectedAssets = tokensAmount.mulDiv(oracle.price(), ORACLE_PRECISION);
         uint256 minAssets = expectedAssets.mulDiv(PRECISION - slippageTolerance, PRECISION);
         slippage = int256(expectedAssets) - int256(assetsReceived);
-        slippagePct = expectedAssets == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedAssets);
+        slippagePct = expectedAssets == 0 ? int256(0) : (slippage * int256(PRECISION)) / int256(expectedAssets);
 
         require(assetsReceived >= minAssets, ErrorsLib.TokenSaleNotGeneratingEnoughAssets());
     }
 
-
     function _swap(IBox box, ISwapper swapper, bytes calldata swapData, IERC20 fromToken, IERC20 toToken, uint256 amount) internal {
-        if(address(fromToken) == box.asset()) {
+        if (address(fromToken) == box.asset()) {
             box.allocate(toToken, amount, swapper, swapData);
-        }
-        else if(address(toToken) == box.asset()) {
+        } else if (address(toToken) == box.asset()) {
             box.deallocate(fromToken, amount, swapper, swapData);
-        }
-        else {
+        } else {
             box.reallocate(fromToken, toToken, amount, swapper, swapData);
         }
-
     }
 
-    function leverage(IBox box, address flashloanProvider, 
-        IFunding fundingModule, bytes calldata facilityData, 
-        ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateralToken, IERC20 loanToken, uint256 loanAmount) external {
-
+    function leverage(
+        IBox box,
+        address flashloanProvider,
+        IFunding fundingModule,
+        bytes calldata facilityData,
+        ISwapper swapper,
+        bytes calldata swapData,
+        IERC20 collateralToken,
+        IERC20 loanToken,
+        uint256 loanAmount
+    ) external {
         // To be able to repay the flashloan
         loanToken.transferFrom(flashloanProvider, address(this), loanAmount);
 
@@ -119,13 +120,19 @@ library OperationsLib {
         loanToken.safeTransfer(flashloanProvider, loanAmount);
     }
 
-
-    function deleverage(IBox box, address flashloanProvider, 
-        IFunding fundingModule, bytes calldata facilityData, 
-        ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateralToken, uint256 collateralAmount, IERC20 loanToken, uint256 loanAmount) external {
-
-        if(loanAmount == type(uint256).max) {
+    function deleverage(
+        IBox box,
+        address flashloanProvider,
+        IFunding fundingModule,
+        bytes calldata facilityData,
+        ISwapper swapper,
+        bytes calldata swapData,
+        IERC20 collateralToken,
+        uint256 collateralAmount,
+        IERC20 loanToken,
+        uint256 loanAmount
+    ) external {
+        if (loanAmount == type(uint256).max) {
             loanAmount = fundingModule.debtBalance(loanToken);
         }
 
@@ -141,15 +148,22 @@ library OperationsLib {
         loanToken.safeTransfer(flashloanProvider, loanAmount);
     }
 
-    function refinance(IBox box, address flashloanProvider, 
-        IFunding fromFundingModule, bytes calldata fromFacilityData, 
-        IFunding toFundingModule, bytes calldata toFacilityData, 
-        IERC20 collateralToken, uint256 collateralAmount, IERC20 loanToken, uint256 loanAmount) external {
-
-        if(loanAmount == type(uint256).max) {
+    function refinance(
+        IBox box,
+        address flashloanProvider,
+        IFunding fromFundingModule,
+        bytes calldata fromFacilityData,
+        IFunding toFundingModule,
+        bytes calldata toFacilityData,
+        IERC20 collateralToken,
+        uint256 collateralAmount,
+        IERC20 loanToken,
+        uint256 loanAmount
+    ) external {
+        if (loanAmount == type(uint256).max) {
             loanAmount = fromFundingModule.debtBalance(loanToken);
         }
-        if(collateralAmount == type(uint256).max) {
+        if (collateralAmount == type(uint256).max) {
             collateralAmount = fromFundingModule.collateralBalance(collateralToken);
         }
 
@@ -165,5 +179,4 @@ library OperationsLib {
         // So the adapter can repay the flash loan
         loanToken.safeTransfer(flashloanProvider, loanAmount);
     }
-
 }

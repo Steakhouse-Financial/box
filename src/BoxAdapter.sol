@@ -2,14 +2,13 @@
 // Copyright (c) 2025 Morpho Association, Steakhouse Financial
 pragma solidity 0.8.28;
 
-
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import "./interfaces/IBoxAdapter.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IVaultV2} from "./../lib/vault-v2/src/interfaces/IVaultV2.sol";
+import {MathLib} from "./../lib/vault-v2/src/libraries/MathLib.sol";
+import {SafeERC20Lib} from "./../lib/vault-v2/src/libraries/SafeERC20Lib.sol";
 import {Box} from "./Box.sol";
-import {IVaultV2} from "../lib/vault-v2/src/interfaces/IVaultV2.sol";
-import {SafeERC20Lib} from "../lib/vault-v2/src/libraries/SafeERC20Lib.sol";
-import {MathLib} from "../lib/vault-v2/src/libraries/MathLib.sol";
+import "./interfaces/IBoxAdapter.sol";
 
 contract BoxAdapter is IBoxAdapter {
     using MathLib for uint256;
@@ -24,7 +23,7 @@ contract BoxAdapter is IBoxAdapter {
     /* STORAGE */
 
     address public skimRecipient;
-    
+
     /* FUNCTIONS */
 
     constructor(address _parentVault, Box _box) {
@@ -56,10 +55,7 @@ contract BoxAdapter is IBoxAdapter {
 
     /// @dev Does not log anything because the ids (logged in the parent vault) are enough.
     /// @dev Returns the ids of the allocation and the change in allocation.
-    function allocate(bytes memory data, uint256 assets, bytes4, address)
-        external
-        returns (bytes32[] memory, int256)
-    {
+    function allocate(bytes memory data, uint256 assets, bytes4, address) external returns (bytes32[] memory, int256) {
         require(data.length == 0, InvalidData());
         require(msg.sender == parentVault, NotAuthorized());
 
@@ -74,10 +70,7 @@ contract BoxAdapter is IBoxAdapter {
 
     /// @dev Does not log anything because the ids (logged in the parent vault) are enough.
     /// @dev Returns the ids of the deallocation and the change in allocation.
-    function deallocate(bytes memory data, uint256 assets, bytes4, address)
-        external
-        returns (bytes32[] memory, int256)
-    {
+    function deallocate(bytes memory data, uint256 assets, bytes4, address) external returns (bytes32[] memory, int256) {
         require(data.length == 0, InvalidData());
         require(msg.sender == parentVault, NotAuthorized());
 
@@ -102,9 +95,7 @@ contract BoxAdapter is IBoxAdapter {
     }
 
     function realAssets() external view returns (uint256) {
-        return allocation() != 0
-            ? box.previewRedeem(box.balanceOf(address(this)))
-            : 0;
+        return allocation() != 0 ? box.previewRedeem(box.balanceOf(address(this))) : 0;
     }
 
     function adapterData() external view returns (bytes memory) {

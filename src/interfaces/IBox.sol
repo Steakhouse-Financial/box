@@ -1,18 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Steakhouse
-pragma solidity >= 0.8.0;
+pragma solidity >=0.8.0;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {ISwapper} from "./ISwapper.sol";
-import {IOracle} from "./IOracle.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IFunding} from "./IFunding.sol";
-
-
+import {IOracle} from "./IOracle.sol";
+import {ISwapper} from "./ISwapper.sol";
 
 interface IBox is IERC4626 {
-
-
     /* FUNCTIONS */
 
     // ========== STATE FUNCTIONS ==========
@@ -72,8 +68,6 @@ interface IBox is IERC4626 {
     function isShutdown() external view returns (bool);
     function isWinddown() external view returns (bool);
 
-
-
     // ========== FUNDING ADMIN FUNCTIONS ==========
     function addFunding(IFunding fundingModule) external;
     function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external;
@@ -96,23 +90,40 @@ interface IBox is IERC4626 {
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external;
 
     // ========== COMPLEX FUNDING OPERATIONS WITH FLASHLOAN AND SWAPPER ==========
-    function leverage(address flashloanProvider, IFunding fundingModule, bytes calldata facilityData, 
-        ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateralToken, 
-        IERC20 debtToken, uint256 debtAmount) external;
+    function leverage(
+        address flashloanProvider,
+        IFunding fundingModule,
+        bytes calldata facilityData,
+        ISwapper swapper,
+        bytes calldata swapData,
+        IERC20 collateralToken,
+        IERC20 debtToken,
+        uint256 debtAmount
+    ) external;
 
-    function deleverage(address flashloanProvider, IFunding fundingModule, bytes calldata facilityData, 
-        ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateralToken, uint256 collateralAmount, IERC20 debtToken, uint256 debtAmount) external;
+    function deleverage(
+        address flashloanProvider,
+        IFunding fundingModule,
+        bytes calldata facilityData,
+        ISwapper swapper,
+        bytes calldata swapData,
+        IERC20 collateralToken,
+        uint256 collateralAmount,
+        IERC20 debtToken,
+        uint256 debtAmount
+    ) external;
 
-    function refinance(address flashloanProvider, 
-        IFunding fromFundingModule, bytes calldata fromFacilityData, 
-        IFunding toFundingModule, bytes calldata toFacilityData,
-        IERC20 collateralToken, uint256 collateralAmount, 
-        IERC20 debtToken, uint256 debtAmount) external;
+    function refinance(
+        address flashloanProvider,
+        IFunding fromFundingModule,
+        bytes calldata fromFacilityData,
+        IFunding toFundingModule,
+        bytes calldata toFacilityData,
+        IERC20 collateralToken,
+        uint256 collateralAmount,
+        IERC20 debtToken,
+        uint256 debtAmount
+    ) external;
 
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external;
-
-
-
 }

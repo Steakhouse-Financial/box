@@ -2,7 +2,6 @@
 pragma solidity ^0.8.13;
 
 library ErrorsLib {
-
     // General errors
     error InvalidAddress();
     error InvalidAmount();
@@ -28,14 +27,14 @@ library ErrorsLib {
     // Deposit/Mint errors
     error CannotDepositZero();
     error CannotMintZero();
-    
+
     // Withdraw/Redeem errors
     error InsufficientShares();
     error InsufficientAllowance();
     error InsufficientLiquidity();
     error CannotUnboxZeroShares();
     error DataAlreadyTimelocked();
-    
+
     // Token errors
     error TokenNotWhitelisted();
     error TokenAlreadyWhitelisted();
@@ -51,7 +50,7 @@ library ErrorsLib {
     error ReallocationSlippageTooHigh();
     error TooMuchAccumulatedSlippage();
     error SlippageTooHigh();
-    
+
     // Shutdown/Recover errors
     error OnlyGuardianCanShutdown();
     error OnlyGuardianCanRecover();

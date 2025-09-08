@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Steakhouse
-pragma solidity >= 0.5.0;
+pragma solidity >=0.8.0;
 
 import {IAdapter} from "../../lib/vault-v2/src/interfaces/IAdapter.sol";
 import {Box} from "../Box.sol";
@@ -32,5 +32,4 @@ interface IBoxAdapter is IAdapter {
     // Added for BoxAdapter
     function adapterId() external view returns (bytes32);
     function adapterData() external view returns (bytes memory);
-
 }

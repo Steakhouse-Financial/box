@@ -2,14 +2,13 @@
 // Copyright (c) 2025 Morpho Association, Steakhouse Financial
 pragma solidity 0.8.28;
 
-
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {IBoxAdapter} from "./interfaces/IBoxAdapter.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IVaultV2} from "./../lib/vault-v2/src/interfaces/IVaultV2.sol";
+import {MathLib} from "./../lib/vault-v2/src/libraries/MathLib.sol";
+import {SafeERC20Lib} from "./../lib/vault-v2/src/libraries/SafeERC20Lib.sol";
 import {Box} from "./Box.sol";
-import {IVaultV2} from "../lib/vault-v2/src/interfaces/IVaultV2.sol";
-import {SafeERC20Lib} from "../lib/vault-v2/src/libraries/SafeERC20Lib.sol";
-import {MathLib} from "../lib/vault-v2/src/libraries/MathLib.sol";
+import {IBoxAdapter} from "./interfaces/IBoxAdapter.sol";
 
 contract BoxAdapterCached is IBoxAdapter {
     using MathLib for uint256;
@@ -29,7 +28,7 @@ contract BoxAdapterCached is IBoxAdapter {
     address public skimRecipient;
     uint256 public totalAssets;
     uint256 public totalAssetsTimestamp;
-    
+
     /* FUNCTIONS */
 
     constructor(address _parentVault, Box _box) {
@@ -61,10 +60,7 @@ contract BoxAdapterCached is IBoxAdapter {
 
     /// @dev Does not log anything because the ids (logged in the parent vault) are enough.
     /// @dev Returns the ids of the allocation and the change in allocation.
-    function allocate(bytes memory data, uint256 assets, bytes4, address)
-        external
-        returns (bytes32[] memory, int256)
-    {
+    function allocate(bytes memory data, uint256 assets, bytes4, address) external returns (bytes32[] memory, int256) {
         require(data.length == 0, InvalidData());
         require(msg.sender == parentVault, NotAuthorized());
 
@@ -80,10 +76,7 @@ contract BoxAdapterCached is IBoxAdapter {
 
     /// @dev Does not log anything because the ids (logged in the parent vault) are enough.
     /// @dev Returns the ids of the deallocation and the change in allocation.
-    function deallocate(bytes memory data, uint256 assets, bytes4, address)
-        external
-        returns (bytes32[] memory, int256)
-    {
+    function deallocate(bytes memory data, uint256 assets, bytes4, address) external returns (bytes32[] memory, int256) {
         require(data.length == 0, InvalidData());
         require(msg.sender == parentVault, NotAuthorized());
 
@@ -109,16 +102,18 @@ contract BoxAdapterCached is IBoxAdapter {
     }
 
     function realAssets() external view returns (uint256) {
-        return allocation() != 0
-            ? totalAssets
-            : 0;
+        return allocation() != 0 ? totalAssets : 0;
     }
 
     /// @dev Updates the cached total assets of the adapter.
     /// @dev Allowed: Vault allocator, sentinel or anyone after 24 hours of inactivity
     function updateTotalAssets() external {
-        require(IVaultV2(parentVault).isAllocator(msg.sender) || IVaultV2(parentVault).isSentinel(msg.sender)
-            || totalAssetsTimestamp + 1 days < block.timestamp, NotAuthorized());
+        require(
+            IVaultV2(parentVault).isAllocator(msg.sender) ||
+                IVaultV2(parentVault).isSentinel(msg.sender) ||
+                totalAssetsTimestamp + 1 days < block.timestamp,
+            NotAuthorized()
+        );
 
         uint256 oldTotalAssets = totalAssets;
         _updateTotalAssets();

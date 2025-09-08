@@ -43,7 +43,6 @@ contract DeployBaseScript is Script {
     BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x808F9fcf09921a21aa5Cd71D87BE50c0F05A5203);
     BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x09EA5EafbA623D9012124E05068ab884008f32BD);
 
-
     address owner = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address curator = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address guardian = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
@@ -54,14 +53,12 @@ contract DeployBaseScript is Script {
 
     IMorpho morpho = IMorpho(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
     IMetaMorpho bbqusdc = IMetaMorpho(0xBEEFA7B88064FeEF0cEe02AAeBBd95D30df3878F); // bbqUSDC on Base
-    
+
     IERC4626 stusd = IERC4626(0x0022228a2cc5E7eF0274A7Baa600d44da5aB5776);
     IOracle stusdOracle = IOracle(0x2eede25066af6f5F2dfc695719dB239509f69915);
-    
+
     IERC20 ptusr25sep = IERC20(0xa6F0A4D18B6f6DdD408936e81b7b3A8BEFA18e77);
     IOracle ptusr25sepOracle = IOracle(0x6AdeD60f115bD6244ff4be46f84149bA758D9085);
-
-
 
     ///@dev This script deploys the necessary contracts for the Peaty product on Base.
     function run() public {
@@ -121,9 +118,8 @@ contract DeployBaseScript is Script {
         return vaultV2Factory_;
     }
 
-
     function deployOperationsLib() public {
-        vm.startBroadcast();        
+        vm.startBroadcast();
         address lib = deployCode("src/lib/OperationsLib.sol:OperationsLib");
         console.log("OperationsLib deployed at:", lib);
         vm.stopBroadcast();
@@ -134,7 +130,7 @@ contract DeployBaseScript is Script {
         vault.addCollateral(
             address(mm1Adapter),
             abi.encode("this", address(mm1Adapter)),
-            1_000_000_000 * 10**6, // 100_000_000 USDC absolute cap
+            1_000_000_000 * 10 ** 6, // 100_000_000 USDC absolute cap
             1 ether // 100% relative cap
         );
         for (uint256 i = 0; i < length; i++) {
@@ -143,13 +139,13 @@ contract DeployBaseScript is Script {
             vault.addCollateral(
                 address(mm1Adapter),
                 abi.encode("collateralToken", marketParams.collateralToken),
-                100_000_000 * 10**6, // 100_000_000 USDC absolute cap
+                100_000_000 * 10 ** 6, // 100_000_000 USDC absolute cap
                 1 ether // 100% relative cap
             );
             vault.addCollateral(
                 address(mm1Adapter),
                 abi.encode("this/marketParams", address(mm1Adapter), marketParams),
-                100_000_000 * 10**6, // 100_000_000 USDC absolute cap
+                100_000_000 * 10 ** 6, // 100_000_000 USDC absolute cap
                 1 ether // 100% relative cap
             );
         }
@@ -165,9 +161,9 @@ contract DeployBaseScript is Script {
 
         vault.setCurator(address(tx.origin));
 
-        vault.addAllocator(address(tx.origin)); 
-        vault.addAllocator(address(allocator1)); 
-        vault.addAllocator(address(allocator2)); 
+        vault.addAllocator(address(tx.origin));
+        vault.addAllocator(address(allocator1));
+        vault.addAllocator(address(allocator2));
 
         vault.setName("Peaty USDC Turbo");
         vault.setSymbol("ptUSDCturbo");
@@ -175,10 +171,11 @@ contract DeployBaseScript is Script {
         vault.setMaxRate(MAX_MAX_RATE);
 
         // Setting the vault to use bbqUSDC as the asset
-        MorphoMarketV1Adapter bbqusdcAdapter = MorphoMarketV1Adapter(mm1AdapterFactory.createMorphoMarketV1Adapter(address(vault), address(morpho)));
+        MorphoMarketV1Adapter bbqusdcAdapter = MorphoMarketV1Adapter(
+            mm1AdapterFactory.createMorphoMarketV1Adapter(address(vault), address(morpho))
+        );
 
         addMarketsToAdapterFromVault(vault, bbqusdcAdapter, bbqusdc);
-
 
         // Creating Box 1 which will invest in stUSD
         string memory name = "Box Angle";
@@ -187,9 +184,9 @@ contract DeployBaseScript is Script {
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
         Box box1 = boxFactory.createBox(
-            usdc, 
-            address(tx.origin), 
-            address(tx.origin), 
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
             name,
             symbol,
             maxSlippage,
@@ -209,8 +206,7 @@ contract DeployBaseScript is Script {
         box1.addFeeder(address(adapter1));
         box1.setCurator(address(curator));
         box1.transferOwnership(address(owner));
-        vault.addCollateral(address(adapter1), adapter1.adapterData(), 10_000_000 * 10**6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
-
+        vault.addCollateral(address(adapter1), adapter1.adapterData(), 10_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
 
         // Creating Box 2 which will invest in PT-USR-25SEP
         name = "Box Resolv";
@@ -219,9 +215,9 @@ contract DeployBaseScript is Script {
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
         Box box2 = boxFactory.createBox(
-            usdc, 
-            address(tx.origin), 
-            address(tx.origin), 
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
             name,
             symbol,
             maxSlippage,
@@ -255,14 +251,13 @@ contract DeployBaseScript is Script {
         box2.addFeeder(address(adapter2));
         box2.setCurator(address(curator));
         box2.transferOwnership(address(owner));
-        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10**6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
         vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
-        
+
         vault.removeAllocator(address(tx.origin));
         vault.setCurator(address(curator));
         vault.setOwner(address(owner));
 
-        
         vm.stopBroadcast();
         return vault;
     }

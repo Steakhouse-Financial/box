@@ -30,7 +30,6 @@ import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {MarketParams, IMorpho} from "@morpho-blue/interfaces/IMorpho.sol";
 import {FlashLoanMorpho} from "../src/FlashLoanMorpho.sol";
 
-
 /**
  * @title Testing suite for leverage features of Box using Morpho on Base
  */
@@ -51,7 +50,7 @@ contract BoxLeverageMorphoBaseTest is Test {
 
     IERC20 weth = IERC20(0x4200000000000000000000000000000000000006);
     IERC20 wsteth = IERC20(0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452);
-    IOracle wstethOracle94 = IOracle(0x4A11590e5326138B514E08A9B52202D42077Ca65); // vs WETH  
+    IOracle wstethOracle94 = IOracle(0x4A11590e5326138B514E08A9B52202D42077Ca65); // vs WETH
     IOracle wstethOracle96 = IOracle(0xaE10cbdAa587646246c8253E4532A002EE4fa7A4); // vs WETH
 
     ISwapper swapper = ISwapper(0x5C9dA86ECF5B35C8BF700a31a51d8a63fA53d1f6);
@@ -71,9 +70,9 @@ contract BoxLeverageMorphoBaseTest is Test {
     bytes facilityDataEth2;
 
     /// @notice Will setup Peaty Base investing in bbqUSDC, box1 (stUSD) and box (PTs)
-   function setUp() public {
+    function setUp() public {
         // Fork base on a  Sept 4th, 2025
-        uint256 forkId = vm.createFork(vm.rpcUrl("base"), 35116463);  
+        uint256 forkId = vm.createFork(vm.rpcUrl("base"), 35116463);
         vm.selectFork(forkId);
 
         // Creating Box USDC which will invest in PT-USR-25SEP
@@ -82,16 +81,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         uint256 maxSlippage = 0.01 ether; // 1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
-        box = new Box(
-            address(usdc),
-            owner,
-            curator,
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration
-        );
+        box = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);
@@ -115,16 +105,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         maxSlippage = 0.01 ether; // 1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
-        boxEth = new Box(
-            address(weth),
-            owner,
-            curator,
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration
-        );
+        boxEth = new Box(address(weth), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);
@@ -148,8 +129,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         boxEth.addFundingFacility(fundingModuleEth, facilityDataEth2);
 
         vm.stopPrank();
-    }   
-
+    }
 
     /////////////////////////////
     /// Setup checks
@@ -206,13 +186,10 @@ contract BoxLeverageMorphoBaseTest is Test {
             box.repay(fundingModule, facilityData, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.leverage(address(123), fundingModule, facilityData,
-                swapper, "",
-                ptusr25sep, usdc, 0);
+            box.leverage(address(123), fundingModule, facilityData, swapper, "", ptusr25sep, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
-            box.deleverage(address(123), fundingModule, facilityData,
-                swapper, "", ptusr25sep, 0, usdc, 0);
+            box.deleverage(address(123), fundingModule, facilityData, swapper, "", ptusr25sep, 0, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
             flashloanProvider.leverage(box, fundingModule, facilityData, swapper, "", ptusr25sep, usdc, 1);
@@ -229,8 +206,8 @@ contract BoxLeverageMorphoBaseTest is Test {
     }
 
     function testRemoveFundingModule() public {
-        uint256 USDC_1000 = 1000 * 10**6;
-        uint256 USDC_500 = 500 * 10**6;
+        uint256 USDC_1000 = 1000 * 10 ** 6;
+        uint256 USDC_500 = 500 * 10 ** 6;
 
         // Setup
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
@@ -238,7 +215,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
         usdc.transfer(address(box), 1); // Transfer 1 to the box contarct to repay the debt later
         usdc.approve(address(box), USDC_1000);
-        box.deposit(USDC_1000, address(this)); // Deposit 1000 USDC     
+        box.deposit(USDC_1000, address(this)); // Deposit 1000 USDC
 
         vm.startPrank(allocator);
         box.allocate(ptusr25sep, USDC_1000, swapper, "");
@@ -285,11 +262,11 @@ contract BoxLeverageMorphoBaseTest is Test {
         vm.startPrank(curator);
 
         // Can remove collateral ptusr25sep now
-        box.removeFundingCollateral(fundingModule, ptusr25sep); 
+        box.removeFundingCollateral(fundingModule, ptusr25sep);
 
         // Can't remove twice
         vm.expectRevert(ErrorsLib.NotWhitelisted.selector);
-        box.removeFundingCollateral(fundingModule, ptusr25sep); 
+        box.removeFundingCollateral(fundingModule, ptusr25sep);
 
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         box.removeFunding(fundingModule);
@@ -317,7 +294,7 @@ contract BoxLeverageMorphoBaseTest is Test {
 
     function testBoxLeverage() public {
         console2.log("\n=== Starting testBoxLeverage ===");
-        uint256 USDC_1000 = 1000 * 10**6;
+        uint256 USDC_1000 = 1000 * 10 ** 6;
 
         // Get some USDC
         console2.log("\n1. Setting up initial USDC funding");
@@ -352,12 +329,12 @@ contract BoxLeverageMorphoBaseTest is Test {
         uint256 navBeforeBorrow = box.totalAssets();
         console2.log("\n4. Borrowing USDC against PT collateral");
         console2.log("- NAV before borrow:", navBeforeBorrow / 1e6, "USDC");
-        
-        box.borrow(fundingModule, facilityData, usdc, 500 * 10**6);
+
+        box.borrow(fundingModule, facilityData, usdc, 500 * 10 ** 6);
         console2.log("- Borrowed:", 500, "USDC");
 
-        assertEq(usdc.balanceOf(address(box)), 500  * 10**6, "500 USDC in the Box");
-        
+        assertEq(usdc.balanceOf(address(box)), 500 * 10 ** 6, "500 USDC in the Box");
+
         // Check NAV after borrowing
         uint256 navAfterBorrow = box.totalAssets();
         console2.log("- NAV after borrow:", navAfterBorrow / 1e6, "USDC");
@@ -385,12 +362,11 @@ contract BoxLeverageMorphoBaseTest is Test {
         vm.stopPrank();
     }
 
-
     function testBoxWind() public {
         console2.log("\n=== Starting testBoxWind (Looping Test) ===");
-        uint256 USDC_1000 = 1000 * 10**6;
-        uint256 USDC_500 = 500 * 10**6;
-        
+        uint256 USDC_1000 = 1000 * 10 ** 6;
+        uint256 USDC_500 = 500 * 10 ** 6;
+
         // TODO: We shouldn't have to do this
         vm.prank(curator);
         box.setIsAllocator(address(box), true);
@@ -454,9 +430,17 @@ contract BoxLeverageMorphoBaseTest is Test {
         assertApproxEqRel(navAfterWind, navBeforeWind, 0.01e18, "NAV should remain approximately constant after wind");
 
         console2.log("\n6. Executing unwind operation (deleverage)");
-        flashloanProvider.deleverage(box, fundingModule, facilityData, swapper, "", 
-            ptusr25sep, fundingModule.collateralBalance(ptusr25sep), 
-            usdc, type(uint256).max);
+        flashloanProvider.deleverage(
+            box,
+            fundingModule,
+            facilityData,
+            swapper,
+            "",
+            ptusr25sep,
+            fundingModule.collateralBalance(ptusr25sep),
+            usdc,
+            type(uint256).max
+        );
         console2.log("- Unwind operation completed");
 
         assertEq(fundingModule.debtBalance(usdc), 0, "Debt is fully repaid");
@@ -480,7 +464,6 @@ contract BoxLeverageMorphoBaseTest is Test {
         vm.stopPrank();
     }
 
-
     function testShift() public {
         console2.log("\n=== Starting testShift (Market Migration Test) ===");
         vm.prank(curator);
@@ -499,7 +482,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         // Swap WETH to wstETH
         console2.log("\n2. Swapping WETH to wstETH");
         boxEth.allocate(wsteth, 10 ether, swapper, "");
-        
+
         uint256 wstEthBalance = wsteth.balanceOf(address(boxEth));
         console2.log("- Received:", wstEthBalance / 1e18, "wstETH");
         // With 10 ETH, we should get ~10x more wstETH than the original 1 ETH test
@@ -532,10 +515,15 @@ contract BoxLeverageMorphoBaseTest is Test {
 
         console2.log("- Market 1 collateral:", fundingModuleEth.collateralBalance(facilityDataEth1, wsteth) / 1e18, "wstETH");
         console2.log("- Market 1 debt:", fundingModuleEth.debtBalance(facilityDataEth1, weth) / 1e18, "WETH");
-        console2.log("- Market 1 LTV:", fundingModuleEth.ltv(facilityDataEth1) * 100 / 1e18, "%");
-        
+        console2.log("- Market 1 LTV:", (fundingModuleEth.ltv(facilityDataEth1) * 100) / 1e18, "%");
+
         // Approximate values since we're using 10x scale
-        assertApproxEqRel(fundingModuleEth.collateralBalance(facilityDataEth1, wsteth), 12382329159449028340, 0.01e18, "Market 1 collateral");
+        assertApproxEqRel(
+            fundingModuleEth.collateralBalance(facilityDataEth1, wsteth),
+            12382329159449028340,
+            0.01e18,
+            "Market 1 collateral"
+        );
         assertEq(fundingModuleEth.collateralBalance(facilityDataEth2, wsteth), 0);
         assertApproxEqRel(fundingModuleEth.debtBalance(facilityDataEth1, weth), 5000000000000000010, 0.01e18, "Market 1 debt");
         assertEq(fundingModuleEth.debtBalance(facilityDataEth2, weth), 0 ether);
@@ -554,18 +542,32 @@ contract BoxLeverageMorphoBaseTest is Test {
 
         // Shift all the position to the second market
         console2.log("\n6. Shifting position from Market 1 to Market 2 (96% LLTV)");
-        flashloanProvider.refinance(boxEth, fundingModuleEth, facilityDataEth1, fundingModuleEth, facilityDataEth2,
-            wsteth, type(uint256).max, weth, type(uint256).max);
+        flashloanProvider.refinance(
+            boxEth,
+            fundingModuleEth,
+            facilityDataEth1,
+            fundingModuleEth,
+            facilityDataEth2,
+            wsteth,
+            type(uint256).max,
+            weth,
+            type(uint256).max
+        );
         console2.log("- Position shifted to Market 2");
 
         console2.log("- Market 1 collateral:", fundingModuleEth.collateralBalance(facilityDataEth1, wsteth) / 1e18, "wstETH");
         console2.log("- Market 1 debt:", fundingModuleEth.debtBalance(facilityDataEth1, weth) / 1e18, "WETH");
         console2.log("- Market 2 collateral:", fundingModuleEth.collateralBalance(facilityDataEth2, wsteth) / 1e18, "wstETH");
         console2.log("- Market 2 debt:", fundingModuleEth.debtBalance(facilityDataEth2, weth) / 1e18, "WETH");
-        console2.log("- Market 2 LTV:", fundingModuleEth.ltv(facilityDataEth2) * 100 / 1e18, "%");
+        console2.log("- Market 2 LTV:", (fundingModuleEth.ltv(facilityDataEth2) * 100) / 1e18, "%");
 
         assertEq(fundingModuleEth.collateralBalance(facilityDataEth1, wsteth), 0, "No more market 1 collateral");
-        assertApproxEqRel(fundingModuleEth.collateralBalance(facilityDataEth2, wsteth), 12382329159449028340, 0.01e18, "Market 2 collateral");
+        assertApproxEqRel(
+            fundingModuleEth.collateralBalance(facilityDataEth2, wsteth),
+            12382329159449028340,
+            0.01e18,
+            "Market 2 collateral"
+        );
         assertEq(fundingModuleEth.debtBalance(facilityDataEth1, weth), 0 ether, "No more market 1 debt");
         assertApproxEqRel(fundingModuleEth.debtBalance(facilityDataEth2, weth), 5000000000000000020, 0.01e18, "Market 2 debt");
         assertEq(fundingModuleEth.ltv(facilityDataEth1), 0 ether, "Market 1 LTV should be 0");

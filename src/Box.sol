@@ -2,19 +2,19 @@
 // Copyright (c) 2025 Steakhouse Financial
 pragma solidity ^0.8.13;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IBox} from "./interfaces/IBox.sol";
+import {IFunding} from "./interfaces/IFunding.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ISwapper} from "./interfaces/ISwapper.sol";
 import "./lib/Constants.sol";
 import {ErrorsLib} from "./lib/ErrorsLib.sol";
 import {EventsLib} from "./lib/EventsLib.sol";
-import {IFunding} from "./interfaces/IFunding.sol";
 import {OperationsLib} from "./lib/OperationsLib.sol";
 
 /**
@@ -28,21 +28,21 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     using Math for uint256;
 
     // ========== IMMUTABLE STATE ==========
-    
+
     /// @notice Base currency token (e.g., USDC)
     address public immutable asset;
-        
+
     /// @notice Duration of slippage tracking epochs
     uint256 public immutable slippageEpochDuration;
-    
+
     /// @notice Duration over which shutdown slippage tolerance increases
     uint256 public immutable shutdownSlippageDuration;
-    
+
     // ========== MUTABLE STATE ==========
-    
+
     /// @notice Contract owner with administrative privileges
     address public owner;
-    
+
     /// @notice Curator who add new tokens
     address public curator;
 
@@ -71,13 +71,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // Timelock governance
     mapping(bytes4 => uint256) public timelock;
     mapping(bytes => uint256) public executableAt;
-    
+
     // Funding modules
     IFunding[] public fundings;
     mapping(IFunding => bool) internal fundingMap;
 
     // ========== MODIFIERS ==========
-        
+
     function timelocked() internal {
         if (executableAt[msg.data] == 0) revert ErrorsLib.DataNotTimelocked();
         if (block.timestamp < executableAt[msg.data]) revert ErrorsLib.TimelockNotExpired();
@@ -86,12 +86,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     // ========== CONSTRUCTOR ==========
-    
+
     /**
      * @notice Initializes the Box vault
      * @param _asset Base currency token (e.g., USDC)
      * @param _owner Initial owner address
-     * @param _curator Initial curator address  
+     * @param _curator Initial curator address
      * @param _name ERC20 token name
      * @param _symbol ERC20 token symbol
      * @param _maxSlippage Max allowed slippage for a swap or aggregated over `_slippageEpochDuration`
@@ -125,7 +125,17 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         slippageEpochStart = block.timestamp;
         shutdownTime = type(uint256).max; // No shutdown initially
 
-        emit EventsLib.BoxCreated(address(this), asset, owner, curator, _name, _symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
+        emit EventsLib.BoxCreated(
+            address(this),
+            asset,
+            owner,
+            curator,
+            _name,
+            _symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration
+        );
         emit EventsLib.OwnershipTransferred(address(0), _owner);
         emit EventsLib.CuratorUpdated(address(0), _curator);
     }
@@ -213,9 +223,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     function withdraw(uint256 assets, address receiver, address owner_) public nonReentrant returns (uint256 shares) {
         if (receiver == address(0)) revert ErrorsLib.InvalidAddress();
-        
+
         shares = previewWithdraw(assets);
-        
+
         if (msg.sender != owner_) {
             uint256 allowed = allowance(owner_, msg.sender);
             if (allowed < shares) revert ErrorsLib.InsufficientAllowance();
@@ -288,18 +298,20 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Transfer pro-rata share of each token
         uint256 length = tokens.length;
-        for (uint256 i; i < length;) {
+        for (uint256 i; i < length; ) {
             IERC20 token = tokens[i];
             uint256 tokenAmount = token.balanceOf(address(this)).mulDiv(shares, supply);
             if (tokenAmount > 0) {
                 token.safeTransfer(msg.sender, tokenAmount);
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
-        
+
         emit EventsLib.Unbox(msg.sender, shares);
     }
-    
+
     // ========== INVESTMENT MANAGEMENT ==========
 
     /**
@@ -340,9 +352,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             slippageTolerance = _winddownSlippageTolerance();
         }
 
-        (uint256 tokensReceived, uint256 assetsSpent, int256 slippage, int256 slippagePct) = 
-            OperationsLib.allocate(IERC20(asset), token, assetsAmount, swapper, data,
-            oracle, slippageTolerance);
+        (uint256 tokensReceived, uint256 assetsSpent, int256 slippage, int256 slippagePct) = OperationsLib.allocate(
+            IERC20(asset),
+            token,
+            assetsAmount,
+            swapper,
+            data,
+            oracle,
+            slippageTolerance
+        );
 
         // Track slippage, not during wind-down mode
         if (!winddown && slippage > 0) {
@@ -372,10 +390,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             slippageTolerance = _winddownSlippageTolerance();
         }
 
-        (uint256 assetsReceived, uint256 tokensSpent, int256 slippage, int256 slippagePct) = 
-            OperationsLib.deallocate(IERC20(asset), IERC20(token), tokensAmount, swapper, data, 
-            oracle, slippageTolerance);
-
+        (uint256 assetsReceived, uint256 tokensSpent, int256 slippage, int256 slippagePct) = OperationsLib.deallocate(
+            IERC20(asset),
+            IERC20(token),
+            tokensAmount,
+            swapper,
+            data,
+            oracle,
+            slippageTolerance
+        );
 
         // Track slippage (only in normal operation)
         if (!winddown && slippage > 0) {
@@ -395,13 +418,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param swapper Swapper contract to use
      * @param data Additional data to pass to the swapper
      */
-    function reallocate(
-        IERC20 from, 
-        IERC20 to, 
-        uint256 tokensAmount,
-        ISwapper swapper,
-        bytes calldata data
-    ) external nonReentrant {
+    function reallocate(IERC20 from, IERC20 to, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
         require(isToken(from) && isToken(to), ErrorsLib.TokenNotWhitelisted());
@@ -430,7 +447,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOracle.price());
         uint256 minToTokens = expectedToTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
         int256 slippage = int256(expectedToTokens) - int256(toReceived);
-        int256 slippagePct = expectedToTokens == 0 ? int256(0) : slippage * int256(PRECISION) / int256(expectedToTokens);
+        int256 slippagePct = expectedToTokens == 0 ? int256(0) : (slippage * int256(PRECISION)) / int256(expectedToTokens);
 
         require(toReceived >= minToTokens, ErrorsLib.ReallocationSlippageTooHigh());
 
@@ -456,7 +473,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         address oldRecipient = skimRecipient;
         skimRecipient = newSkimRecipient;
-        
+
         emit EventsLib.SkimRecipientUpdated(oldRecipient, newSkimRecipient);
     }
 
@@ -470,7 +487,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         address oldOwner = owner;
         owner = newOwner;
-        
+
         emit EventsLib.OwnershipTransferred(oldOwner, newOwner);
     }
 
@@ -484,7 +501,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         address oldCurator = curator;
         curator = newCurator;
-        
+
         emit EventsLib.CuratorUpdated(oldCurator, newCurator);
     }
 
@@ -498,7 +515,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         address oldGuardian = guardian;
         guardian = newGuardian;
-        
+
         emit EventsLib.GuardianUpdated(oldGuardian, newGuardian);
     }
 
@@ -525,7 +542,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(!isShutdown(), ErrorsLib.AlreadyShutdown());
 
         shutdownTime = block.timestamp;
-        
+
         emit EventsLib.Shutdown(msg.sender);
     }
 
@@ -629,7 +646,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         uint256 oldMaxSlippage = maxSlippage;
         maxSlippage = newMaxSlippage;
-        
+
         emit EventsLib.MaxSlippageUpdated(oldMaxSlippage, newMaxSlippage);
     }
 
@@ -647,7 +664,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         tokens.push(token);
         oracles[token] = oracle;
-        
+
         emit EventsLib.TokenAdded(token, oracle);
     }
 
@@ -661,21 +678,23 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(token.balanceOf(address(this)) == 0, ErrorsLib.TokenBalanceMustBeZero());
 
         uint256 length = tokens.length;
-        for (uint256 i; i < length;) {
+        for (uint256 i; i < length; ) {
             if (tokens[i] == token) {
                 tokens[i] = tokens[length - 1];
                 tokens.pop();
                 break;
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         delete oracles[token];
-        
+
         emit EventsLib.TokenRemoved(token);
     }
 
-        /**
+    /**
      * @notice Change the oracle of a token
      * @param token Token that is already allowed
      * @param oracle New oracle
@@ -686,10 +705,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
 
         oracles[token] = oracle;
-        
+
         emit EventsLib.TokenOracleChanged(token, oracle);
     }
-
 
     // ========== VIEW FUNCTIONS ==========
     /**
@@ -699,7 +717,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function isToken(IERC20 token) public view returns (bool) {
         return address(oracles[token]) != address(0);
     }
-    
+
     /**
      * @notice Returns true if token is an investment token
      * @return true if it is a whitelisted investment token
@@ -761,8 +779,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             totalDebt += funding.debtBalance(debtToken);
         }
     }
-    
-
 
     // ========== INTERNAL FUNCTIONS ==========
 
@@ -794,7 +810,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Add value of all tokens
         uint256 length = tokens.length;
-        for (uint256 i; i < length;) {
+        for (uint256 i; i < length; ) {
             IERC20 token = tokens[i];
             IOracle oracle = oracles[token];
             if (address(oracle) != address(0)) {
@@ -803,23 +819,24 @@ contract Box is IBox, ERC20, ReentrancyGuard {
                     assets_ += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
                 }
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
         // Loop over funding sources
         length = fundings.length;
         for (uint256 i; i < length; ) {
             IFunding funding = fundings[i];
             uint256 collateralLength = funding.collateralTokensLength();
-            for(uint256 c = 0; c < collateralLength; c++) {
+            for (uint256 c = 0; c < collateralLength; c++) {
                 IERC20 collateralToken = funding.collateralTokens(c);
                 uint256 collateralBalance = funding.collateralBalance(collateralToken);
                 if (collateralBalance == 0) {
                     continue;
-                }
-                else if (address(collateralToken) == asset) {
+                } else if (address(collateralToken) == asset) {
                     assets_ += collateralBalance;
-                }
-                else { // isTokenOrAsset
+                } else {
+                    // isTokenOrAsset
                     IOracle oracle = oracles[collateralToken];
                     if (address(oracle) != address(0)) {
                         assets_ += collateralBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
@@ -827,23 +844,24 @@ contract Box is IBox, ERC20, ReentrancyGuard {
                 }
             }
             uint256 debtTokensLength = funding.debtTokensLength();
-            for(uint256 d = 0; d < debtTokensLength; d++) {
+            for (uint256 d = 0; d < debtTokensLength; d++) {
                 IERC20 debtToken = funding.debtTokens(d);
                 uint256 debt = funding.debtBalance(debtToken);
                 if (debt == 0) {
                     continue;
-                }
-                else if (address(debtToken) == asset) {
+                } else if (address(debtToken) == asset) {
                     liabilities += debt;
-                }
-                else { // isTokenOrAsset
+                } else {
+                    // isTokenOrAsset
                     IOracle oracle = oracles[debtToken];
                     if (address(oracle) != address(0)) {
                         liabilities += debt.mulDiv(oracle.price(), ORACLE_PRECISION);
                     }
                 }
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         nav = int256(assets_) - int256(liabilities);
@@ -854,9 +872,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function _winddownSlippageTolerance() internal view returns (uint256) {
         uint256 timeElapsed = block.timestamp - SHUTDOWN_WARMUP - shutdownTime;
-        return (timeElapsed < shutdownSlippageDuration) ?
-            timeElapsed.mulDiv(MAX_SLIPPAGE_LIMIT, shutdownSlippageDuration) :
-            MAX_SLIPPAGE_LIMIT;
+        return
+            (timeElapsed < shutdownSlippageDuration)
+                ? timeElapsed.mulDiv(MAX_SLIPPAGE_LIMIT, shutdownSlippageDuration)
+                : MAX_SLIPPAGE_LIMIT;
     }
 
     function _findFundingIndex(IFunding fundingData) internal view returns (uint256) {
@@ -884,7 +903,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         emit EventsLib.FundingModuleAdded(fundingModule);
     }
-    
+
     function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
@@ -959,7 +978,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
-
         collateralToken.safeTransfer(address(fundingModule), collateralAmount);
         fundingModule.pledge(facilityData, collateralToken, collateralAmount);
 
@@ -972,7 +990,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         uint256 pledgeAmount = fundingModule.collateralBalance(facilityData, collateralToken);
 
-        if(collateralAmount == type(uint256).max) {
+        if (collateralAmount == type(uint256).max) {
             collateralAmount = pledgeAmount;
         }
 
@@ -996,7 +1014,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
 
-        if(repayAmount == type(uint256).max) {
+        if (repayAmount == type(uint256).max) {
             repayAmount = debtAmount;
         }
 
@@ -1006,50 +1024,80 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.Repay(fundingModule, facilityData, debtToken, repayAmount);
     }
 
-
-
-    function leverage(address flashloanProvider, 
-        IFunding fundingModule, bytes calldata facilityData, 
-        ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateral, IERC20 loanAsset, uint256 loanAmount) external {
-
+    function leverage(
+        address flashloanProvider,
+        IFunding fundingModule,
+        bytes calldata facilityData,
+        ISwapper swapper,
+        bytes calldata swapData,
+        IERC20 collateral,
+        IERC20 loanAsset,
+        uint256 loanAmount
+    ) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         // Most checks will be done at the underlying actions
 
-        OperationsLib.leverage(this, flashloanProvider, fundingModule, facilityData, 
-            swapper, swapData, collateral, loanAsset, loanAmount);
+        OperationsLib.leverage(this, flashloanProvider, fundingModule, facilityData, swapper, swapData, collateral, loanAsset, loanAmount);
 
         // Events are already emitted at the underlying actions
     }
 
-    function deleverage(address flashloanProvider, 
-        IFunding fundingModule, bytes calldata facilityData, 
-        ISwapper swapper, bytes calldata swapData, 
-        IERC20 collateral, uint256 collateralAmount, 
-        IERC20 loanAsset, uint256 loanAmount) external {
-
+    function deleverage(
+        address flashloanProvider,
+        IFunding fundingModule,
+        bytes calldata facilityData,
+        ISwapper swapper,
+        bytes calldata swapData,
+        IERC20 collateral,
+        uint256 collateralAmount,
+        IERC20 loanAsset,
+        uint256 loanAmount
+    ) external {
         require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
         // Most checks will be done at the underlying actions
 
-        OperationsLib.deleverage(this, flashloanProvider, fundingModule, facilityData, 
-            swapper, swapData, collateral, collateralAmount, loanAsset, loanAmount);
+        OperationsLib.deleverage(
+            this,
+            flashloanProvider,
+            fundingModule,
+            facilityData,
+            swapper,
+            swapData,
+            collateral,
+            collateralAmount,
+            loanAsset,
+            loanAmount
+        );
 
         // Events are already emitted at the underlying actions
     }
 
-
-    function refinance(address flashloanProvider, 
-        IFunding fromFundingModule, bytes calldata fromFacilityData, 
-        IFunding toFundingModule, bytes calldata toFacilityData,
-        IERC20 collateral, uint256 collateralAmount, 
-        IERC20 loanAsset, uint256 loanAmount) external {
-
+    function refinance(
+        address flashloanProvider,
+        IFunding fromFundingModule,
+        bytes calldata fromFacilityData,
+        IFunding toFundingModule,
+        bytes calldata toFacilityData,
+        IERC20 collateral,
+        uint256 collateralAmount,
+        IERC20 loanAsset,
+        uint256 loanAmount
+    ) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         // Most checks will be done at the underlying actions
 
-        OperationsLib.refinance(this, flashloanProvider, 
-            fromFundingModule, fromFacilityData, toFundingModule, toFacilityData, 
-            collateral, collateralAmount, loanAsset, loanAmount);
+        OperationsLib.refinance(
+            this,
+            flashloanProvider,
+            fromFundingModule,
+            fromFacilityData,
+            toFundingModule,
+            toFacilityData,
+            collateral,
+            collateralAmount,
+            loanAsset,
+            loanAmount
+        );
 
         // Events are already emitted at the underlying actions
     }

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Steakhouse
-pragma solidity >= 0.8.0;
+pragma solidity >=0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-interface IFunding {    
+interface IFunding {
     // ========== ADMIN ==========
     function addFacility(bytes calldata facilityData) external;
     function removeFacility(bytes calldata facilityData) external;
@@ -33,7 +33,7 @@ interface IFunding {
     // ========== POSITION ==========
     function ltv(bytes calldata facilityData) external view returns (uint256);
     function debtBalance(bytes calldata facilityData, IERC20 debtToken) external view returns (uint256);
-    function collateralBalance(bytes calldata facilityData, IERC20 collateralToken) external  view returns (uint256);
+    function collateralBalance(bytes calldata facilityData, IERC20 collateralToken) external view returns (uint256);
     function debtBalance(IERC20 debtToken) external view returns (uint256);
     function collateralBalance(IERC20 collateralToken) external view returns (uint256);
 }

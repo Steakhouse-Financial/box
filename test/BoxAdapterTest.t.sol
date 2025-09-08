@@ -125,16 +125,11 @@ contract BoxAdapterTest is Test {
         Box newBox = new Box(address(asset), owner, owner, "Box2", "BOX2", 0, 1, 1);
 
         bytes32 initCodeHash = keccak256(
-            abi.encodePacked(
-                type(BoxAdapter).creationCode, abi.encode(address(newParentVault), address(newBox))
-            )
+            abi.encodePacked(type(BoxAdapter).creationCode, abi.encode(address(newParentVault), address(newBox)))
         );
-        address expectedNewAdapter =
-            address(uint160(uint256(keccak256(abi.encodePacked(uint8(0xff), factory, bytes32(0), initCodeHash)))));
+        address expectedNewAdapter = address(uint160(uint256(keccak256(abi.encodePacked(uint8(0xff), factory, bytes32(0), initCodeHash)))));
         vm.expectEmit();
-        emit IBoxAdapterFactory.CreateBoxAdapter(
-            address(newParentVault), address(newBox), IBoxAdapter(expectedNewAdapter)
-        );
+        emit IBoxAdapterFactory.CreateBoxAdapter(address(newParentVault), address(newBox), IBoxAdapter(expectedNewAdapter));
 
         address newAdapter = address(factory.createBoxAdapter(address(newParentVault), newBox));
 
@@ -145,11 +140,7 @@ contract BoxAdapterTest is Test {
         assertEq(IBoxAdapter(newAdapter).parentVault(), address(newParentVault), "Incorrect parent vault");
         assertEq(address(IBoxAdapter(newAdapter).box()), address(newBox), "Incorrect Box");
         assertEq(IBoxAdapter(newAdapter).adapterId(), expectedIds[0], "Incorrect adapterId");
-        assertEq(
-            address(factory.boxAdapter(address(newParentVault), newBox)),
-            newAdapter,
-            "Adapter not tracked correctly"
-        );
+        assertEq(address(factory.boxAdapter(address(newParentVault), newBox)), newAdapter, "Adapter not tracked correctly");
         assertTrue(factory.isBoxAdapter(address(newAdapter)), "Adapter not tracked correctly");
     }
 
@@ -262,7 +253,7 @@ contract BoxAdapterTest is Test {
 
         deal(address(asset), address(adapter), deposit);
         parentVault.allocateMocked(address(adapter), hex"", deposit);
-        
+
         vm.startPrank(address(box));
         asset.transfer(address(0xdead), loss);
         vm.stopPrank();
@@ -282,7 +273,6 @@ contract BoxAdapterTest is Test {
         assertApproxEqAbs(adapter.realAssets() - deposit, interest, interest.mulDivUp(1, deposit + 1), "realAssets");
     }
 }
-
 
 function zeroFloorSub(uint256 a, uint256 b) pure returns (uint256) {
     if (a < b) return 0;

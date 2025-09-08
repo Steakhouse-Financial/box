@@ -2,16 +2,16 @@
 // Copyright (c) 2025 Morpho Association
 pragma solidity 0.8.28;
 
-import {Box} from "./Box.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import {Box} from "./Box.sol";
 import "./interfaces/IBox.sol";
+import "./interfaces/IBoxFactory.sol";
 import "./interfaces/IOracle.sol";
 import "./interfaces/ISwapper.sol";
-import "./interfaces/IBoxFactory.sol";
 
 contract BoxFactory is IBoxFactory {
     /* STORAGE */
@@ -21,7 +21,7 @@ contract BoxFactory is IBoxFactory {
     /* FUNCTIONS */
 
     /// @dev Returns the address of the deployed BoxAdapter.
-    function createBox(      
+    function createBox(
         IERC20 _asset,
         address _owner,
         address _curator,
@@ -30,19 +30,23 @@ contract BoxFactory is IBoxFactory {
         uint256 _maxSlippage,
         uint256 _slippageEpochDuration,
         uint256 _shutdownSlippageDuration,
-        bytes32 salt) external returns (Box) {
-        Box _box = new Box{salt:salt}(address(_asset),
+        bytes32 salt
+    ) external returns (Box) {
+        Box _box = new Box{salt: salt}(
+            address(_asset),
             _owner,
             _curator,
             _name,
             _symbol,
             _maxSlippage,
             _slippageEpochDuration,
-            _shutdownSlippageDuration);
+            _shutdownSlippageDuration
+        );
 
         isBox[address(_box)] = true;
 
-        emit CreateBox(_asset,
+        emit CreateBox(
+            _asset,
             _owner,
             _curator,
             _name,
@@ -51,7 +55,8 @@ contract BoxFactory is IBoxFactory {
             _slippageEpochDuration,
             _shutdownSlippageDuration,
             salt,
-            _box);
+            _box
+        );
         return _box;
     }
 }

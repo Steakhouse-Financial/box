@@ -85,7 +85,6 @@ contract FundingMorphoTest is Test {
         fundingMorpho.addCollateralToken(collateralToken);
         fundingMorpho.addDebtToken(debtToken);
         vm.stopPrank();
-
     }
 
     /// @dev Ensure test setup was as expected
@@ -110,7 +109,6 @@ contract FundingMorphoTest is Test {
 
     /// @dev Test a simple funding cycle
     function testSimpleCycle() public {
-
         vm.startPrank(owner);
 
         collateralToken.mint(address(owner), 1 ether);
@@ -132,7 +130,6 @@ contract FundingMorphoTest is Test {
         // Can't repay without debt
         vm.expectRevert();
         fundingMorpho.repay(facilityDataLtv80, debtToken, 0.5 ether);
-
 
         // ========== Valid cycle ==========
 
@@ -237,12 +234,9 @@ contract FundingMorphoTest is Test {
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         fundingMorpho.removeDebtToken(debtToken);
 
-        debtToken.transfer(address(fundingMorpho), 
-            fundingMorpho.debtBalance(facilityDataLtv80, debtToken));
-        fundingMorpho.repay(facilityDataLtv80, debtToken, 
-            fundingMorpho.debtBalance(facilityDataLtv80, debtToken));
-        fundingMorpho.depledge(facilityDataLtv80, collateralToken, 
-            fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken));
+        debtToken.transfer(address(fundingMorpho), fundingMorpho.debtBalance(facilityDataLtv80, debtToken));
+        fundingMorpho.repay(facilityDataLtv80, debtToken, fundingMorpho.debtBalance(facilityDataLtv80, debtToken));
+        fundingMorpho.depledge(facilityDataLtv80, collateralToken, fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken));
 
         assertEq(fundingMorpho.collateralBalance(facilityDataLtv80, collateralToken), 0 ether);
         assertEq(fundingMorpho.debtBalance(facilityDataLtv80, debtToken), 0 ether);
@@ -251,7 +245,6 @@ contract FundingMorphoTest is Test {
         fundingMorpho.removeFacility(facilityDataLtv80);
         fundingMorpho.removeCollateralToken(collateralToken);
         fundingMorpho.removeDebtToken(debtToken);
-
 
         assertEq(fundingMorpho.facilitiesLength(), 0);
         assertEq(fundingMorpho.collateralTokensLength(), 0);
