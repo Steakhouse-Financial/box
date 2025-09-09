@@ -35,6 +35,16 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
         MORPHO = morpho;
     }
 
+    function _swap(IBox box, ISwapper swapper, bytes memory swapData, IERC20 fromToken, IERC20 toToken, uint256 amount) internal {
+        if (address(fromToken) == box.asset()) {
+            box.allocate(toToken, amount, swapper, swapData);
+        } else if (address(toToken) == box.asset()) {
+            box.deallocate(fromToken, amount, swapper, swapData);
+        } else {
+            box.reallocate(fromToken, toToken, amount, swapper, swapData);
+        }
+    }
+
     function onMorphoFlashLoan(uint256 assets, bytes calldata data) external {
         // TODO require morpho only msg.Sender
         require(msg.sender == address(MORPHO), ErrorsLib.OnlyMorpho());
@@ -100,13 +110,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
             uint256 beforeCollateral = collateralToken.balanceOf(address(box));
 
             // Have Box perform the swap using its allocation functions
-            if (address(loanToken) == box.asset()) {
-                box.allocate(collateralToken, loanAmount, swapper, swapData);
-            } else if (address(collateralToken) == box.asset()) {
-                box.deallocate(loanToken, loanAmount, swapper, swapData);
-            } else {
-                box.reallocate(loanToken, collateralToken, loanAmount, swapper, swapData);
-            }
+            _swap(box, swapper, swapData, loanToken, collateralToken, loanAmount);
 
             // Check how much collateral was received in the Box
             uint256 afterCollateral = collateralToken.balanceOf(address(box));
@@ -135,16 +139,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
             box.depledge(fundingModule, facilityData, collateralToken, collateralAmount);
 
             // Have the Box swap its collateral tokens to loan tokens
-            if (address(loanToken) == box.asset()) {
-                // Convert collateral tokens to base asset (loan token)
-                box.deallocate(collateralToken, collateralAmount, swapper, swapData);
-            } else if (address(collateralToken) == box.asset()) {
-                // This shouldn't happen in deleverage - collateral should not be base asset
-                revert("Invalid deleverage: collateral cannot be base asset");
-            } else {
-                // Convert from collateral token to loan token
-                box.reallocate(collateralToken, loanToken, collateralAmount, swapper, swapData);
-            }
+            _swap(box, swapper, swapData, collateralToken, loanToken, collateralAmount);
         } else if (operation == FlashLoanMorpho.refinance.selector) {
             (
                 operation,
@@ -168,14 +163,12 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
             }
 
             // Repay the old debt
-            loanToken.forceApprove(address(box), loanAmount);
             box.repay(fundingModule, facilityData, loanToken, loanAmount);
 
             // Withdraw collateral from old module
             box.depledge(fundingModule, facilityData, collateralToken, collateralAmount);
 
             // Pledge collateral to new module
-            collateralToken.forceApprove(address(box), collateralAmount);
             box.pledge(fundingModule2, facilityData2, collateralToken, collateralAmount);
 
             // Borrow from new module
