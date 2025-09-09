@@ -43,6 +43,7 @@ library EventsLib {
     event Depledge(IFunding indexed fundingModule, bytes facilityData, IERC20 collateralToken, uint256 collateralAmount);
     event Borrow(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 borrowAmount);
     event Repay(IFunding indexed fundingModule, bytes facilityData, IERC20 debtToken, uint256 repayAmount);
+    event Flash(address indexed caller, IERC20 indexed token, uint256 amount);
 
     // ========== MISC ==========
     event SlippageAccumulated(uint256 amount, uint256 total);

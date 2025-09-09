@@ -17,6 +17,10 @@ import {ErrorsLib} from "./lib/ErrorsLib.sol";
 import {EventsLib} from "./lib/EventsLib.sol";
 import {OperationsLib} from "./lib/OperationsLib.sol";
 
+interface IBoxFlashCallback {
+    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external;
+}
+
 /**
  * @title Box
  * @author Steakhouse
@@ -1106,8 +1110,20 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Events are already emitted at the underlying actions
     }
 
-    function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external view {
-        // TODO: tx flashamount, call a callback on the msg.sender, approve flashamount to msg.sender
+    function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        require(flashAmount > 0, ErrorsLib.InvalidAmount());
+        require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
+
+        // Transfer flash amount FROM caller TO this contract
+        flashToken.safeTransferFrom(msg.sender, address(this), flashAmount);
+
+        // Call the callback function on the caller
+        IBoxFlashCallback(msg.sender).onBoxFlash(flashToken, flashAmount, data);
+
+        // Repay the flash loan by transferring back TO caller
+        flashToken.safeTransfer(msg.sender, flashAmount);
+
+        emit EventsLib.Flash(msg.sender, flashToken, flashAmount);
     }
 }

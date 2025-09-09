@@ -20,7 +20,11 @@ interface IMorphoFlashLoanCallback {
     function onMorphoFlashLoan(uint256 assets, bytes calldata data) external;
 }
 
-contract FlashLoanMorpho is IMorphoFlashLoanCallback {
+interface IBoxFlashCallback {
+    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external;
+}
+
+contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
     using SafeERC20 for IERC20;
     using MorphoLib for IMorpho;
     using MathLib for uint256;
@@ -38,6 +42,41 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
         bytes4 operation = abi.decode(bytes(data), (bytes4));
 
         IBox box;
+        IERC20 loanToken;
+
+        if (operation == FlashLoanMorpho.leverage.selector) {
+            (operation, box, , , , loanToken, , , ) = abi.decode(
+                data,
+                (bytes4, IBox, IFunding, bytes, IERC20, IERC20, uint256, ISwapper, bytes)
+            );
+        } else if (operation == FlashLoanMorpho.deleverage.selector) {
+            (operation, box, , , , , loanToken, , , ) = abi.decode(
+                data,
+                (bytes4, IBox, IFunding, bytes, IERC20, uint256, IERC20, uint256, ISwapper, bytes)
+            );
+        } else if (operation == FlashLoanMorpho.refinance.selector) {
+            (operation, box, , , , , , , loanToken, ) = abi.decode(
+                data,
+                (bytes4, IBox, IFunding, bytes, IFunding, bytes, IERC20, uint256, IERC20, uint256)
+            );
+        } else {
+            revert("Invalid operation");
+        }
+
+        // Approve the box to pull the flash loan amount
+        loanToken.forceApprove(address(box), assets);
+
+        // Call box.flash which will call back to us
+        box.flash(loanToken, assets, data);
+
+        // Repay the flash loan to Morpho
+        loanToken.forceApprove(msg.sender, assets);
+    }
+
+    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external {
+        bytes4 operation = abi.decode(bytes(data), (bytes4));
+
+        IBox box = IBox(msg.sender);
         IFunding fundingModule;
         bytes memory facilityData;
         IFunding fundingModule2;
@@ -50,35 +89,66 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
         bytes memory swapData;
 
         if (operation == FlashLoanMorpho.leverage.selector) {
-            (operation, box, fundingModule, facilityData, collateralToken, loanToken, loanAmount, swapper, swapData) = abi.decode(
+            (operation, , fundingModule, facilityData, collateralToken, loanToken, loanAmount, swapper, swapData) = abi.decode(
                 data,
                 (bytes4, IBox, IFunding, bytes, IERC20, IERC20, uint256, ISwapper, bytes)
             );
 
-            // The flash loan is allowed for the box to grab
-            loanToken.forceApprove(address(box), assets);
-            box.leverage(address(this), fundingModule, facilityData, swapper, swapData, collateralToken, loanToken, loanAmount);
+            // At this point, the Box already has the flash loan tokens (transferred by box.flash)
+
+            // Record collateral balance before swap
+            uint256 beforeCollateral = collateralToken.balanceOf(address(box));
+
+            // Have Box perform the swap using its allocation functions
+            if (address(loanToken) == box.asset()) {
+                box.allocate(collateralToken, loanAmount, swapper, swapData);
+            } else if (address(collateralToken) == box.asset()) {
+                box.deallocate(loanToken, loanAmount, swapper, swapData);
+            } else {
+                box.reallocate(loanToken, collateralToken, loanAmount, swapper, swapData);
+            }
+
+            // Check how much collateral was received in the Box
+            uint256 afterCollateral = collateralToken.balanceOf(address(box));
+            uint256 collateralReceived = afterCollateral - beforeCollateral;
+
+            // Have the Box pledge its own collateral to the funding module
+            box.pledge(fundingModule, facilityData, collateralToken, collateralReceived);
+
+            // Have the Box borrow loan tokens (they go to the Box)
+            box.borrow(fundingModule, facilityData, loanToken, loanAmount);
+
+            // The borrowed tokens are now in the Box and will be transferred back by box.flash()
         } else if (operation == FlashLoanMorpho.deleverage.selector) {
-            (operation, box, fundingModule, facilityData, collateralToken, collateralAmount, loanToken, loanAmount, swapper, swapData) = abi
+            (operation, , fundingModule, facilityData, collateralToken, collateralAmount, loanToken, loanAmount, swapper, swapData) = abi
                 .decode(data, (bytes4, IBox, IFunding, bytes, IERC20, uint256, IERC20, uint256, ISwapper, bytes));
 
-            // The flash loan is allowed for the box to grab
-            loanToken.forceApprove(address(box), assets);
-            box.deleverage(
-                address(this),
-                fundingModule,
-                facilityData,
-                swapper,
-                swapData,
-                collateralToken,
-                collateralAmount,
-                loanToken,
-                loanAmount
-            );
+            // Deleverage: repay debt, withdraw collateral, swap collateral to loan tokens
+            if (loanAmount == type(uint256).max) {
+                loanAmount = fundingModule.debtBalance(loanToken);
+            }
+
+            // The Box already has the flash loan tokens, use them to repay debt
+            box.repay(fundingModule, facilityData, loanToken, loanAmount);
+
+            // Withdraw collateral (goes to the Box)
+            box.depledge(fundingModule, facilityData, collateralToken, collateralAmount);
+
+            // Have the Box swap its collateral tokens to loan tokens
+            if (address(loanToken) == box.asset()) {
+                // Convert collateral tokens to base asset (loan token)
+                box.deallocate(collateralToken, collateralAmount, swapper, swapData);
+            } else if (address(collateralToken) == box.asset()) {
+                // This shouldn't happen in deleverage - collateral should not be base asset
+                revert("Invalid deleverage: collateral cannot be base asset");
+            } else {
+                // Convert from collateral token to loan token
+                box.reallocate(collateralToken, loanToken, collateralAmount, swapper, swapData);
+            }
         } else if (operation == FlashLoanMorpho.refinance.selector) {
             (
                 operation,
-                box,
+                ,
                 fundingModule,
                 facilityData,
                 fundingModule2,
@@ -89,25 +159,30 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
                 loanAmount
             ) = abi.decode(data, (bytes4, IBox, IFunding, bytes, IFunding, bytes, IERC20, uint256, IERC20, uint256));
 
-            // The flash loan is allowed for the box to grab
-            loanToken.forceApprove(address(box), assets);
-            box.refinance(
-                address(this),
-                fundingModule,
-                facilityData,
-                fundingModule2,
-                facilityData2,
-                collateralToken,
-                collateralAmount,
-                loanToken,
-                loanAmount
-            );
+            // Refinance: repay old debt, withdraw collateral, pledge to new module, borrow from new module
+            if (loanAmount == type(uint256).max) {
+                loanAmount = fundingModule.debtBalance(loanToken);
+            }
+            if (collateralAmount == type(uint256).max) {
+                collateralAmount = fundingModule.collateralBalance(collateralToken);
+            }
+
+            // Repay the old debt
+            loanToken.forceApprove(address(box), loanAmount);
+            box.repay(fundingModule, facilityData, loanToken, loanAmount);
+
+            // Withdraw collateral from old module
+            box.depledge(fundingModule, facilityData, collateralToken, collateralAmount);
+
+            // Pledge collateral to new module
+            collateralToken.forceApprove(address(box), collateralAmount);
+            box.pledge(fundingModule2, facilityData2, collateralToken, collateralAmount);
+
+            // Borrow from new module
+            box.borrow(fundingModule2, facilityData2, loanToken, loanAmount);
         } else {
             revert("Invalid operation");
         }
-
-        // Repay the flash loan
-        loanToken.forceApprove(msg.sender, assets);
     }
 
     function leverage(
@@ -134,6 +209,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
             swapper,
             swapData
         );
+
         MORPHO.flashLoan(address(loanToken), loanAmount, data);
     }
 
@@ -167,6 +243,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
             swapper,
             swapData
         );
+
         MORPHO.flashLoan(address(loanToken), loanAmount, data);
     }
 
@@ -203,6 +280,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback {
             loanToken,
             loanAmount
         );
+
         MORPHO.flashLoan(address(loanToken), loanAmount, data);
     }
 }
