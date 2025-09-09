@@ -28,12 +28,13 @@ contract MockOracle is IOracle {
     int256 immutable decimalsShift;
 
     constructor(IERC20 input, IERC20 output) {
-        decimalsShift = int256(uint256(IERC20Metadata(address(output)).decimals())) - int256(uint256(IERC20Metadata(address(input)).decimals()));
-        price = (decimalsShift > 0) ? 1e36 * (10**uint256(decimalsShift)) : 1e36 / (10**uint256(-decimalsShift));
+        decimalsShift =
+            int256(uint256(IERC20Metadata(address(output)).decimals())) - int256(uint256(IERC20Metadata(address(input)).decimals()));
+        price = (decimalsShift > 0) ? 1e36 * (10 ** uint256(decimalsShift)) : 1e36 / (10 ** uint256(-decimalsShift));
     }
 
     function setPrice(uint256 _price) external {
-        price = (decimalsShift > 0) ? _price * (10**uint256(decimalsShift)) : _price / (10**uint256(-decimalsShift));
+        price = (decimalsShift > 0) ? _price * (10 ** uint256(decimalsShift)) : _price / (10 ** uint256(-decimalsShift));
     }
 }
 
@@ -54,15 +55,16 @@ contract MockSwapper is ISwapper {
 
         input.transferFrom(msg.sender, address(this), amountIn);
 
-        int256 decimalsShift = int256(uint256(IERC20Metadata(address(output)).decimals())) - int256(uint256(IERC20Metadata(address(input)).decimals()));
+        int256 decimalsShift = int256(uint256(IERC20Metadata(address(output)).decimals())) -
+            int256(uint256(IERC20Metadata(address(input)).decimals()));
 
         // Apply slippage
         uint256 amountOut = (amountIn * (100 - slippagePercent)) / 100;
 
         if (decimalsShift > 0) {
-            amountOut = amountOut * (10**uint256(decimalsShift));
+            amountOut = amountOut * (10 ** uint256(decimalsShift));
         } else if (decimalsShift < 0) {
-            amountOut = amountOut / (10**uint256(-decimalsShift));
+            amountOut = amountOut / (10 ** uint256(-decimalsShift));
         }
 
         output.transfer(msg.sender, amountOut);
@@ -169,7 +171,7 @@ contract BoxTest is Test {
 
     MarketParams marketParamsLtv80;
     MarketParams marketParamsLtv90;
-    
+
     FundingMorpho fundingMorpho;
     bytes facilityDataLtv80;
     bytes facilityDataLtv90;
@@ -192,7 +194,6 @@ contract BoxTest is Test {
     event Approval(address indexed owner, address indexed spender, uint256 value);
 
     function setUp() public {
-
         asset = new ERC20MockDecimals(18);
         token1 = new ERC20MockDecimals(18);
         token2 = new ERC20MockDecimals(18);
@@ -204,7 +205,6 @@ contract BoxTest is Test {
         backupSwapper = new MockSwapper();
         badSwapper = new MockSwapper();
         maliciousSwapper = new MaliciousSwapper();
-
 
         // Mint tokens for testing
         asset.mint(address(this), 10000e18);
@@ -260,7 +260,6 @@ contract BoxTest is Test {
         morpho.borrow(marketParamsLtv90, 5e18, 0, address(this), address(this));
         facilityDataLtv90 = abi.encode(marketParamsLtv90);
 
-
         boxFactory = new BoxFactory();
 
         //  Vault parameters
@@ -281,7 +280,6 @@ contract BoxTest is Test {
             shutdownSlippageDuration,
             bytes32(0)
         );
-        
 
         // Setup roles and investment tokens using new timelock pattern
         // Note: owner is initially the curator, so owner can submit
@@ -313,7 +311,6 @@ contract BoxTest is Test {
         box.addFundingDebtInstant(fundingMorpho, asset);
 
         vm.stopPrank();
-
     }
 
     /////////////////////////////
@@ -1190,7 +1187,6 @@ contract BoxTest is Test {
         assertEq(fundingMorpho.debtTokensLength(), 1);
     }
 
-
     /// @dev test that we can't add a funding token that is not already whitelisted as token at Box level
     function testAddFundingTokenNotWhitelisted() public {
         vm.startPrank(curator);
@@ -1248,7 +1244,6 @@ contract BoxTest is Test {
 
         vm.stopPrank();
     }
-
 
     function testRemoveFundingOneDebt() public {
         vm.startPrank(curator);
@@ -1347,7 +1342,6 @@ contract BoxTest is Test {
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         box.removeFundingDebt(fundingMorpho, token3);
 
-
         vm.stopPrank();
         vm.startPrank(allocator);
         box.repay(fundingMorpho, facilityDataLocal, token3, 1e18);
@@ -1365,12 +1359,12 @@ contract BoxTest is Test {
 
         // Still a debt token
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
-        box.removeToken(token3);        
-        
+        box.removeToken(token3);
+
         box.removeFundingDebt(fundingMorpho, token3);
 
-        box.removeToken(token3);        
-        
+        box.removeToken(token3);
+
         box.removeFundingCollateral(fundingMorpho, token1);
 
         box.removeToken(token1);
@@ -1385,7 +1379,6 @@ contract BoxTest is Test {
 
         vm.stopPrank();
     }
-
 
     /////////////////////////////
     /// SHUTDOWN TESTS
@@ -1781,7 +1774,7 @@ contract BoxTest is Test {
 
         // Try to remove token with balance - should fail at execution stage
         vm.startPrank(curator);
-            // Remove it from collateral
+        // Remove it from collateral
         box.removeFundingCollateral(fundingMorpho, token1);
 
         bytes memory tokenData = abi.encodeWithSelector(box.removeToken.selector, token1);

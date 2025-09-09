@@ -186,10 +186,7 @@ contract BoxLeverageMorphoBaseTest is Test {
             box.repay(fundingModule, facilityData, usdc, 0);
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
-            box.leverage(address(123), fundingModule, facilityData, swapper, "", ptusr25sep, usdc, 0);
-
-            vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
-            box.deleverage(address(123), fundingModule, facilityData, swapper, "", ptusr25sep, 0, usdc, 0);
+            box.flash(usdc, 1, "");
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
             flashloanProvider.leverage(box, fundingModule, facilityData, swapper, "", ptusr25sep, usdc, 1);

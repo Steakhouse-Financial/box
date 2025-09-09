@@ -90,40 +90,6 @@ interface IBox is IERC4626 {
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external;
 
     // ========== COMPLEX FUNDING OPERATIONS WITH FLASHLOAN AND SWAPPER ==========
-    function leverage(
-        address flashloanProvider,
-        IFunding fundingModule,
-        bytes calldata facilityData,
-        ISwapper swapper,
-        bytes calldata swapData,
-        IERC20 collateralToken,
-        IERC20 debtToken,
-        uint256 debtAmount
-    ) external;
-
-    function deleverage(
-        address flashloanProvider,
-        IFunding fundingModule,
-        bytes calldata facilityData,
-        ISwapper swapper,
-        bytes calldata swapData,
-        IERC20 collateralToken,
-        uint256 collateralAmount,
-        IERC20 debtToken,
-        uint256 debtAmount
-    ) external;
-
-    function refinance(
-        address flashloanProvider,
-        IFunding fromFundingModule,
-        bytes calldata fromFacilityData,
-        IFunding toFundingModule,
-        bytes calldata toFacilityData,
-        IERC20 collateralToken,
-        uint256 collateralAmount,
-        IERC20 debtToken,
-        uint256 debtAmount
-    ) external;
 
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external;
 }

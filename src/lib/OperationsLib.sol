@@ -5,7 +5,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IBox} from "./../interfaces/IBox.sol";
-import {IFunding} from "./../interfaces/IFunding.sol";
 import {IOracle} from "./../interfaces/IOracle.sol";
 import {ISwapper} from "./../interfaces/ISwapper.sol";
 import "./Constants.sol";
@@ -94,89 +93,5 @@ library OperationsLib {
         } else {
             box.reallocate(fromToken, toToken, amount, swapper, swapData);
         }
-    }
-
-    function leverage(
-        IBox box,
-        address flashloanProvider,
-        IFunding fundingModule,
-        bytes calldata facilityData,
-        ISwapper swapper,
-        bytes calldata swapData,
-        IERC20 collateralToken,
-        IERC20 loanToken,
-        uint256 loanAmount
-    ) external {
-        // To be able to repay the flashloan
-        loanToken.safeTransferFrom(flashloanProvider, address(this), loanAmount);
-
-        uint256 before = collateralToken.balanceOf(address(this));
-        _swap(box, swapper, swapData, loanToken, collateralToken, loanAmount);
-        uint256 afterBalance = collateralToken.balanceOf(address(this));
-        box.pledge(fundingModule, facilityData, collateralToken, afterBalance - before);
-        box.borrow(fundingModule, facilityData, loanToken, loanAmount);
-
-        // So the adapter can repay the flash loan
-        loanToken.safeTransfer(flashloanProvider, loanAmount);
-    }
-
-    function deleverage(
-        IBox box,
-        address flashloanProvider,
-        IFunding fundingModule,
-        bytes calldata facilityData,
-        ISwapper swapper,
-        bytes calldata swapData,
-        IERC20 collateralToken,
-        uint256 collateralAmount,
-        IERC20 loanToken,
-        uint256 loanAmount
-    ) external {
-        if (loanAmount == type(uint256).max) {
-            loanAmount = fundingModule.debtBalance(loanToken);
-        }
-
-        // To be able to repay the flashloan
-        loanToken.safeTransferFrom(flashloanProvider, address(this), loanAmount);
-
-        box.repay(fundingModule, facilityData, loanToken, loanAmount);
-        box.depledge(fundingModule, facilityData, collateralToken, collateralAmount);
-
-        _swap(box, swapper, swapData, collateralToken, loanToken, collateralAmount);
-
-        // So the adapter can repay the flash loan
-        loanToken.safeTransfer(flashloanProvider, loanAmount);
-    }
-
-    function refinance(
-        IBox box,
-        address flashloanProvider,
-        IFunding fromFundingModule,
-        bytes calldata fromFacilityData,
-        IFunding toFundingModule,
-        bytes calldata toFacilityData,
-        IERC20 collateralToken,
-        uint256 collateralAmount,
-        IERC20 loanToken,
-        uint256 loanAmount
-    ) external {
-        if (loanAmount == type(uint256).max) {
-            loanAmount = fromFundingModule.debtBalance(loanToken);
-        }
-        if (collateralAmount == type(uint256).max) {
-            collateralAmount = fromFundingModule.collateralBalance(collateralToken);
-        }
-
-        // To be able to repay the flashloan
-        loanToken.safeTransferFrom(flashloanProvider, address(this), loanAmount);
-
-        box.repay(fromFundingModule, fromFacilityData, loanToken, loanAmount);
-        box.depledge(fromFundingModule, fromFacilityData, collateralToken, collateralAmount);
-
-        box.pledge(toFundingModule, toFacilityData, collateralToken, collateralAmount);
-        box.borrow(toFundingModule, toFacilityData, loanToken, loanAmount);
-
-        // So the adapter can repay the flash loan
-        loanToken.safeTransfer(flashloanProvider, loanAmount);
     }
 }
