@@ -6,6 +6,7 @@ import {Box} from "../src/Box.sol";
 import {BoxFactory} from "../src/BoxFactory.sol";
 import {IBoxFactory} from "../src/interfaces/IBoxFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IBox} from "../src/interfaces/IBox.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
@@ -14,57 +15,25 @@ import "../src/lib/Constants.sol";
 import {BoxLib} from "../src/lib/BoxLib.sol";
 import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
 import {OperationsLib} from "../src/lib/OperationsLib.sol";
-
-contract MockERC20 is IERC20 {
-    string public name;
-    string public symbol;
-    uint8 public decimals = 18;
-    uint256 public totalSupply;
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
-
-    constructor(string memory _name, string memory _symbol) {
-        name = _name;
-        symbol = _symbol;
-    }
-
-    function mint(address to, uint256 amount) external {
-        balanceOf[to] += amount;
-        totalSupply += amount;
-    }
-
-    function burn(address from, uint256 amount) external {
-        balanceOf[from] -= amount;
-        totalSupply -= amount;
-    }
-
-    function transfer(address to, uint256 amount) external returns (bool) {
-        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
-        balanceOf[msg.sender] -= amount;
-        balanceOf[to] += amount;
-        return true;
-    }
-
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
-        require(balanceOf[from] >= amount, "Insufficient balance");
-        require(allowance[from][msg.sender] >= amount, "Insufficient allowance");
-        balanceOf[from] -= amount;
-        balanceOf[to] += amount;
-        allowance[from][msg.sender] -= amount;
-        return true;
-    }
-
-    function approve(address spender, uint256 amount) external returns (bool) {
-        allowance[msg.sender][spender] = amount;
-        return true;
-    }
-}
+import {ERC20MockDecimals} from "./mocks/ERC20MockDecimals.sol";
+import {FundingMorpho} from "../src/FundingMorpho.sol";
+import {IMorpho, MarketParams, Position} from "@morpho-blue/interfaces/IMorpho.sol";
+import {Morpho} from "@morpho-blue/Morpho.sol";
+import {IrmMock} from "@morpho-blue/mocks/IrmMock.sol";
+import {OracleMock} from "@morpho-blue/mocks/OracleMock.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract MockOracle is IOracle {
     uint256 public price = 1e36; // 1:1 price
+    int256 immutable decimalsShift;
+
+    constructor(IERC20 input, IERC20 output) {
+        decimalsShift = int256(uint256(IERC20Metadata(address(output)).decimals())) - int256(uint256(IERC20Metadata(address(input)).decimals()));
+        price = (decimalsShift > 0) ? 1e36 * (10**uint256(decimalsShift)) : 1e36 / (10**uint256(-decimalsShift));
+    }
 
     function setPrice(uint256 _price) external {
-        price = _price;
+        price = (decimalsShift > 0) ? _price * (10**uint256(decimalsShift)) : _price / (10**uint256(-decimalsShift));
     }
 }
 
@@ -85,8 +54,17 @@ contract MockSwapper is ISwapper {
 
         input.transferFrom(msg.sender, address(this), amountIn);
 
+        int256 decimalsShift = int256(uint256(IERC20Metadata(address(output)).decimals())) - int256(uint256(IERC20Metadata(address(input)).decimals()));
+
         // Apply slippage
         uint256 amountOut = (amountIn * (100 - slippagePercent)) / 100;
+
+        if (decimalsShift > 0) {
+            amountOut = amountOut * (10**uint256(decimalsShift));
+        } else if (decimalsShift < 0) {
+            amountOut = amountOut / (10**uint256(-decimalsShift));
+        }
+
         output.transfer(msg.sender, amountOut);
     }
 }
@@ -156,13 +134,16 @@ contract MaliciousSwapper is ISwapper {
 
 contract BoxTest is Test {
     using BoxLib for Box;
+    using SafeERC20 for IERC20;
+    using SafeERC20 for ERC20MockDecimals;
 
-    Box public box;
     IBoxFactory public boxFactory;
-    MockERC20 public asset;
-    MockERC20 public token1;
-    MockERC20 public token2;
-    MockERC20 public token3;
+    Box public box;
+
+    ERC20MockDecimals public asset;
+    ERC20MockDecimals public token1;
+    ERC20MockDecimals public token2;
+    ERC20MockDecimals public token3;
     MockOracle public oracle1;
     MockOracle public oracle2;
     MockOracle public oracle3;
@@ -179,6 +160,19 @@ contract BoxTest is Test {
     address public user1 = address(0x6);
     address public user2 = address(0x7);
     address public nonAuthorized = address(0x8);
+
+    IMorpho morpho;
+    address irm;
+
+    uint256 lltv80 = 800000000000000000;
+    uint256 lltv90 = 900000000000000000;
+
+    MarketParams marketParamsLtv80;
+    MarketParams marketParamsLtv90;
+    
+    FundingMorpho fundingMorpho;
+    bytes facilityDataLtv80;
+    bytes facilityDataLtv90;
 
     event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
     event Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
@@ -198,17 +192,74 @@ contract BoxTest is Test {
     event Approval(address indexed owner, address indexed spender, uint256 value);
 
     function setUp() public {
-        asset = new MockERC20("USDC", "USDC");
-        token1 = new MockERC20("Token1", "TOKEN1");
-        token2 = new MockERC20("Token2", "TOKEN2");
-        token3 = new MockERC20("Token3", "TOKEN3");
-        oracle1 = new MockOracle();
-        oracle2 = new MockOracle();
-        oracle3 = new MockOracle();
+
+        asset = new ERC20MockDecimals(18);
+        token1 = new ERC20MockDecimals(18);
+        token2 = new ERC20MockDecimals(18);
+        token3 = new ERC20MockDecimals(18);
+        oracle1 = new MockOracle(token1, asset);
+        oracle2 = new MockOracle(token2, asset);
+        oracle3 = new MockOracle(token3, asset);
         swapper = new MockSwapper();
         backupSwapper = new MockSwapper();
         badSwapper = new MockSwapper();
         maliciousSwapper = new MaliciousSwapper();
+
+
+        // Mint tokens for testing
+        asset.mint(address(this), 10000e18);
+        asset.mint(feeder, 10000e18);
+        asset.mint(user1, 10000e18);
+        asset.mint(user2, 10000e18);
+        token1.mint(address(swapper), 10000e18);
+        token2.mint(address(swapper), 10000e18);
+        token3.mint(address(swapper), 10000e18);
+        token1.mint(address(this), 10000e18);
+        token2.mint(address(this), 10000e18);
+        token3.mint(address(this), 10000e18);
+        token1.mint(address(backupSwapper), 10000e18);
+        token2.mint(address(backupSwapper), 10000e18);
+        token3.mint(address(backupSwapper), 10000e18);
+        token1.mint(address(badSwapper), 10000e18);
+        token2.mint(address(badSwapper), 10000e18);
+        token3.mint(address(badSwapper), 10000e18);
+        token1.mint(address(maliciousSwapper), 10000e18);
+        token2.mint(address(maliciousSwapper), 10000e18);
+        token3.mint(address(maliciousSwapper), 10000e18);
+
+        // Mint asset for swappers to provide liquidity
+        asset.mint(address(swapper), 10000e18);
+        asset.mint(address(backupSwapper), 10000e18);
+        asset.mint(address(badSwapper), 10000e18);
+        asset.mint(address(maliciousSwapper), 10000e18);
+
+        // Funding context using Morpho
+
+        morpho = IMorpho(address(new Morpho(address(this))));
+        irm = address(new IrmMock());
+
+        morpho.enableIrm(irm);
+        morpho.enableLltv(lltv80);
+        morpho.enableLltv(lltv90);
+
+        // Create a 80% lltv market and seed it
+        marketParamsLtv80 = MarketParams(address(asset), address(token1), address(oracle1), address(irm), lltv80);
+        morpho.createMarket(marketParamsLtv80);
+        asset.approve(address(morpho), 10000e18);
+        token1.approve(address(morpho), 10000e18);
+        morpho.supplyCollateral(marketParamsLtv80, 10e18, address(this), "");
+        morpho.supply(marketParamsLtv80, 10e18, 0, address(this), "");
+        morpho.borrow(marketParamsLtv80, 5e18, 0, address(this), address(this));
+        facilityDataLtv80 = abi.encode(marketParamsLtv80);
+
+        // Create a 90% lltv market and seed it
+        marketParamsLtv90 = MarketParams(address(asset), address(token1), address(oracle1), address(irm), lltv90);
+        morpho.createMarket(marketParamsLtv90);
+        morpho.supplyCollateral(marketParamsLtv90, 10e18, address(this), "");
+        morpho.supply(marketParamsLtv90, 10e18, 0, address(this), "");
+        morpho.borrow(marketParamsLtv90, 5e18, 0, address(this), address(this));
+        facilityDataLtv90 = abi.encode(marketParamsLtv90);
+
 
         boxFactory = new BoxFactory();
 
@@ -230,6 +281,7 @@ contract BoxTest is Test {
             shutdownSlippageDuration,
             bytes32(0)
         );
+        
 
         // Setup roles and investment tokens using new timelock pattern
         // Note: owner is initially the curator, so owner can submit
@@ -240,74 +292,28 @@ contract BoxTest is Test {
 
         vm.startPrank(curator);
 
-        // Add guardian
-        bytes memory guardianData = abi.encodeWithSelector(box.setGuardian.selector, guardian);
-        box.submit(guardianData);
-        box.setGuardian(guardian);
+        box.setGuardianInstant(guardian);
+        box.addFeederInstant(feeder);
+        box.addFeederInstant(user1);
+        box.setIsAllocator(allocator, true);
+        box.setIsAllocator(address(maliciousSwapper), true);
 
-        // Add feeder role
-        bytes memory feederData = abi.encodeWithSelector(box.setIsFeeder.selector, feeder, true);
-        box.submit(feederData);
-        (bool success, ) = address(box).call(feederData);
-        require(success, "Failed to set feeder");
+        box.addTokenInstant(token1, oracle1);
+        box.addTokenInstant(token2, oracle2);
 
-        // Add allocator role
-        bytes memory allocatorData = abi.encodeWithSelector(box.setIsAllocator.selector, allocator, true);
-        box.submit(allocatorData);
-        (success, ) = address(box).call(allocatorData);
-        require(success, "Failed to set allocator");
-
-        // Add allocator role
-        bytes memory maliciousSwapperData = abi.encodeWithSelector(box.setIsAllocator.selector, maliciousSwapper, true);
-        box.submit(maliciousSwapperData);
-        (success, ) = address(box).call(maliciousSwapperData);
-        require(success, "Failed to set allocator");
-
-        // Add tokens
-        bytes memory token1Data = abi.encodeWithSelector(box.addToken.selector, token1, oracle1);
-        box.submit(token1Data);
-        (success, ) = address(box).call(token1Data);
-        require(success, "Failed to add token1");
-
-        bytes memory token2Data = abi.encodeWithSelector(box.addToken.selector, token2, oracle2);
-        box.submit(token2Data);
-        (success, ) = address(box).call(token2Data);
-        require(success, "Failed to add token2");
-
-        // Add user1 as feeder so they can withdraw
-        bytes memory userData = abi.encodeWithSelector(box.setIsFeeder.selector, user1, true);
-        box.submit(userData);
-        (bool userSuccess, ) = address(box).call(userData);
-        require(userSuccess, "Failed to set user1 as feeder");
-
-        // Add timelocks
+        // Increase some timelocks
         box.increaseTimelock(box.setMaxSlippage.selector, 1 days);
         box.increaseTimelock(box.setGuardian.selector, 1 days);
 
+        // Funding config
+        fundingMorpho = new FundingMorpho(address(box), address(morpho));
+        box.addFundingInstant(fundingMorpho);
+        box.addFundingFacilityInstant(fundingMorpho, facilityDataLtv80);
+        box.addFundingCollateralInstant(fundingMorpho, token1);
+        box.addFundingDebtInstant(fundingMorpho, asset);
+
         vm.stopPrank();
 
-        // Mint tokens for testing
-        asset.mint(feeder, 10000e18);
-        asset.mint(user1, 10000e18);
-        asset.mint(user2, 10000e18);
-        token1.mint(address(swapper), 10000e18);
-        token2.mint(address(swapper), 10000e18);
-        token3.mint(address(swapper), 10000e18);
-        token1.mint(address(backupSwapper), 10000e18);
-        token2.mint(address(backupSwapper), 10000e18);
-        token3.mint(address(backupSwapper), 10000e18);
-        token1.mint(address(badSwapper), 10000e18);
-        token2.mint(address(badSwapper), 10000e18);
-        token3.mint(address(badSwapper), 10000e18);
-        token1.mint(address(maliciousSwapper), 10000e18);
-        token2.mint(address(maliciousSwapper), 10000e18);
-        token3.mint(address(maliciousSwapper), 10000e18);
-
-        // Mint asset for swappers to provide liquidity
-        asset.mint(address(swapper), 10000e18);
-        asset.mint(address(backupSwapper), 10000e18);
-        asset.mint(address(badSwapper), 10000e18);
-        asset.mint(address(maliciousSwapper), 10000e18);
     }
 
     /////////////////////////////
@@ -1167,6 +1173,221 @@ contract BoxTest is Test {
     }
 
     /////////////////////////////
+    /// FUNDING TESTS
+    /////////////////////////////
+
+    function testFundingSetup() public {
+        assertTrue(box.isFunding(fundingMorpho));
+        assertEq(box.fundingsLength(), 1);
+
+        assertTrue(fundingMorpho.isFacility(facilityDataLtv80));
+        assertEq(fundingMorpho.facilitiesLength(), 1);
+
+        assertTrue(fundingMorpho.isCollateralToken(token1));
+        assertEq(fundingMorpho.collateralTokensLength(), 1);
+
+        assertTrue(fundingMorpho.isDebtToken(asset));
+        assertEq(fundingMorpho.debtTokensLength(), 1);
+    }
+
+
+    /// @dev test that we can't add a funding token that is not already whitelisted as token at Box level
+    function testAddFundingTokenNotWhitelisted() public {
+        vm.startPrank(curator);
+
+        bytes memory data = abi.encodeWithSelector(box.addFundingCollateral.selector, fundingMorpho, token3);
+        box.submit(data);
+
+        vm.expectRevert(ErrorsLib.TokenNotWhitelisted.selector);
+        box.addFundingCollateral(fundingMorpho, token3);
+
+        data = abi.encodeWithSelector(box.addFundingDebt.selector, fundingMorpho, token3);
+        box.submit(data);
+
+        vm.expectRevert(ErrorsLib.TokenNotWhitelisted.selector);
+        box.addFundingDebt(fundingMorpho, token3);
+
+        box.addTokenInstant(token3, oracle3);
+
+        // Now it works (data are already submitted)
+        box.addFundingCollateral(fundingMorpho, token3);
+        box.addFundingDebt(fundingMorpho, token3);
+
+        vm.stopPrank();
+    }
+
+    function testAtestRemoveFundingOneFacility() public {
+        vm.startPrank(curator);
+
+        // remove debt and collaterals
+        box.removeFundingDebt(fundingMorpho, asset);
+        box.removeFundingCollateral(fundingMorpho, token1);
+
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFunding(fundingMorpho);
+
+        box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
+
+        box.removeFunding(fundingMorpho);
+
+        vm.stopPrank();
+    }
+
+    function testRemoveFundingOneCollateral() public {
+        vm.startPrank(curator);
+
+        box.removeFundingDebt(fundingMorpho, asset);
+        box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
+
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFunding(fundingMorpho);
+
+        box.removeFundingCollateral(fundingMorpho, token1);
+
+        box.removeFunding(fundingMorpho);
+
+        vm.stopPrank();
+    }
+
+
+    function testRemoveFundingOneDebt() public {
+        vm.startPrank(curator);
+
+        box.removeFundingCollateral(fundingMorpho, token1);
+        box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
+
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFunding(fundingMorpho);
+
+        box.removeFundingDebt(fundingMorpho, asset);
+
+        box.removeFunding(fundingMorpho);
+
+        vm.stopPrank();
+    }
+
+    function testRemoveFundingOrToken() public {
+        token3.mint(address(box), 100e18);
+
+        vm.startPrank(curator);
+
+        // Don't need this one
+        box.removeFundingDebt(fundingMorpho, asset);
+
+        // Shouldn't work after setup as there is a facility, debt and collateral
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFunding(fundingMorpho);
+
+        ERC20MockDecimals token4 = new ERC20MockDecimals(18);
+
+        box.addTokenInstant(token4, oracle1); // Wrong oracle but fine for this test
+        box.addFundingCollateralInstant(fundingMorpho, token4);
+
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeToken(token4);
+
+        box.removeFundingCollateral(fundingMorpho, token4);
+
+        box.removeToken(token4);
+
+        // Create a 90% lltv market and seed it
+        MarketParams memory marketParamsLocal = MarketParams(address(token3), address(token1), address(oracle1), address(irm), lltv90);
+        morpho.createMarket(marketParamsLocal);
+        token3.mint(address(curator), 100e18);
+        token3.approve(address(morpho), 100e18);
+        morpho.supply(marketParamsLocal, 100e18, 0, address(curator), "");
+        bytes memory facilityDataLocal = fundingMorpho.encodeFacilityData(marketParamsLocal);
+        box.addFundingFacilityInstant(fundingMorpho, facilityDataLocal);
+
+        box.addTokenInstant(token3, oracle3);
+        box.addFundingCollateralInstant(fundingMorpho, token3);
+
+        // No longer can remove token3 from Box, because there are token3 balance
+        vm.expectRevert(ErrorsLib.TokenBalanceMustBeZero.selector);
+        box.removeToken(token3);
+        vm.stopPrank();
+
+        // Withdraw all tokens
+        vm.startPrank(address(box));
+        token3.safeTransfer(address(curator), token3.balanceOf(address(box)));
+        token1.safeTransfer(address(curator), token1.balanceOf(address(box)));
+        vm.stopPrank();
+
+        // Still can't remove token3 beacause there is a facility using it as debt token
+        vm.startPrank(curator);
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeToken(token3);
+
+        // Can't remove token1 from Box
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeToken(token1);
+
+        box.addFundingDebtInstant(fundingMorpho, token3);
+
+        vm.stopPrank();
+        token1.mint(address(box), 10e18);
+        vm.prank(allocator);
+        box.pledge(fundingMorpho, facilityDataLocal, token1, 10e18);
+        vm.startPrank(curator);
+
+        // Can't remove collateral while pledged
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFundingCollateral(fundingMorpho, token1);
+
+        // Check that we can remove token3 as debt token while not borrowed
+        box.removeFundingDebt(fundingMorpho, token3);
+        box.addFundingDebtInstant(fundingMorpho, token3);
+
+        vm.stopPrank();
+        vm.prank(allocator);
+        box.borrow(fundingMorpho, facilityDataLocal, token3, 1e18);
+        vm.startPrank(curator);
+
+        // Can't remove collateral while borrowed
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFundingDebt(fundingMorpho, token3);
+
+
+        vm.stopPrank();
+        vm.startPrank(allocator);
+        box.repay(fundingMorpho, facilityDataLocal, token3, 1e18);
+        box.depledge(fundingMorpho, facilityDataLocal, token1, 10e18);
+        vm.stopPrank();
+
+        vm.startPrank(address(box));
+        token1.safeTransfer(address(curator), token1.balanceOf(address(box)));
+        token3.safeTransfer(address(curator), token3.balanceOf(address(box)));
+        vm.stopPrank();
+
+        vm.startPrank(curator);
+
+        box.removeFundingCollateral(fundingMorpho, token3);
+
+        // Still a debt token
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeToken(token3);        
+        
+        box.removeFundingDebt(fundingMorpho, token3);
+
+        box.removeToken(token3);        
+        
+        box.removeFundingCollateral(fundingMorpho, token1);
+
+        box.removeToken(token1);
+
+        box.removeFundingFacility(fundingMorpho, facilityDataLocal);
+        box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
+
+        box.removeFunding(fundingMorpho);
+
+        assertFalse(box.isFunding(fundingMorpho));
+        assertEq(box.fundingsLength(), 0);
+
+        vm.stopPrank();
+    }
+
+
+    /////////////////////////////
     /// SHUTDOWN TESTS
     /////////////////////////////
 
@@ -1537,11 +1758,10 @@ contract BoxTest is Test {
 
     function testInvestmentTokenRemove() public {
         vm.startPrank(curator);
-        bytes memory tokenData = abi.encodeWithSelector(box.removeToken.selector, token1);
-        box.submit(tokenData);
-        vm.warp(block.timestamp + 1 days + 1);
-        (bool success, ) = address(box).call(tokenData);
-        require(success, "Failed to remove investment token");
+        // Remove it from collateral
+        box.removeFundingCollateral(fundingMorpho, token1);
+
+        box.removeToken(token1);
         vm.stopPrank();
 
         assertFalse(box.isToken(token1));
@@ -1561,9 +1781,11 @@ contract BoxTest is Test {
 
         // Try to remove token with balance - should fail at execution stage
         vm.startPrank(curator);
+            // Remove it from collateral
+        box.removeFundingCollateral(fundingMorpho, token1);
+
         bytes memory tokenData = abi.encodeWithSelector(box.removeToken.selector, token1);
         box.submit(tokenData);
-        vm.warp(block.timestamp + 1 days + 1);
         vm.expectRevert(ErrorsLib.TokenBalanceMustBeZero.selector);
         box.removeToken(token1);
         vm.stopPrank();

@@ -677,9 +677,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param token Token to remove
      */
     function removeToken(IERC20 token) external {
-        timelocked();
-        require(isToken(token), ErrorsLib.TokenNotWhitelisted());
+        require(isToken(token), ErrorsLib.TokenNotWhitelisted()); 
         require(token.balanceOf(address(this)) == 0, ErrorsLib.TokenBalanceMustBeZero());
+        require(!_isTokenUsedInFunding(token), ErrorsLib.CannotRemove());
 
         uint256 length = tokens.length;
         for (uint256 i; i < length; ) {
@@ -727,7 +727,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @return true if it is a whitelisted investment token
      */
     function isTokenOrAsset(IERC20 token) public view returns (bool) {
-        return address(oracles[token]) != address(0) || address(token) == asset;
+        return address(token) == asset || address(oracles[token]) != address(0);
     }
 
     /**
@@ -891,6 +891,17 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         revert ErrorsLib.NotWhitelisted();
     }
 
+    function _isTokenUsedInFunding(IERC20 token) internal view returns (bool) {
+        uint256 length = fundings.length;
+        for (uint256 i; i < length; i++) {
+            IFunding funding = fundings[i];
+            if(funding.isCollateralToken(token) || funding.isDebtToken(token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // ========== FUNDING VIEW FUNCTIONS ==========
 
     /// @dev The fundingModule should be completely empty
@@ -923,6 +934,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         timelocked();
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        require(isTokenOrAsset(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
         fundingModule.addCollateralToken(collateralToken);
 
@@ -933,6 +945,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         timelocked();
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        require(isTokenOrAsset(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         fundingModule.addDebtToken(debtToken);
 

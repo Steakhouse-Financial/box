@@ -149,7 +149,6 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
         box.addFundingCollateralInstant(fundingModule, ptSusde25Sep);
-        box.addFundingDebtInstant(fundingModule, usdc);
         box.addFundingDebtInstant(fundingModule, usde);
         vm.stopPrank();
 
