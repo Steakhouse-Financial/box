@@ -108,7 +108,7 @@ library OperationsLib {
         uint256 loanAmount
     ) external {
         // To be able to repay the flashloan
-        loanToken.transferFrom(flashloanProvider, address(this), loanAmount);
+        loanToken.safeTransferFrom(flashloanProvider, address(this), loanAmount);
 
         uint256 before = collateralToken.balanceOf(address(this));
         _swap(box, swapper, swapData, loanToken, collateralToken, loanAmount);
@@ -137,7 +137,7 @@ library OperationsLib {
         }
 
         // To be able to repay the flashloan
-        loanToken.transferFrom(flashloanProvider, address(this), loanAmount);
+        loanToken.safeTransferFrom(flashloanProvider, address(this), loanAmount);
 
         box.repay(fundingModule, facilityData, loanToken, loanAmount);
         box.depledge(fundingModule, facilityData, collateralToken, collateralAmount);
@@ -168,7 +168,7 @@ library OperationsLib {
         }
 
         // To be able to repay the flashloan
-        loanToken.transferFrom(flashloanProvider, address(this), loanAmount);
+        loanToken.safeTransferFrom(flashloanProvider, address(this), loanAmount);
 
         box.repay(fromFundingModule, fromFacilityData, loanToken, loanAmount);
         box.depledge(fromFundingModule, fromFacilityData, collateralToken, collateralAmount);

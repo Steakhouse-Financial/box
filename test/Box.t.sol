@@ -1597,7 +1597,7 @@ contract BoxTest is Test {
     function testTooManyTokensAdded() public {
         vm.startPrank(curator);
         for (uint256 i = box.tokensLength(); i < MAX_TOKENS; i++) {
-            box.addCollateral(IERC20(address(uint160(i))), IOracle(address(uint160(i))));
+            box.addTokenInstant(IERC20(address(uint160(i))), IOracle(address(uint160(i))));
         }
 
         bytes memory token1Data = abi.encodeWithSelector(box.addToken.selector, address(uint160(MAX_TOKENS)), address(uint160(MAX_TOKENS)));

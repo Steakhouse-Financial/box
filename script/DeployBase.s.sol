@@ -127,7 +127,7 @@ contract DeployBaseScript is Script {
 
     function addMarketsToAdapterFromVault(VaultV2 vault, MorphoMarketV1Adapter mm1Adapter, IMetaMorpho vaultv1) public {
         uint256 length = vaultv1.withdrawQueueLength();
-        vault.addCollateral(
+        vault.addCollateralInstant(
             address(mm1Adapter),
             abi.encode("this", address(mm1Adapter)),
             1_000_000_000 * 10 ** 6, // 100_000_000 USDC absolute cap
@@ -136,13 +136,13 @@ contract DeployBaseScript is Script {
         for (uint256 i = 0; i < length; i++) {
             Id id = Id.wrap(MetaId.unwrap(vaultv1.withdrawQueue(i)));
             MarketParams memory marketParams = morpho.idToMarketParams(id);
-            vault.addCollateral(
+            vault.addCollateralInstant(
                 address(mm1Adapter),
                 abi.encode("collateralToken", marketParams.collateralToken),
                 100_000_000 * 10 ** 6, // 100_000_000 USDC absolute cap
                 1 ether // 100% relative cap
             );
-            vault.addCollateral(
+            vault.addCollateralInstant(
                 address(mm1Adapter),
                 abi.encode("this/marketParams", address(mm1Adapter), marketParams),
                 100_000_000 * 10 ** 6, // 100_000_000 USDC absolute cap
@@ -161,9 +161,9 @@ contract DeployBaseScript is Script {
 
         vault.setCurator(address(tx.origin));
 
-        vault.addAllocator(address(tx.origin));
-        vault.addAllocator(address(allocator1));
-        vault.addAllocator(address(allocator2));
+        vault.addAllocatorInstant(address(tx.origin));
+        vault.addAllocatorInstant(address(allocator1));
+        vault.addAllocatorInstant(address(allocator2));
 
         vault.setName("Peaty USDC Turbo");
         vault.setSymbol("ptUSDCturbo");
@@ -200,13 +200,13 @@ contract DeployBaseScript is Script {
         IBoxAdapter adapter1 = boxAdapterFactory.createBoxAdapter(address(vault), box1);
 
         // Allow box 1 to invest in stUSD
-        box1.addCollateral(stusd, stusdOracle);
+        box1.addTokenInstant(stusd, stusdOracle);
         box1.setIsAllocator(address(allocator1), true);
         box1.setIsAllocator(address(allocator2), true);
-        box1.addFeeder(address(adapter1));
+        box1.addFeederInstant(address(adapter1));
         box1.setCurator(address(curator));
         box1.transferOwnership(address(owner));
-        vault.addCollateral(address(adapter1), adapter1.adapterData(), 10_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        vault.addCollateralInstant(address(adapter1), adapter1.adapterData(), 10_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
 
         // Creating Box 2 which will invest in PT-USR-25SEP
         name = "Box Resolv";
@@ -230,7 +230,7 @@ contract DeployBaseScript is Script {
         IBoxAdapter adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
 
         // Allow box 2 to invest in PT-USR-25SEP
-        box2.addCollateral(ptusr25sep, ptusr25sepOracle);
+        box2.addTokenInstant(ptusr25sep, ptusr25sepOracle);
 
         FundingMorpho fundingMorpho = new FundingMorpho(address(box2), address(morpho));
         MarketParamsBlue memory fundingMarketParams = MarketParamsBlue({
@@ -241,20 +241,20 @@ contract DeployBaseScript is Script {
             lltv: 915000000000000000
         });
         bytes memory facilityData = fundingMorpho.encodeFacilityData(fundingMarketParams);
-        box2.addFunding(fundingMorpho);
-        box2.addFundingFacility(fundingMorpho, facilityData);
-        box2.addFundingCollateral(fundingMorpho, ptusr25sep);
-        box2.addFundingDebt(fundingMorpho, usdc);
+        box2.addFundingInstant(fundingMorpho);
+        box2.addFundingFacilityInstant(fundingMorpho, facilityData);
+        box2.addFundingCollateralInstant(fundingMorpho, ptusr25sep);
+        box2.addFundingDebtInstant(fundingMorpho, usdc);
 
         box2.setIsAllocator(address(allocator1), true);
         box2.setIsAllocator(address(allocator2), true);
-        box2.addFeeder(address(adapter2));
+        box2.addFeederInstant(address(adapter2));
         box2.setCurator(address(curator));
         box2.transferOwnership(address(owner));
-        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
-        vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
+        vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
 
-        vault.removeAllocator(address(tx.origin));
+        vault.setIsAllocator(address(tx.origin), false);
         vault.setCurator(address(curator));
         vault.setOwner(address(owner));
 

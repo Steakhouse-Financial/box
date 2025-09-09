@@ -71,19 +71,19 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Configure Box
         vm.startPrank(curator);
-        box.changeGuardian(guardian);
-        box.addCollateral(ptSusde25Sep, ptSusdeOracle);
+        box.setGuardianInstant(guardian);
+        box.addTokenInstant(ptSusde25Sep, ptSusdeOracle);
         box.setIsAllocator(allocator, true);
-        box.addFeeder(address(this));
+        box.addFeederInstant(address(this));
 
         // Use e-mode 17 for borrowing stablecoins (including USDC)
         uint8 eModeCategory = 17;
         FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
         bytes memory facilityData = "";
-        box.addFunding(fundingModule);
-        box.addFundingFacility(fundingModule, facilityData);
-        box.addFundingCollateral(fundingModule, ptSusde25Sep);
-        box.addFundingDebt(fundingModule, usdc);
+        box.addFundingInstant(fundingModule);
+        box.addFundingFacilityInstant(fundingModule, facilityData);
+        box.addFundingCollateralInstant(fundingModule, ptSusde25Sep);
+        box.addFundingDebtInstant(fundingModule, usdc);
         vm.stopPrank();
 
         // Supply 1000 PT tokens
@@ -137,20 +137,20 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Configure Box
         vm.startPrank(curator);
-        box.changeGuardian(guardian);
-        box.addCollateral(ptSusde25Sep, ptSusdeOracle);
+        box.setGuardianInstant(guardian);
+        box.addTokenInstant(ptSusde25Sep, ptSusdeOracle);
         box.setIsAllocator(allocator, true);
-        box.addFeeder(address(this));
+        box.addFeederInstant(address(this));
 
         // Use e-mode 18 for borrowing USDe (better max LTV)
         uint8 eModeCategory = 18;
         FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
         bytes memory facilityData = "";
-        box.addFunding(fundingModule);
-        box.addFundingFacility(fundingModule, facilityData);
-        box.addFundingCollateral(fundingModule, ptSusde25Sep);
-        box.addFundingDebt(fundingModule, usdc);
-        box.addFundingDebt(fundingModule, usde);
+        box.addFundingInstant(fundingModule);
+        box.addFundingFacilityInstant(fundingModule, facilityData);
+        box.addFundingCollateralInstant(fundingModule, ptSusde25Sep);
+        box.addFundingDebtInstant(fundingModule, usdc);
+        box.addFundingDebtInstant(fundingModule, usde);
         vm.stopPrank();
 
         // Supply 1000 PT tokens
@@ -246,11 +246,11 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Configure Box
         vm.startPrank(curator);
-        box.changeGuardian(guardian);
-        box.addCollateral(ptSusde25Sep, ptSusdeOracle);
-        box.addCollateral(sUsde, sUsdeOracle);
+        box.setGuardianInstant(guardian);
+        box.addTokenInstant(ptSusde25Sep, ptSusdeOracle);
+        box.addTokenInstant(sUsde, sUsdeOracle);
         box.setIsAllocator(allocator, true);
-        box.addFeeder(address(this));
+        box.addFeederInstant(address(this));
 
         // Create two separate FundingAave adapters
         // Configure funding for PT-sUSDe with e-mode 17
@@ -259,16 +259,16 @@ contract BoxLeverageAaveMainnetTest is Test {
         FundingAave fundingModuleSUSDe = new FundingAave(address(box), pool, 2);
 
         bytes memory facilityDataPTsUSDe = "";
-        box.addFunding(fundingModulePTsUSDe);
-        box.addFundingFacility(fundingModulePTsUSDe, facilityDataPTsUSDe);
-        box.addFundingCollateral(fundingModulePTsUSDe, ptSusde25Sep);
-        box.addFundingDebt(fundingModulePTsUSDe, usdc);
+        box.addFundingInstant(fundingModulePTsUSDe);
+        box.addFundingFacilityInstant(fundingModulePTsUSDe, facilityDataPTsUSDe);
+        box.addFundingCollateralInstant(fundingModulePTsUSDe, ptSusde25Sep);
+        box.addFundingDebtInstant(fundingModulePTsUSDe, usdc);
 
         bytes memory facilityDataSUSDe = "";
-        box.addFunding(fundingModuleSUSDe);
-        box.addFundingFacility(fundingModuleSUSDe, facilityDataSUSDe);
-        box.addFundingCollateral(fundingModuleSUSDe, sUsde);
-        box.addFundingDebt(fundingModuleSUSDe, usdc);
+        box.addFundingInstant(fundingModuleSUSDe);
+        box.addFundingFacilityInstant(fundingModuleSUSDe, facilityDataSUSDe);
+        box.addFundingCollateralInstant(fundingModuleSUSDe, sUsde);
+        box.addFundingDebtInstant(fundingModuleSUSDe, usdc);
         vm.stopPrank();
 
         // Supply collaterals
@@ -330,25 +330,24 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Configure Box
         vm.startPrank(curator);
-        box.changeGuardian(guardian);
-        box.addCollateral(ptSusde25Sep, ptSusdeOracle);
+        box.setGuardianInstant(guardian);
+        box.addTokenInstant(ptSusde25Sep, ptSusdeOracle);
         // Add USDe as a token since we'll be borrowing it
         // Create mock oracle for USDe: 1 USD = 1 USDe, price = 10^(36 + usdc_decimals - usde_decimals)
         MockOracle usdeOracle = new MockOracle(10 ** (36 + 6 - 18)); // 10^24 for USDC(6) to USDe(18)
-        box.submit(abi.encodeWithSelector(box.addToken.selector, usde, usdeOracle));
-        box.addToken(usde, IOracle(address(usdeOracle)));
+        box.addTokenInstant(usde, IOracle(address(usdeOracle)));
         box.setIsAllocator(allocator, true);
-        box.addFeeder(address(this));
+        box.addFeederInstant(address(this));
 
         // Use e-mode 17 for borrowing stablecoins (allows both USDC and USDe)
         uint8 eModeCategory = 17;
         FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
         bytes memory facilityData = "";
-        box.addFunding(fundingModule);
-        box.addFundingFacility(fundingModule, facilityData);
-        box.addFundingCollateral(fundingModule, ptSusde25Sep);
-        box.addFundingDebt(fundingModule, usdc);
-        box.addFundingDebt(fundingModule, usde);
+        box.addFundingInstant(fundingModule);
+        box.addFundingFacilityInstant(fundingModule, facilityData);
+        box.addFundingCollateralInstant(fundingModule, ptSusde25Sep);
+        box.addFundingDebtInstant(fundingModule, usdc);
+        box.addFundingDebtInstant(fundingModule, usde);
         vm.stopPrank();
 
         // Supply 2000 PT tokens total (1000 for each step)

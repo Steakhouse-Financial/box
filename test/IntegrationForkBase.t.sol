@@ -110,14 +110,14 @@ contract IntegrationForkBaseTest is Test {
         vm.stopPrank();
 
         vm.startPrank(curator);
-        vault.addAllocator(address(allocator));
+        vault.addAllocatorInstant(address(allocator));
         vm.stopPrank();
 
         // Setting the vault to use bbqUSDC as the asset
         bbqusdcAdapter = new MorphoVaultV1Adapter(address(vault), address(bbqusdc));
 
         vm.startPrank(curator);
-        vault.addCollateral(address(bbqusdcAdapter), bbqusdcAdapter.data(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vault.addCollateralInstant(address(bbqusdcAdapter), bbqusdcAdapter.data(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
         vm.stopPrank();
 
         vm.startPrank(allocator);
@@ -137,11 +137,11 @@ contract IntegrationForkBaseTest is Test {
 
         // Allow box 1 to invest in stUSD
         vm.startPrank(curator);
-        box1.changeGuardian(guardian);
-        box1.addCollateral(stusd, stusdOracle);
+        box1.setGuardianInstant(guardian);
+        box1.addTokenInstant(stusd, stusdOracle);
         box1.setIsAllocator(address(allocator), true);
-        box1.addFeeder(address(adapter1));
-        vault.addCollateral(address(adapter1), adapter1.adapterData(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+        box1.addFeederInstant(address(adapter1));
+        vault.addCollateralInstant(address(adapter1), adapter1.adapterData(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
         vm.stopPrank();
 
         // Creating Box 2 which will invest in PT-USR-25SEP
@@ -156,12 +156,12 @@ contract IntegrationForkBaseTest is Test {
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);
-        box1b.changeGuardian(guardian);
-        box1b.addCollateral(stusd, stusdOracle);
+        box1b.setGuardianInstant(guardian);
+        box1b.addTokenInstant(stusd, stusdOracle);
         box1b.setIsAllocator(address(allocator), true);
-        box1b.addFeeder(address(adapter1b));
-        vault.addCollateral(address(adapter1b), adapter1b.adapterData(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
-        vault.setPenaltyFee(address(adapter1b), 0.005 ether); // 0.5% penalty
+        box1b.addFeederInstant(address(adapter1b));
+        vault.addCollateralInstant(address(adapter1b), adapter1b.adapterData(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter1b), 0.005 ether); // 0.5% penalty
         vm.stopPrank();
 
         // Creating Box 2 which will invest in PT-USR-25SEP
@@ -176,12 +176,12 @@ contract IntegrationForkBaseTest is Test {
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);
-        box2.changeGuardian(guardian);
-        box2.addCollateral(ptusr25sep, ptusr25sepOracle);
+        box2.setGuardianInstant(guardian);
+        box2.addTokenInstant(ptusr25sep, ptusr25sepOracle);
         box2.setIsAllocator(address(allocator), true);
-        box2.addFeeder(address(adapter2));
-        vault.addCollateral(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
-        vault.setPenaltyFee(address(adapter2), 0.02 ether); // 2% penalty
+        box2.addFeederInstant(address(adapter2));
+        vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 100% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
         vm.stopPrank();
     }
 
@@ -428,7 +428,7 @@ contract IntegrationForkBaseTest is Test {
         vault.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
 
         vm.prank(curator);
-        box1.addFeeder(address(this));
+        box1.addFeederInstant(address(this));
         usdc.approve(address(box1), USDC_1000); // Approve the vault to spend USDC
         box1.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
 
@@ -465,7 +465,7 @@ contract IntegrationForkBaseTest is Test {
         vault.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
 
         vm.prank(curator);
-        box1b.addFeeder(address(this));
+        box1b.addFeederInstant(address(this));
         usdc.approve(address(box1b), USDC_1000); // Approve the vault to spend USDC
         box1b.deposit(USDC_1000, address(this)); // Deposit 1000 USDC into the vault
 

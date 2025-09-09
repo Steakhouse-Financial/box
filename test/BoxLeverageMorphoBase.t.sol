@@ -85,19 +85,19 @@ contract BoxLeverageMorphoBaseTest is Test {
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);
-        box.changeGuardian(guardian);
-        box.addCollateral(ptusr25sep, ptusr25sepOracle);
+        box.setGuardianInstant(guardian);
+        box.addTokenInstant(ptusr25sep, ptusr25sepOracle);
         box.setIsAllocator(address(allocator), true);
-        box.addFeeder(address(this));
+        box.addFeederInstant(address(this));
 
         fundingModule = new FundingMorpho(address(box), address(morpho));
         marketParams = MarketParams(address(usdc), address(ptusr25sep), address(ptusr25sepOracle), irm, 915000000000000000);
         // And the funding facility
         facilityData = fundingModule.encodeFacilityData(marketParams);
-        box.addFunding(fundingModule);
-        box.addFundingFacility(fundingModule, facilityData);
-        box.addFundingCollateral(fundingModule, ptusr25sep);
-        box.addFundingDebt(fundingModule, usdc);
+        box.addFundingInstant(fundingModule);
+        box.addFundingFacilityInstant(fundingModule, facilityData);
+        box.addFundingCollateralInstant(fundingModule, ptusr25sep);
+        box.addFundingDebtInstant(fundingModule, usdc);
 
         // Creating Box ETH which will invest in wstETH
         name = "Box ETH";
@@ -109,24 +109,24 @@ contract BoxLeverageMorphoBaseTest is Test {
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);
-        boxEth.changeGuardian(guardian);
-        boxEth.addCollateral(wsteth, wstethOracle94);
+        boxEth.setGuardianInstant(guardian);
+        boxEth.addTokenInstant(wsteth, wstethOracle94);
         boxEth.setIsAllocator(address(allocator), true);
-        boxEth.addFeeder(address(this));
+        boxEth.addFeederInstant(address(this));
 
         fundingModuleEth = new FundingMorpho(address(boxEth), address(morpho));
         marketParamsEth1 = MarketParams(address(weth), address(wsteth), address(wstethOracle94), irm, 945000000000000000);
         // And the funding facility
         facilityDataEth1 = fundingModuleEth.encodeFacilityData(marketParamsEth1);
-        boxEth.addFunding(fundingModuleEth);
-        boxEth.addFundingFacility(fundingModuleEth, facilityDataEth1);
-        boxEth.addFundingCollateral(fundingModuleEth, wsteth);
-        boxEth.addFundingDebt(fundingModuleEth, weth);
+        boxEth.addFundingInstant(fundingModuleEth);
+        boxEth.addFundingFacilityInstant(fundingModuleEth, facilityDataEth1);
+        boxEth.addFundingCollateralInstant(fundingModuleEth, wsteth);
+        boxEth.addFundingDebtInstant(fundingModuleEth, weth);
 
         marketParamsEth2 = MarketParams(address(weth), address(wsteth), address(wstethOracle96), irm, 965000000000000000);
         // And the funding facility
         facilityDataEth2 = fundingModuleEth.encodeFacilityData(marketParamsEth2);
-        boxEth.addFundingFacility(fundingModuleEth, facilityDataEth2);
+        boxEth.addFundingFacilityInstant(fundingModuleEth, facilityDataEth2);
 
         vm.stopPrank();
     }

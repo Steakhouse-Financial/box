@@ -66,28 +66,28 @@ contract BoxLeverageMainnetTest is Test {
 
         // Configure Box
         vm.startPrank(curator);
-        box.changeGuardian(guardian);
-        box.addCollateral(ptSusde25Sep, ptSusdeOracle);
+        box.setGuardianInstant(guardian);
+        box.addTokenInstant(ptSusde25Sep, ptSusdeOracle);
         box.setIsAllocator(allocator, true);
-        box.addFeeder(address(this));
+        box.addFeederInstant(address(this));
 
         // Setup Aave adapter with e-mode 17 for stablecoins
         uint8 eModeCategory = 17;
         FundingAave aaveModule = new FundingAave(address(box), aavePool, eModeCategory);
         bytes memory aaveFacilityData = ""; // No extra data needed for Aave
-        box.addFunding(aaveModule);
-        box.addFundingFacility(aaveModule, aaveFacilityData);
-        box.addFundingCollateral(aaveModule, ptSusde25Sep);
-        box.addFundingDebt(aaveModule, usdc);
+        box.addFundingInstant(aaveModule);
+        box.addFundingFacilityInstant(aaveModule, aaveFacilityData);
+        box.addFundingCollateralInstant(aaveModule, ptSusde25Sep);
+        box.addFundingDebtInstant(aaveModule, usdc);
 
         // Setup Morpho adapter - get market params directly from Morpho
         FundingMorpho morphoModule = new FundingMorpho(address(box), address(morpho));
         MarketParams memory marketParams = morpho.idToMarketParams(Id.wrap(MORPHO_MARKET_ID));
         bytes memory morphoFacilityData = morphoModule.encodeFacilityData(marketParams);
-        box.addFunding(morphoModule);
-        box.addFundingFacility(morphoModule, morphoFacilityData);
-        box.addFundingCollateral(morphoModule, ptSusde25Sep);
-        box.addFundingDebt(morphoModule, usdc);
+        box.addFundingInstant(morphoModule);
+        box.addFundingFacilityInstant(morphoModule, morphoFacilityData);
+        box.addFundingCollateralInstant(morphoModule, ptSusde25Sep);
+        box.addFundingDebtInstant(morphoModule, usdc);
 
         vm.stopPrank();
 

@@ -52,7 +52,7 @@ contract BoxAdapterTest is Test {
         adapter = IBoxAdapter(factory.createBoxAdapter(address(parentVault), box));
 
         vm.prank(owner);
-        box.addFeeder(address(adapter));
+        box.addFeederInstant(address(adapter));
 
         deal(address(asset), address(this), type(uint256).max);
         asset.approve(address(box), type(uint256).max);
@@ -230,8 +230,8 @@ contract BoxAdapterTest is Test {
         address donor = makeAddr("donor");
 
         vm.startPrank(owner);
-        otherBox.addFeeder(donor);
-        otherBox.addFeeder(address(adapter));
+        otherBox.addFeederInstant(donor);
+        otherBox.addFeederInstant(address(adapter));
         vm.stopPrank();
 
         assertTrue(otherBox.isFeeder(donor), "Donor is not a feeder");
