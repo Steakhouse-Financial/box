@@ -3,6 +3,8 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
+import "./mocks/MockSwapper.sol";
+import "./mocks/MockOracle.sol";
 
 import {Box} from "../src/Box.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
@@ -12,6 +14,7 @@ import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
 import {MorphoVaultV1Adapter} from "@vault-v2/src/adapters/MorphoVaultV1Adapter.sol";
+import "../src/lib/Constants.sol";
 
 import {IBoxAdapter} from "../src/interfaces/IBoxAdapter.sol";
 import {IBoxAdapterFactory} from "../src/interfaces/IBoxAdapterFactory.sol";
@@ -582,6 +585,75 @@ contract BoxLeverageMorphoBaseTest is Test {
         assertApproxEqRel(navAfterShift, navAfterLeverage, 0.001e18, "NAV should remain approximately constant after shift");
 
         console2.log("\n[PASS] Test completed successfully");
+        vm.stopPrank();
+    }
+
+    function testMaxLeverageWstETH() public {
+        console2.log("\n=== Starting Maximum Leverage Test ===");
+
+        vm.prank(curator);
+        boxEth.setIsAllocator(address(boxEth), true);
+
+        console2.log("\n1. Initial funding setup");
+        vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
+        weth.transfer(address(this), 20 ether);
+        weth.approve(address(boxEth), 20 ether);
+        boxEth.deposit(20 ether, address(this));
+        console2.log("- Deposited: 20 WETH to Box");
+
+        vm.startPrank(allocator);
+
+        console2.log("\n2. Converting WETH to wstETH");
+        boxEth.allocate(wsteth, 20 ether, swapper, "");
+        uint256 initialWstEthBalance = wsteth.balanceOf(address(boxEth));
+        console2.log("- Initial wstETH balance:", initialWstEthBalance / 1e18, "wstETH");
+
+        console2.log("\n3. Pledging initial collateral");
+        boxEth.pledge(fundingModuleEth, facilityDataEth2, wsteth, initialWstEthBalance);
+        console2.log("- Pledged:", initialWstEthBalance / 1e18, "wstETH as collateral");
+
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
+        vm.stopPrank();
+        vm.prank(curator);
+        boxEth.setIsAllocator(address(flashloanProvider), true);
+
+        MockSwapper mockSwapper = new MockSwapper();
+        MockOracle wethOracle = new MockOracle(1e36);
+        mockSwapper.setOracle(weth, wethOracle);
+        mockSwapper.setOracle(wsteth, wstethOracle96);
+        deal(address(weth), address(mockSwapper), 1000000 ether);
+        deal(address(wsteth), address(mockSwapper), 1000000 ether);
+        ISwapper testSwapper = ISwapper(address(mockSwapper));
+
+        vm.startPrank(allocator);
+
+        uint256 navBefore = boxEth.totalAssets();
+        uint256 maxFlashLoan = 110 ether;
+        console2.log("\n4. Executing maximum leverage");
+        console2.log("- NAV before leverage:", navBefore / 1e18, "WETH");
+        console2.log("- Flash loan amount:", maxFlashLoan / 1e18, "WETH");
+
+        flashloanProvider.leverage(boxEth, fundingModuleEth, facilityDataEth2, testSwapper, "", wsteth, weth, maxFlashLoan);
+        console2.log("- Leverage operation completed");
+
+        uint256 finalCollateralBalance = fundingModuleEth.collateralBalance(facilityDataEth2, wsteth);
+        uint256 wstethPrice = wstethOracle96.price();
+        uint256 finalCollateralValue = (finalCollateralBalance * wstethPrice) / ORACLE_PRECISION;
+        uint256 finalDebt = fundingModuleEth.debtBalance(facilityDataEth2, weth);
+        uint256 finalLTV = (finalDebt * 1e18) / finalCollateralValue;
+        uint256 navAfter = boxEth.totalAssets();
+
+        console2.log("\n5. Final position");
+        console2.log("- Final collateral:", finalCollateralBalance / 1e18, "wstETH");
+        console2.log("- Final debt:", finalDebt / 1e18, "WETH");
+        console2.log("- Final LTV:", finalLTV / 1e16, "bps");
+        console2.log("- NAV after leverage:", navAfter / 1e18, "WETH");
+
+        assertTrue(finalLTV > 840000000000000000, "LTV > 84%");
+        assertTrue(finalLTV < 965000000000000000, "LTV < LLTV");
+        assertTrue(finalCollateralBalance > initialWstEthBalance * 2, "Collateral > 2x");
+        assertApproxEqRel(navAfter, navBefore, 0.02e18, "NAV preserved");
+
         vm.stopPrank();
     }
 }
