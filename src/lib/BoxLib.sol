@@ -7,14 +7,22 @@ import {IOracle} from "src/interfaces/IOracle.sol";
 
 library BoxLib {
     /// @notice Adds a feeder to a Box instance, assume 0-day timelocks
-    function addFeeder(Box box, address feeder) internal {
-        bytes memory encoding = abi.encodeWithSelector(box.setIsFeeder.selector, feeder, true);
+    function addFeederInstant(Box box, address feeder) internal {
+        bytes memory encoding = abi.encodeWithSelector(
+            box.setIsFeeder.selector,
+            feeder,
+            true
+        );
         box.submit(encoding);
         box.setIsFeeder(address(feeder), true);
     }
 
-    function addCollateral(Box box, IERC20 token, IOracle oracle) internal {
-        bytes memory encoding = abi.encodeWithSelector(box.addToken.selector, address(token), address(oracle));
+    function addCollateralInstant(Box box, IERC20 token, IOracle oracle) internal {
+        bytes memory encoding = abi.encodeWithSelector(
+            box.addToken.selector,
+            address(token),
+            address(oracle)
+        );
         box.submit(encoding);
         box.addToken(token, oracle);
     }
@@ -25,4 +33,5 @@ library BoxLib {
         box.submit(encoding);
         box.setGuardian(guardian);
     }
+
 }
