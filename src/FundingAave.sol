@@ -276,7 +276,7 @@ contract FundingAave is IFunding {
 
     /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
     function nav(IOracleCallback oraclesProvider) external view returns (uint256) {
-       revert();
+        revert();
     }
     /*
     function dataToAaveParams(bytes calldata data)

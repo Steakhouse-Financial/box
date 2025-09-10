@@ -362,7 +362,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require((isAllocator[msg.sender] && !winddown) || (winddown && debtBalance(token) == 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
 
-        IOracle oracle = oracles[token];        
+        IOracle oracle = oracles[token];
         require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
 
         uint256 slippageTolerance = maxSlippage;
@@ -516,7 +516,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function setIsAllocator(address account, bool newIsAllocator) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
-//        require(account != address(0), ErrorsLib.InvalidAddress());
+        //        require(account != address(0), ErrorsLib.InvalidAddress());
 
         isAllocator[account] = newIsAllocator;
 

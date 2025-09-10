@@ -15,10 +15,7 @@ contract FundingMorphoFactory {
     /* FUNCTIONS */
 
     function createFundingMorpho(address owner_, address morpho_) external returns (FundingMorpho) {
-        FundingMorpho _funding = new FundingMorpho(
-            owner_,
-            morpho_
-        );
+        FundingMorpho _funding = new FundingMorpho(owner_, morpho_);
 
         isFundingMorpho[address(_funding)] = true;
 

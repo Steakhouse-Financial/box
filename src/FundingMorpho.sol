@@ -11,8 +11,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {MathLib} from "./../lib/morpho-blue/src/libraries/MathLib.sol";
 import {IFunding, IOracleCallback} from "./interfaces/IFunding.sol";
-import {ErrorsLib} from "./libraries/ErrorsLib.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
+import {ErrorsLib} from "./libraries/ErrorsLib.sol";
 
 contract FundingMorpho is IFunding {
     using SafeERC20 for IERC20;
@@ -225,10 +225,10 @@ contract FundingMorpho is IFunding {
 
             if (collateralBalance == 0) continue; // No debt if no collateral
 
-            if(market.collateralToken == oraclesProvider.asset()) {
+            if (market.collateralToken == oraclesProvider.asset()) {
                 // RIs are considered to have a price of ORACLE_PRECISION
                 facilityNav += collateralBalance;
-            }  else {
+            } else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.collateralToken));
                 if (address(oracle) != address(0)) {
                     facilityNav += collateralBalance.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
@@ -237,16 +237,16 @@ contract FundingMorpho is IFunding {
 
             uint256 debtBalance = morpho.expectedBorrowAssets(market, address(this));
 
-            if(market.loanToken == oraclesProvider.asset()) {
+            if (market.loanToken == oraclesProvider.asset()) {
                 facilityNav = (facilityNav > debtBalance) ? facilityNav - debtBalance : 0;
-            }  else {
+            } else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.loanToken));
                 if (address(oracle) != address(0)) {
                     uint256 value = debtBalance.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
                     facilityNav = (facilityNav > value) ? facilityNav - value : 0;
                 }
             }
-            
+
             nav_ += facilityNav;
         }
         return nav_;

@@ -2,10 +2,10 @@
 // Copyright (c) 2025 Morpho Association, Steakhouse Financial
 pragma solidity ^0.8.28;
 
-import {IBox} from "../interfaces/IBox.sol";
-import {IBoxAdapter} from "../interfaces/IBoxAdapter.sol";
-import {IBoxAdapterFactory} from "../interfaces/IBoxAdapterFactory.sol";
-import {BoxAdapter} from "../BoxAdapter.sol";
+import {BoxAdapter} from "./../BoxAdapter.sol";
+import {IBox} from "./../interfaces/IBox.sol";
+import {IBoxAdapter} from "./../interfaces/IBoxAdapter.sol";
+import {IBoxAdapterFactory} from "./../interfaces/IBoxAdapterFactory.sol";
 
 contract BoxAdapterFactory is IBoxAdapterFactory {
     /* STORAGE */

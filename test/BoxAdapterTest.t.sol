@@ -122,8 +122,7 @@ contract BoxAdapterTest is Test {
 
     function testFactoryCreateAdapter() public {
         VaultV2Mock newParentVault = new VaultV2Mock(address(asset), owner, address(0), address(0), address(0));
-        Box newBox = new Box(address(asset), owner, owner, 
-            "Box2", "BOX2", 0, 1, 1);
+        Box newBox = new Box(address(asset), owner, owner, "Box2", "BOX2", 0, 1, 1);
 
         vm.expectEmit(true, true, false, false);
         emit IBoxAdapterFactory.CreateBoxAdapter(address(newParentVault), address(newBox), IBoxAdapter(address(0)));

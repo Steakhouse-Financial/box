@@ -15,11 +15,7 @@ contract FundingAaveFactory {
     /* FUNCTIONS */
 
     function createFundingAave(address _owner, IPool _pool, uint8 _eMode) external returns (FundingAave) {
-        FundingAave _funding = new FundingAave(
-            _owner,
-            _pool,
-            _eMode
-        );
+        FundingAave _funding = new FundingAave(_owner, _pool, _eMode);
 
         isFundingAave[address(_funding)] = true;
 
