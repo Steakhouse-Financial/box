@@ -23,6 +23,7 @@ contract FundingMorpho is IFunding {
 
     address public immutable owner;
     IMorpho public immutable morpho;
+    uint256 public immutable lltvCap; // Maximum LTV/LTTV ration in 18 decimals, e.g. 80e16 for 80%
 
     bytes[] public facilities;
     IERC20[] public collateralTokens;
@@ -30,9 +31,15 @@ contract FundingMorpho is IFunding {
 
     // ========== INITIALIZATION ==========
 
-    constructor(address owner_, address morpho_) {
+    constructor(address owner_, address morpho_, uint256 lltvCap_) {
+        require(owner_ != address(0), ErrorsLib.InvalidAddress());
+        require(morpho_ != address(0), ErrorsLib.InvalidAddress());
+        require(lltvCap_ <= 100e16, ErrorsLib.InvalidValue()); // Max 100%
+        require(lltvCap_ > 0, ErrorsLib.InvalidValue()); // Min above 0%
+
         owner = owner_;
         morpho = IMorpho(morpho_);
+        lltvCap = lltvCap_;
     }
 
     // ========== IFunding implementations ==========
@@ -155,6 +162,9 @@ contract FundingMorpho is IFunding {
 
         MarketParams memory market = decodeFacilityData(facilityData);
         morpho.borrow(market, borrowAmount, 0, address(this), address(this));
+
+        require(ltv(facilityData) <= (market.lltv * lltvCap) / 100e16, ErrorsLib.ExcessiveLTV());
+
         debtToken.safeTransfer(owner, borrowAmount);
     }
 
@@ -185,7 +195,7 @@ contract FundingMorpho is IFunding {
 
     // ========== POSITION ==========
 
-    function ltv(bytes calldata facilityData) external view override returns (uint256) {
+    function ltv(bytes calldata facilityData) public view override returns (uint256) {
         MarketParams memory market = decodeFacilityData(facilityData);
         Id marketId = market.id();
         uint256 borrowedAssets = morpho.expectedBorrowAssets(market, address(this));
@@ -221,28 +231,28 @@ contract FundingMorpho is IFunding {
         for (uint256 i = 0; i < facilities.length; i++) {
             uint256 facilityNav = 0;
             MarketParams memory market = decodeFacilityData(facilities[i]);
-            uint256 collateralBalance = morpho.collateral(market.id(), address(this));
+            uint256 collateralBalance_ = morpho.collateral(market.id(), address(this));
 
-            if (collateralBalance == 0) continue; // No debt if no collateral
+            if (collateralBalance_ == 0) continue; // No debt if no collateral
 
             if (market.collateralToken == oraclesProvider.asset()) {
                 // RIs are considered to have a price of ORACLE_PRECISION
-                facilityNav += collateralBalance;
-            } else {
+                facilityNav += collateralBalance_;
+            }  else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.collateralToken));
                 if (address(oracle) != address(0)) {
-                    facilityNav += collateralBalance.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
+                    facilityNav += collateralBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
                 }
             }
 
-            uint256 debtBalance = morpho.expectedBorrowAssets(market, address(this));
+            uint256 debtBalance_ = morpho.expectedBorrowAssets(market, address(this));
 
-            if (market.loanToken == oraclesProvider.asset()) {
-                facilityNav = (facilityNav > debtBalance) ? facilityNav - debtBalance : 0;
-            } else {
+            if(market.loanToken == oraclesProvider.asset()) {
+                facilityNav = (facilityNav > debtBalance_) ? facilityNav - debtBalance_ : 0;
+            }  else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.loanToken));
                 if (address(oracle) != address(0)) {
-                    uint256 value = debtBalance.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
+                    uint256 value = debtBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
                     facilityNav = (facilityNav > value) ? facilityNav - value : 0;
                 }
             }

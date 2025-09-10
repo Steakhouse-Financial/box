@@ -235,7 +235,7 @@ contract DeployBaseScript is Script {
         // Allow box 2 to invest in PT-USR-25SEP
         box2.addTokenInstant(ptusr25sep, ptusr25sepOracle);
 
-        FundingMorpho fundingMorpho = new FundingMorpho(address(box2), address(morpho));
+        FundingMorpho fundingMorpho = new FundingMorpho(address(box2), address(morpho), 99e16);
         MarketParamsBlue memory fundingMarketParams = MarketParamsBlue({
             loanToken: address(usdc),
             collateralToken: address(ptusr25sep),

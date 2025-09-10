@@ -78,7 +78,7 @@ contract FundingMorphoTest is Test {
         facilityDataLtv90 = abi.encode(marketParamsLtv90);
 
         // Deploy the FundingMorpho contract
-        fundingMorpho = new FundingMorpho(owner, address(morpho));
+        fundingMorpho = new FundingMorpho(owner, address(morpho), 99e16);
 
         vm.startPrank(owner);
         fundingMorpho.addFacility(facilityDataLtv80);
@@ -107,6 +107,33 @@ contract FundingMorphoTest is Test {
         // When no collateral ltv is 0%
         assertEq(fundingMorpho.ltv(facilityDataLtv80), 0);
     }
+
+
+    function testCreation(address owner_, address morpho_, uint256 lltvCap) public {
+        vm.assume(owner_ != address(0));
+        vm.assume(morpho_ != address(0));
+        vm.assume(lltvCap > 0 && lltvCap <= 1e18);
+        FundingMorpho fundingMorphoLocal = new FundingMorpho(owner_, morpho_, lltvCap);
+        assertEq(fundingMorphoLocal.owner(), owner_);
+        assertEq(address(fundingMorphoLocal.morpho()), morpho_);
+        assertEq(fundingMorphoLocal.lltvCap(), lltvCap);
+    }
+
+    function testBadCreation() public {
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        FundingMorpho fundingMorphoLocal = new FundingMorpho(owner, address(morpho), 101e16);
+
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        fundingMorphoLocal = new FundingMorpho(owner, address(morpho), 0);
+
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        fundingMorphoLocal = new FundingMorpho(address(0), address(morpho), 50e16);
+
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        fundingMorphoLocal = new FundingMorpho(owner, address(0), 50e16);
+    }
+
+
 
     /// @dev Test a simple funding cycle
     function testSimpleCycle() public {
@@ -252,5 +279,30 @@ contract FundingMorphoTest is Test {
         assertEq(fundingMorpho.debtTokensLength(), 0);
 
         vm.stopPrank();
+    }
+
+
+    function testLtvTooHigh() public {
+
+        vm.startPrank(owner);
+
+        collateralToken.mint(address(owner), 1 ether);
+
+        // Deposit collateral
+        collateralToken.transfer(address(fundingMorpho), 1 ether);
+        fundingMorpho.pledge(facilityDataLtv80, collateralToken, 0.1 ether);
+
+        // Borrow some debt too close from the 80% LLTV
+        vm.expectRevert("insufficient collateral");
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.08 ether+1);
+
+        // Borrow some debt too close from the 80% LLTV
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.08 ether);
+
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.08 ether * fundingMorpho.lltvCap() / 1e18);
+
+
+
     }
 }

@@ -303,7 +303,7 @@ contract BoxTest is Test {
         box.increaseTimelock(box.setGuardian.selector, 1 days);
 
         // Funding config
-        fundingMorpho = new FundingMorpho(address(box), address(morpho));
+        fundingMorpho = new FundingMorpho(address(box), address(morpho), 99e16);
         box.addFundingInstant(fundingMorpho);
         box.addFundingFacilityInstant(fundingMorpho, facilityDataLtv80);
         box.addFundingCollateralInstant(fundingMorpho, token1);

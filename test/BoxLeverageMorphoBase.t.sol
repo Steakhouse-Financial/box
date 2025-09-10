@@ -93,7 +93,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         box.setIsAllocator(address(allocator), true);
         box.addFeederInstant(address(this));
 
-        fundingModule = new FundingMorpho(address(box), address(morpho));
+        fundingModule = new FundingMorpho(address(box), address(morpho), 99e16);
         marketParams = MarketParams(address(usdc), address(ptusr25sep), address(ptusr25sepOracle), irm, 915000000000000000);
         // And the funding facility
         facilityData = fundingModule.encodeFacilityData(marketParams);
@@ -117,7 +117,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         boxEth.setIsAllocator(address(allocator), true);
         boxEth.addFeederInstant(address(this));
 
-        fundingModuleEth = new FundingMorpho(address(boxEth), address(morpho));
+        fundingModuleEth = new FundingMorpho(address(boxEth), address(morpho), 99e16);
         marketParamsEth1 = MarketParams(address(weth), address(wsteth), address(wstethOracle94), irm, 945000000000000000);
         // And the funding facility
         facilityDataEth1 = fundingModuleEth.encodeFacilityData(marketParamsEth1);

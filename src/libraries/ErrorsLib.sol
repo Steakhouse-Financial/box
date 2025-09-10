@@ -5,6 +5,7 @@ library ErrorsLib {
     // General errors
     error InvalidAddress();
     error InvalidAmount();
+    error InvalidValue();
     error CannotRemove();
     error AlreadyWhitelisted();
     error NotWhitelisted();
@@ -71,4 +72,7 @@ library ErrorsLib {
     error CannotSkimToken();
     error AlreadySet();
     error CannotSkimZero();
+
+    // Funding module errors
+    error ExcessiveLTV();
 }

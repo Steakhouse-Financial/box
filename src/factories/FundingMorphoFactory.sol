@@ -10,16 +10,20 @@ contract FundingMorphoFactory {
     mapping(address account => bool) public isFundingMorpho;
 
     /* EVENTS */
-    event CreateFundingMorpho(address indexed owner, address indexed morpho, FundingMorpho fundingMorpho);
+    event CreateFundingMorpho(address indexed owner, address indexed morpho, uint256 lltvCap, FundingMorpho fundingMorpho);
 
     /* FUNCTIONS */
 
-    function createFundingMorpho(address owner_, address morpho_) external returns (FundingMorpho) {
-        FundingMorpho _funding = new FundingMorpho(owner_, morpho_);
+    function createFundingMorpho(address owner_, address morpho_, uint256 lltvCap_) external returns (FundingMorpho) {
+        FundingMorpho _funding = new FundingMorpho(
+            owner_,
+            morpho_,
+            lltvCap_
+        );
 
         isFundingMorpho[address(_funding)] = true;
 
-        emit CreateFundingMorpho(owner_, morpho_, _funding);
+        emit CreateFundingMorpho(owner_, morpho_, lltvCap_, _funding);
 
         return _funding;
     }

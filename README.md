@@ -16,6 +16,7 @@ Trust assumptions on the curator are limited by:
 Remaining trust assumptions are:
 - Assuming the allocator will not manipulate oracles for weak oracles when doing allocations
 - Assuming some depositors in the vault will veto bad proposal by the curator
+- Assuming the curator will not use excessive LTV to harm depositors
 
 Deposits are restricted to address call feeders to avoid arbitraging. No liquidity is expected in normal conditions so redeem can't be used for arbitraging.
 

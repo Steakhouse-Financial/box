@@ -82,7 +82,7 @@ contract BoxLeverageMainnetTest is Test {
         box.addFundingDebtInstant(aaveModule, usdc);
 
         // Setup Morpho adapter - get market params directly from Morpho
-        FundingMorpho morphoModule = new FundingMorpho(address(box), address(morpho));
+        FundingMorpho morphoModule = new FundingMorpho(address(box), address(morpho), 99e16);
         MarketParams memory marketParams = morpho.idToMarketParams(Id.wrap(MORPHO_MARKET_ID));
         bytes memory morphoFacilityData = morphoModule.encodeFacilityData(marketParams);
         box.addFundingInstant(morphoModule);
