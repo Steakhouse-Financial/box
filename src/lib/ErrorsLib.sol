@@ -20,6 +20,8 @@ library ErrorsLib {
     error OnlySkimRecipient();
     error OnlyAllocatorsOrWinddown();
     error OnlyMorpho();
+    error OnlyPool();
+    error OnlyThisContract();
     error InvalidOwner();
     error CannotDuringShutdown();
     error CannotDuringWinddown();

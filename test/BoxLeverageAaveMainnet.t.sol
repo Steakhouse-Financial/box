@@ -13,24 +13,14 @@ import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
 
 import {IFunding} from "../src/interfaces/IFunding.sol";
 import {FundingAave, IPool} from "../src/FundingAave.sol";
+import {FlashLoanAave, IPoolAddressesProviderAave} from "../src/FlashLoanAave.sol";
 import {IBox} from "../src/interfaces/IBox.sol";
+import "./mocks/MockSwapper.sol";
+import "./mocks/MockOracle.sol";
 
 /// @notice Minimal Aave v3 Addresses Provider to obtain the Pool
 interface IPoolAddressesProvider {
     function getPool() external view returns (address);
-}
-
-/// @notice Mock oracle for testing - returns a fixed price
-contract MockOracle {
-    uint256 public immutable fixedPrice;
-
-    constructor(uint256 _price) {
-        fixedPrice = _price;
-    }
-
-    function price() external view returns (uint256) {
-        return fixedPrice;
-    }
 }
 
 /**
@@ -404,6 +394,285 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.repay(fundingModule, facilityData, usdc, type(uint256).max);
         box.repay(fundingModule, facilityData, usde, type(uint256).max);
         box.depledge(fundingModule, facilityData, ptSusde25Sep, ptAmount * 2);
+        vm.stopPrank();
+    }
+
+    // ========== FLASH LOAN TESTS ==========
+
+    function testAaveFlashLoanLeverage() public {
+        console2.log("\n=== Aave Flash Loan Leverage Test ===");
+
+        // Deploy Box for USDC
+        Box box = new Box(address(usdc), owner, curator, "Flash Box", "FBOX", 0.01 ether, 7 days, 10 days);
+
+        // Configure Box
+        vm.startPrank(curator);
+        box.setGuardianInstant(guardian);
+        box.addTokenInstant(ptSusde25Sep, ptSusdeOracle);
+        box.setIsAllocator(allocator, true);
+        box.addFeederInstant(address(this));
+
+        // Setup funding module with e-mode 17
+        FundingAave fundingModule = new FundingAave(address(box), pool, 17);
+        bytes memory facilityData = "";
+        box.addFundingInstant(fundingModule);
+        box.addFundingFacilityInstant(fundingModule, facilityData);
+        box.addFundingCollateralInstant(fundingModule, ptSusde25Sep);
+        box.addFundingDebtInstant(fundingModule, usdc);
+
+        // Create and authorize flash loan provider
+        FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
+        box.setIsAllocator(address(flashloanProvider), true);
+
+        // Pre-fund the flash loan provider with a small amount to cover premiums
+        deal(address(usdc), address(flashloanProvider), 50e6); // 50 USDC for premiums
+
+        vm.stopPrank();
+
+        // Fund Box with initial USDC and provide some initial collateral
+        deal(address(usdc), address(this), 1000e6);
+        usdc.approve(address(box), 1000e6);
+        box.deposit(1000e6, address(this));
+
+        // Provide initial PT collateral to establish position
+        uint256 initialPTAmount = 800e18; // 800 PT tokens
+        deal(address(ptSusde25Sep), address(box), initialPTAmount);
+
+        console2.log("\n1. Initial setup");
+        console2.log("- Deposited: 1000 USDC to Box");
+        console2.log("- Initial NAV:", box.totalAssets() / 1e6, "USDC");
+
+        vm.startPrank(allocator);
+
+        // First establish initial collateral position
+        box.pledge(fundingModule, facilityData, ptSusde25Sep, initialPTAmount);
+        console2.log("- Initial collateral:", initialPTAmount / 1e18, "PT-sUSDe");
+
+        uint256 navBefore = box.totalAssets();
+        uint256 leverageAmount = 500e6; // Flash loan 500 USDC for additional leverage
+
+        // Setup MockSwapper for testing
+        MockSwapper mockSwapper = new MockSwapper();
+        MockOracle usdcOracle = new MockOracle(1e36); // 1 USDC = 1 USD (36 decimals)
+        mockSwapper.setOracle(usdc, usdcOracle);
+        mockSwapper.setOracle(ptSusde25Sep, ptSusdeOracle);
+        deal(address(usdc), address(mockSwapper), 1000000e6);
+        deal(address(ptSusde25Sep), address(mockSwapper), 1000000e18);
+        ISwapper testSwapper = ISwapper(address(mockSwapper));
+
+        console2.log("\n2. Executing Aave flash loan leverage");
+        console2.log("- Flash loan amount:", leverageAmount / 1e6, "USDC");
+
+        flashloanProvider.leverage(box, fundingModule, facilityData, testSwapper, "", ptSusde25Sep, usdc, leverageAmount);
+        console2.log("- Flash loan leverage completed");
+
+        uint256 finalCollateral = fundingModule.collateralBalance(facilityData, ptSusde25Sep);
+        uint256 finalDebt = fundingModule.debtBalance(facilityData, usdc);
+        uint256 finalLTV = fundingModule.ltv(facilityData);
+        uint256 navAfter = box.totalAssets();
+
+        console2.log("\n3. Final position");
+        console2.log("- Final collateral:", finalCollateral / 1e18, "PT-sUSDe");
+        console2.log("- Final debt:", finalDebt / 1e6, "USDC");
+        console2.log("- Final LTV:", (finalLTV * 100) / 1e18, "%");
+        console2.log("- NAV after:", navAfter / 1e6, "USDC");
+
+        // Verify leverage worked
+        assertGt(finalCollateral, 0, "Should have collateral");
+        assertGt(finalDebt, 0, "Should have debt");
+        assertGt(finalLTV, 0.3e18, "Should have leverage > 30%");
+        assertApproxEqRel(navAfter, navBefore, 0.02e18, "NAV preserved");
+
+        vm.stopPrank();
+    }
+
+    function testAaveFlashLoanDeleverage() public {
+        console2.log("\n=== Aave Flash Loan Deleverage Test ===");
+
+        // Deploy Box for USDC
+        Box box = new Box(address(usdc), owner, curator, "Flash Box", "FBOX", 0.01 ether, 7 days, 10 days);
+
+        // Configure Box (similar to leverage test)
+        vm.startPrank(curator);
+        box.setGuardianInstant(guardian);
+        box.addTokenInstant(ptSusde25Sep, ptSusdeOracle);
+        box.setIsAllocator(allocator, true);
+        box.addFeederInstant(address(this));
+
+        FundingAave fundingModule = new FundingAave(address(box), pool, 17);
+        bytes memory facilityData = "";
+        box.addFundingInstant(fundingModule);
+        box.addFundingFacilityInstant(fundingModule, facilityData);
+        box.addFundingCollateralInstant(fundingModule, ptSusde25Sep);
+        box.addFundingDebtInstant(fundingModule, usdc);
+
+        FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
+        box.setIsAllocator(address(flashloanProvider), true);
+
+        // Pre-fund the flash loan provider with a small amount to cover premiums
+        deal(address(usdc), address(flashloanProvider), 50e6); // 50 USDC for premiums
+
+        vm.stopPrank();
+
+        // Fund and create initial leveraged position
+        deal(address(usdc), address(this), 1000e6);
+        usdc.approve(address(box), 1000e6);
+        box.deposit(1000e6, address(this));
+
+        // Provide initial PT collateral to establish position
+        uint256 initialPTAmount = 800e18; // 800 PT tokens
+        deal(address(ptSusde25Sep), address(box), initialPTAmount);
+
+        vm.startPrank(allocator);
+
+        // First establish initial collateral position
+        box.pledge(fundingModule, facilityData, ptSusde25Sep, initialPTAmount);
+        console2.log("- Setup initial collateral:", initialPTAmount / 1e18, "PT-sUSDe");
+
+        // Setup MockSwapper for testing
+        MockSwapper mockSwapper = new MockSwapper();
+        MockOracle usdcOracle = new MockOracle(1e36); // 1 USDC = 1 USD
+        mockSwapper.setOracle(usdc, usdcOracle);
+        mockSwapper.setOracle(ptSusde25Sep, ptSusdeOracle);
+        deal(address(usdc), address(mockSwapper), 1000000e6);
+        deal(address(ptSusde25Sep), address(mockSwapper), 1000000e18);
+        ISwapper testSwapper = ISwapper(address(mockSwapper));
+
+        // Create leveraged position first
+        uint256 leverageAmount = 300e6;
+        flashloanProvider.leverage(box, fundingModule, facilityData, testSwapper, "", ptSusde25Sep, usdc, leverageAmount);
+
+        uint256 initialCollateral = fundingModule.collateralBalance(facilityData, ptSusde25Sep);
+        uint256 initialDebt = fundingModule.debtBalance(facilityData, usdc);
+        console2.log("\n1. Initial leveraged position");
+        console2.log("- Initial collateral:", initialCollateral / 1e18, "PT-sUSDe");
+        console2.log("- Initial debt:", initialDebt / 1e6, "USDC");
+
+        uint256 navBefore = box.totalAssets();
+        console2.log("- NAV before deleverage:", navBefore / 1e6, "USDC");
+
+        // Now deleverage by repaying half the debt
+        uint256 deleverageAmount = initialDebt / 2;
+        uint256 collateralToWithdraw = initialCollateral / 2;
+
+        console2.log("\n2. Executing deleverage");
+        console2.log("- Repaying:", deleverageAmount / 1e6, "USDC debt");
+        console2.log("- Withdrawing:", collateralToWithdraw / 1e18, "PT-sUSDe");
+
+        flashloanProvider.deleverage(
+            box,
+            fundingModule,
+            facilityData,
+            testSwapper,
+            "",
+            ptSusde25Sep,
+            collateralToWithdraw,
+            usdc,
+            deleverageAmount
+        );
+        console2.log("- Deleverage operation completed");
+
+        uint256 finalCollateral = fundingModule.collateralBalance(facilityData, ptSusde25Sep);
+        uint256 finalDebt = fundingModule.debtBalance(facilityData, usdc);
+        uint256 finalLTV = fundingModule.ltv(facilityData);
+        uint256 navAfter = box.totalAssets();
+
+        console2.log("\n3. Final position");
+        console2.log("- Final collateral:", finalCollateral / 1e18, "PT-sUSDe");
+        console2.log("- Final debt:", finalDebt / 1e6, "USDC");
+        console2.log("- Final LTV:", (finalLTV * 100) / 1e18, "%");
+        console2.log("- NAV after:", navAfter / 1e6, "USDC");
+
+        // Verify deleverage worked
+        assertLt(finalCollateral, initialCollateral, "Collateral reduced");
+        assertLt(finalDebt, initialDebt, "Debt reduced");
+        assertApproxEqRel(navAfter, navBefore, 0.02e18, "NAV preserved");
+
+        vm.stopPrank();
+    }
+
+    function testAaveFlashLoanAccessControl() public {
+        Box box = new Box(address(usdc), owner, curator, "Test Box", "TBOX", 0.01 ether, 7 days, 10 days);
+
+        vm.prank(curator);
+        box.setIsAllocator(allocator, true);
+
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        bytes memory facilityData = "";
+        FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
+
+        // Setup MockSwapper for testing
+        MockSwapper mockSwapper = new MockSwapper();
+        ISwapper testSwapper = ISwapper(address(mockSwapper));
+
+        // Test that non-allocators cannot call flash loan operations
+        vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+        flashloanProvider.leverage(box, fundingModule, facilityData, testSwapper, "", ptSusde25Sep, usdc, 100e6);
+
+        vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+        flashloanProvider.deleverage(box, fundingModule, facilityData, testSwapper, "", ptSusde25Sep, 100e18, usdc, 100e6);
+
+        vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+        flashloanProvider.refinance(box, fundingModule, facilityData, fundingModule, facilityData, ptSusde25Sep, 100e18, usdc, 100e6);
+    }
+
+    function testMaxLeveragePTsUSDe() public {
+        Box box = new Box(address(usdc), owner, curator, "Max Leverage Box", "MAXBOX", 0.01 ether, 7 days, 10 days);
+
+        vm.startPrank(curator);
+        box.setGuardianInstant(guardian);
+        box.addTokenInstant(ptSusde25Sep, ptSusdeOracle);
+        box.setIsAllocator(allocator, true);
+        box.addFeederInstant(address(this));
+
+        FundingAave fundingModule = new FundingAave(address(box), pool, 17);
+        bytes memory facilityData = "";
+        box.addFundingInstant(fundingModule);
+        box.addFundingFacilityInstant(fundingModule, facilityData);
+        box.addFundingCollateralInstant(fundingModule, ptSusde25Sep);
+        box.addFundingDebtInstant(fundingModule, usdc);
+
+        FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
+        box.setIsAllocator(address(flashloanProvider), true);
+        deal(address(usdc), address(flashloanProvider), 500e6);
+        vm.stopPrank();
+
+        deal(address(usdc), address(this), 5000e6);
+        usdc.approve(address(box), 5000e6);
+        box.deposit(5000e6, address(this));
+
+        uint256 initialPTAmount = 1000e18;
+        deal(address(ptSusde25Sep), address(box), initialPTAmount);
+
+        vm.startPrank(allocator);
+        box.pledge(fundingModule, facilityData, ptSusde25Sep, initialPTAmount);
+        uint256 navBefore = box.totalAssets();
+
+        MockSwapper mockSwapper = new MockSwapper();
+        MockOracle usdcOracle = new MockOracle(1e36);
+        mockSwapper.setOracle(usdc, usdcOracle);
+        mockSwapper.setOracle(ptSusde25Sep, ptSusdeOracle);
+        deal(address(usdc), address(mockSwapper), 10000000e6);
+        deal(address(ptSusde25Sep), address(mockSwapper), 10000000e18);
+        ISwapper testSwapper = ISwapper(address(mockSwapper));
+
+        uint256 maxFlashLoan = 8000e6;
+        console2.log("Flash loan:", maxFlashLoan / 1e6, "USDC");
+
+        flashloanProvider.leverage(box, fundingModule, facilityData, testSwapper, "", ptSusde25Sep, usdc, maxFlashLoan);
+        uint256 finalCollateral = fundingModule.collateralBalance(facilityData, ptSusde25Sep);
+        uint256 finalDebt = fundingModule.debtBalance(facilityData, usdc);
+        uint256 finalLTV = fundingModule.ltv(facilityData);
+        uint256 navAfter = box.totalAssets();
+
+        console2.log("Final collateral:", finalCollateral / 1e18, "PT-sUSDe");
+        console2.log("Final debt:", finalDebt / 1e6, "USDC");
+        console2.log("Final LTV:", (finalLTV * 100) / 1e18, "%");
+
+        assertTrue(finalLTV > 85e16, "LTV > 85%");
+        assertTrue(finalLTV < 92e16, "LTV < liquidation threshold");
+        assertApproxEqRel(navAfter, navBefore, 0.02e18, "NAV preserved");
+
         vm.stopPrank();
     }
 }
