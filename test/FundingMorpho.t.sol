@@ -108,7 +108,6 @@ contract FundingMorphoTest is Test {
         assertEq(fundingMorpho.ltv(facilityDataLtv80), 0);
     }
 
-
     function testCreation(address owner_, address morpho_, uint256 lltvCap) public {
         vm.assume(owner_ != address(0));
         vm.assume(morpho_ != address(0));
@@ -132,8 +131,6 @@ contract FundingMorphoTest is Test {
         vm.expectRevert(ErrorsLib.InvalidAddress.selector);
         fundingMorphoLocal = new FundingMorpho(owner, address(0), 50e16);
     }
-
-
 
     /// @dev Test a simple funding cycle
     function testSimpleCycle() public {
@@ -281,9 +278,7 @@ contract FundingMorphoTest is Test {
         vm.stopPrank();
     }
 
-
     function testLtvTooHigh() public {
-
         vm.startPrank(owner);
 
         collateralToken.mint(address(owner), 1 ether);
@@ -294,15 +289,12 @@ contract FundingMorphoTest is Test {
 
         // Borrow some debt too close from the 80% LLTV
         vm.expectRevert("insufficient collateral");
-        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.08 ether+1);
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.08 ether + 1);
 
         // Borrow some debt too close from the 80% LLTV
         vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
         fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.08 ether);
 
-        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.08 ether * fundingMorpho.lltvCap() / 1e18);
-
-
-
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, (0.08 ether * fundingMorpho.lltvCap()) / 1e18);
     }
 }

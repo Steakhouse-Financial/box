@@ -238,7 +238,7 @@ contract FundingMorpho is IFunding {
             if (market.collateralToken == oraclesProvider.asset()) {
                 // RIs are considered to have a price of ORACLE_PRECISION
                 facilityNav += collateralBalance_;
-            }  else {
+            } else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.collateralToken));
                 if (address(oracle) != address(0)) {
                     facilityNav += collateralBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
@@ -247,9 +247,9 @@ contract FundingMorpho is IFunding {
 
             uint256 debtBalance_ = morpho.expectedBorrowAssets(market, address(this));
 
-            if(market.loanToken == oraclesProvider.asset()) {
+            if (market.loanToken == oraclesProvider.asset()) {
                 facilityNav = (facilityNav > debtBalance_) ? facilityNav - debtBalance_ : 0;
-            }  else {
+            } else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.loanToken));
                 if (address(oracle) != address(0)) {
                     uint256 value = debtBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
