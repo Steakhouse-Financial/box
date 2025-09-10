@@ -110,7 +110,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     ) ERC20(_name, _symbol) {
         require(_asset != address(0), ErrorsLib.InvalidAddress());
         require(_owner != address(0), ErrorsLib.InvalidAddress());
-        require(_curator != address(0), ErrorsLib.InvalidAddress());
         require(_maxSlippage <= MAX_SLIPPAGE_LIMIT, ErrorsLib.SlippageTooHigh());
         require(_slippageEpochDuration != 0, ErrorsLib.InvalidAmount());
         require(_shutdownSlippageDuration != 0, ErrorsLib.InvalidAmount());
@@ -287,7 +286,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(msg.sender == skimRecipient, ErrorsLib.OnlySkimRecipient());
         require(address(token) != address(asset), ErrorsLib.CannotSkimAsset());
         require(!isToken(token), ErrorsLib.CannotSkimToken());
-        require(skimRecipient != address(0), ErrorsLib.InvalidAddress());
 
         uint256 amount = token.balanceOf(address(this));
         require(amount > 0, ErrorsLib.CannotSkimZero());
@@ -308,6 +306,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && debtBalance(token) > 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
+        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
 
         IOracle oracle = oracles[token];
 
@@ -315,9 +314,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         if (winddown) {
             slippageTolerance = _winddownSlippageTolerance();
         }
-
-        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
-        require(assetsAmount > 0, ErrorsLib.InvalidAmount());
 
         uint256 tokensBefore = token.balanceOf(address(this));
         uint256 assetsBefore = IERC20(asset).balanceOf(address(this));
@@ -340,16 +336,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Revoke allowance to prevent residual approvals
         IERC20(asset).forceApprove(address(swapper), 0);
-/*
-        (uint256 tokensReceived, uint256 assetsSpent, int256 slippage, int256 slippagePct) = OperationsLib.allocate(
-            IERC20(asset),
-            token,
-            assetsAmount,
-            swapper,
-            data,
-            oracle,
-            slippageTolerance
-        );*/
 
         // Track slippage, not during wind-down mode
         if (!winddown && slippage > 0) {
@@ -371,17 +357,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && debtBalance(token) == 0), ErrorsLib.OnlyAllocatorsOrWinddown());
+        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
 
-        IOracle oracle = oracles[token];
+        IOracle oracle = oracles[token];        
+        require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
 
         uint256 slippageTolerance = maxSlippage;
         if (winddown) {
             slippageTolerance = _winddownSlippageTolerance();
         }
-
-        require(tokensAmount > 0, ErrorsLib.InvalidAmount());
-        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
-        require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
 
         uint256 assetsBefore = IERC20(asset).balanceOf(address(this));
         uint256 tokensBefore = token.balanceOf(address(this));
@@ -404,17 +388,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         int256 slippagePct = expectedAssets == 0 ? int256(0) : (slippage * int256(PRECISION)) / int256(expectedAssets);
 
         require(assetsReceived >= minAssets, ErrorsLib.TokenSaleNotGeneratingEnoughAssets());
-
-/*
-        (uint256 assetsReceived, uint256 tokensSpent, int256 slippage, int256 slippagePct) = OperationsLib.deallocate(
-            IERC20(asset),
-            IERC20(token),
-            tokensAmount,
-            swapper,
-            data,
-            oracle,
-            slippageTolerance
-        );*/
 
         // Track slippage (only in normal operation)
         if (!winddown && slippage > 0) {
@@ -439,7 +412,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
         require(isToken(from) && isToken(to), ErrorsLib.TokenNotWhitelisted());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
-        require(tokensAmount > 0, ErrorsLib.InvalidAmount());
 
         IOracle fromOracle = oracles[from];
         IOracle toOracle = oracles[to];
@@ -513,7 +485,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function setCurator(address newCurator) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(newCurator != address(0), ErrorsLib.InvalidAddress());
 
         address oldCurator = curator;
         curator = newCurator;
@@ -542,7 +513,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function setIsAllocator(address account, bool newIsAllocator) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(account != address(0), ErrorsLib.InvalidAddress());
+//        require(account != address(0), ErrorsLib.InvalidAddress());
 
         isAllocator[account] = newIsAllocator;
 
@@ -1059,7 +1030,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(flashAmount > 0, ErrorsLib.InvalidAmount());
         require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
 
         // Transfer flash amount FROM caller TO this contract

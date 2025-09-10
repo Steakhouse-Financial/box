@@ -10,7 +10,7 @@ remappings = [
 optimizer = true
 optimizer_runs = 200
 via_ir = true
-evm_version = "cancun"
+evm_version = "prague"
 gas_reports = ["*"]
 libraries = []
 

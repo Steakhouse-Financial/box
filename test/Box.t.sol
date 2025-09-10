@@ -344,20 +344,6 @@ contract BoxTest is Test {
             address(boxFactory) // deploying address
         );
 
-        vm.expectEmit(true, true, true, true);
-        emit IBoxFactory.CreateBox(
-            IERC20(asset_),
-            owner_,
-            curator_,
-            name_,
-            symbol_,
-            maxSlippage_,
-            slippageEpochDuration_,
-            shutdownSlippageDuration_,
-            salt,
-            Box(predicted)
-        );
-
         box = boxFactory.createBox(
             IERC20(asset_),
             owner_,
@@ -1596,13 +1582,6 @@ contract BoxTest is Test {
         assertEq(box.guardian(), newGuardian);
     }
 
-    function testCuratorSubmitInvalidAddress() public {
-        // Test that setCurator properly validates against address(0)
-        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
-        vm.prank(owner); // setCurator requires owner
-        box.setCurator(address(0));
-    }
-
     function testAllocatorSubmitAccept() public {
         address newAllocator = address(0x99);
 
@@ -1985,45 +1964,6 @@ contract BoxTest is Test {
     /////////////////////////////
     /// COMPREHENSIVE ALLOCATION EVENT TESTS
     /////////////////////////////
-
-    function testAllocateZeroAmount() public {
-        vm.startPrank(feeder);
-        asset.approve(address(box), 100e18);
-        box.deposit(100e18, feeder);
-        vm.stopPrank();
-
-        vm.expectRevert(ErrorsLib.InvalidAmount.selector);
-        vm.prank(allocator);
-        box.allocate(token1, 0, swapper, "");
-    }
-
-    function testDeallocateZeroAmount() public {
-        vm.startPrank(feeder);
-        asset.approve(address(box), 100e18);
-        box.deposit(100e18, feeder);
-        vm.stopPrank();
-
-        vm.prank(allocator);
-        box.allocate(token1, 50e18, swapper, "");
-
-        vm.expectRevert(ErrorsLib.InvalidAmount.selector);
-        vm.prank(allocator);
-        box.deallocate(token1, 0, swapper, "");
-    }
-
-    function testReallocateZeroAmount() public {
-        vm.startPrank(feeder);
-        asset.approve(address(box), 100e18);
-        box.deposit(100e18, feeder);
-        vm.stopPrank();
-
-        vm.prank(allocator);
-        box.allocate(token1, 50e18, swapper, "");
-
-        vm.expectRevert(ErrorsLib.InvalidAmount.selector);
-        vm.prank(allocator);
-        box.reallocate(token1, token2, 0, swapper, "");
-    }
 
     function testAllocateInvalidSwapper() public {
         vm.startPrank(feeder);

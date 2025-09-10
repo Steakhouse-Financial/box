@@ -14,9 +14,6 @@ import {ISwapper} from "../interfaces/ISwapper.sol";
 import {Box} from "../Box.sol";
 
 contract BoxFactory is IBoxFactory {
-    /* STORAGE */
-
-    mapping(address account => bool) public isBox;
 
     /* FUNCTIONS */
 
@@ -43,20 +40,6 @@ contract BoxFactory is IBoxFactory {
             _shutdownSlippageDuration
         );
 
-        isBox[address(_box)] = true;
-
-        emit CreateBox(
-            _asset,
-            _owner,
-            _curator,
-            _name,
-            _symbol,
-            _maxSlippage,
-            _slippageEpochDuration,
-            _shutdownSlippageDuration,
-            salt,
-            _box
-        );
         return _box;
     }
 }
