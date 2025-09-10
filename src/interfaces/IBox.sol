@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: MIT
 // Copyright (c) 2025 Steakhouse
 pragma solidity >=0.8.0;
 
@@ -7,6 +7,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IFunding} from "./IFunding.sol";
 import {IOracle} from "./IOracle.sol";
 import {ISwapper} from "./ISwapper.sol";
+
+/// @notice Callback interface for Box flash loans
+interface IBoxFlashCallback {
+    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external;
+}
 
 interface IBox is IERC4626 {
     /* FUNCTIONS */

@@ -3,7 +3,7 @@
 pragma solidity >=0.8.0;
 
 import {IAdapter} from "../../lib/vault-v2/src/interfaces/IAdapter.sol";
-import {Box} from "../Box.sol";
+import {IBox} from "./IBox.sol";
 
 interface IBoxAdapter is IAdapter {
     /* EVENTS */
@@ -24,7 +24,7 @@ interface IBoxAdapter is IAdapter {
     function setSkimRecipient(address newSkimRecipient) external;
     function skim(address token) external;
     function parentVault() external view returns (address);
-    function box() external view returns (Box);
+    function box() external view returns (IBox);
     function skimRecipient() external view returns (address);
     function allocation() external view returns (uint256);
     function ids() external view returns (bytes32[] memory);

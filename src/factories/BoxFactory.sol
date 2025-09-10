@@ -1,17 +1,17 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
-// Copyright (c) 2025 Morpho Association
-pragma solidity 0.8.28;
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2025 Steakhouse Financial
+pragma solidity ^0.8.28;
 
-import "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
-import {Box} from "./Box.sol";
-import "./interfaces/IBox.sol";
-import "./interfaces/IBoxFactory.sol";
-import "./interfaces/IOracle.sol";
-import "./interfaces/ISwapper.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IBox} from "../interfaces/IBox.sol";
+import {IBoxFactory} from "../interfaces/IBoxFactory.sol";
+import {IOracle} from "../interfaces/IOracle.sol";
+import {ISwapper} from "../interfaces/ISwapper.sol";
+import {Box} from "../Box.sol";
 
 contract BoxFactory is IBoxFactory {
     /* STORAGE */
@@ -31,8 +31,8 @@ contract BoxFactory is IBoxFactory {
         uint256 _slippageEpochDuration,
         uint256 _shutdownSlippageDuration,
         bytes32 salt
-    ) external returns (Box) {
-        Box _box = new Box{salt: salt}(
+    ) external returns (IBox) {
+        IBox _box = new Box{salt: salt}(
             address(_asset),
             _owner,
             _curator,

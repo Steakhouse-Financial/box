@@ -1,13 +1,13 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
 
 import {IOracle} from "../../src/interfaces/IOracle.sol";
 
 contract MockOracle is IOracle {
     uint256 private _price;
 
-    constructor(uint256 price) {
-        _price = price;
+    constructor(uint256 price_) {
+        _price = price_;
     }
 
     function price() external view override returns (uint256) {

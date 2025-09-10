@@ -1,5 +1,6 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.19;
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright (c) 2025 Steakhouse Financial
+pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {FundingMorpho} from "../src/FundingMorpho.sol";
@@ -8,7 +9,7 @@ import {Morpho} from "@morpho-blue/Morpho.sol";
 import {IrmMock} from "@morpho-blue/mocks/IrmMock.sol";
 import {OracleMock} from "@morpho-blue/mocks/OracleMock.sol";
 import {ERC20MockDecimals} from "./mocks/ERC20MockDecimals.sol";
-import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
+import {ErrorsLib} from "../src/libraries/ErrorsLib.sol";
 
 contract FundingMorphoTest is Test {
     FundingMorpho fundingMorpho;

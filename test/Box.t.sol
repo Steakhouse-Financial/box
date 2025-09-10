@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity ^0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {Box} from "../src/Box.sol";
-import {BoxFactory} from "../src/BoxFactory.sol";
+import {BoxFactory} from "../src/factories/BoxFactory.sol";
 import {IBoxFactory} from "../src/interfaces/IBoxFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -11,10 +11,9 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IBox} from "../src/interfaces/IBox.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
-import "../src/lib/Constants.sol";
-import {BoxLib} from "../src/lib/BoxLib.sol";
-import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
-import {OperationsLib} from "../src/lib/OperationsLib.sol";
+import "../src/libraries/Constants.sol";
+import {BoxLib} from "../src/periphery/BoxLib.sol";
+import {ErrorsLib} from "../src/libraries/ErrorsLib.sol";
 import {ERC20MockDecimals} from "./mocks/ERC20MockDecimals.sol";
 import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {IMorpho, MarketParams, Position} from "@morpho-blue/interfaces/IMorpho.sol";
@@ -96,13 +95,13 @@ contract PriceAwareSwapper is ISwapper {
 
 contract MaliciousSwapper is ISwapper {
     uint256 public step = 5; // level of recursion
-    Box public box;
+    IBox public box;
     uint256 public scenario = ALLOCATE;
     uint256 public constant ALLOCATE = 0;
     uint256 public constant DEALLOCATE = 1;
     uint256 public constant REALLOCATE = 2;
 
-    function setBox(Box _box) external {
+    function setBox(IBox _box) external {
         box = _box;
     }
 
@@ -135,12 +134,12 @@ contract MaliciousSwapper is ISwapper {
 }
 
 contract BoxTest is Test {
-    using BoxLib for Box;
+    using BoxLib for IBox;
     using SafeERC20 for IERC20;
     using SafeERC20 for ERC20MockDecimals;
 
     IBoxFactory public boxFactory;
-    Box public box;
+    IBox public box;
 
     ERC20MockDecimals public asset;
     ERC20MockDecimals public token1;

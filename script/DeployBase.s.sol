@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
-import {BoxFactory} from "../src/BoxFactory.sol";
-import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
+import {BoxFactory} from "../src/factories/BoxFactory.sol";
+import {BoxAdapterFactory} from "../src/factories/BoxAdapterFactory.sol";
 import {MorphoVaultV1AdapterFactory} from "@vault-v2/src/adapters/MorphoVaultV1AdapterFactory.sol";
 import {MorphoMarketV1AdapterFactory} from "@vault-v2/src/adapters/MorphoMarketV1AdapterFactory.sol";
 import {IMetaMorpho} from "@vault-v2/lib/metamorpho/src/interfaces/IMetaMorpho.sol";
@@ -16,23 +16,22 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {IVaultV2} from "@vault-v2/src/interfaces/IVaultV2.sol";
 import {IBoxAdapter} from "../src/interfaces/IBoxAdapter.sol";
-import {Box} from "../src/Box.sol";
+import {IBox} from "../src/interfaces/IBox.sol";
 import {MorphoVaultV1Adapter} from "@vault-v2/src/adapters/MorphoVaultV1Adapter.sol";
 import {MorphoMarketV1Adapter} from "@vault-v2/src/adapters/MorphoMarketV1Adapter.sol";
-import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
-import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
-import {BoxLib} from "../src/lib/BoxLib.sol";
+import {MorphoVaultV1AdapterLib} from "../src/periphery/MorphoVaultV1AdapterLib.sol";
+import {VaultV2Lib} from "../src/periphery/VaultV2Lib.sol";
+import {BoxLib} from "../src/periphery/BoxLib.sol";
 import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
-import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
-import {BoxAdapterCachedFactory} from "../src/BoxAdapterCachedFactory.sol";
+import {BoxAdapterFactory} from "../src/factories/BoxAdapterFactory.sol";
+import {BoxAdapterCachedFactory} from "../src/factories/BoxAdapterCachedFactory.sol";
 import "@vault-v2/src/libraries/ConstantsLib.sol";
-import {OperationsLib} from "../src/lib/OperationsLib.sol";
 
 ///@dev This script deploys the necessary contracts for the Peaty product on Base.
 ///@dev Default factories are hardcoded, but can be overridden using run() which will deploy fresh contracts.
 contract DeployBaseScript is Script {
-    using BoxLib for Box;
+    using BoxLib for IBox;
     using VaultV2Lib for VaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
 
@@ -183,7 +182,7 @@ contract DeployBaseScript is Script {
         uint256 maxSlippage = 0.001 ether; // 0.1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
-        Box box1 = boxFactory.createBox(
+        IBox box1 = boxFactory.createBox(
             usdc,
             address(tx.origin),
             address(tx.origin),
@@ -214,7 +213,7 @@ contract DeployBaseScript is Script {
         maxSlippage = 0.01 ether; // 1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
-        Box box2 = boxFactory.createBox(
+        IBox box2 = boxFactory.createBox(
             usdc,
             address(tx.origin),
             address(tx.origin),

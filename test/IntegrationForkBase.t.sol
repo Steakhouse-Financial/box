@@ -1,5 +1,6 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright (c) 2025 Steakhouse Financial
+pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
@@ -15,21 +16,21 @@ import {MorphoVaultV1Adapter} from "@vault-v2/src/adapters/MorphoVaultV1Adapter.
 
 import {IBoxAdapter} from "../src/interfaces/IBoxAdapter.sol";
 import {IBoxAdapterFactory} from "../src/interfaces/IBoxAdapterFactory.sol";
-import {BoxAdapterFactory} from "../src/BoxAdapterFactory.sol";
-import {BoxAdapterCachedFactory} from "../src/BoxAdapterCachedFactory.sol";
+import {BoxAdapterFactory} from "../src/factories/BoxAdapterFactory.sol";
+import {BoxAdapterCachedFactory} from "../src/factories/BoxAdapterCachedFactory.sol";
 import {BoxAdapter} from "../src/BoxAdapter.sol";
 import {BoxAdapterCached} from "../src/BoxAdapterCached.sol";
-import {EventsLib} from "../src/lib/EventsLib.sol";
-import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
-import {VaultV2Lib} from "../src/lib/VaultV2Lib.sol";
-import {BoxLib} from "../src/lib/BoxLib.sol";
-import {MorphoVaultV1AdapterLib} from "../src/lib/MorphoVaultV1Lib.sol";
+import {EventsLib} from "../src/libraries/EventsLib.sol";
+import {ErrorsLib} from "../src/libraries/ErrorsLib.sol";
+import {VaultV2Lib} from "../src/periphery/VaultV2Lib.sol";
+import {BoxLib} from "../src/periphery/BoxLib.sol";
 
 import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {FundingAave, IPool} from "../src/FundingAave.sol";
 import {MarketParams, IMorpho} from "@morpho-blue/interfaces/IMorpho.sol";
-import {FlashLoanMorpho} from "../src/FlashLoanMorpho.sol";
-import "../src/lib/Constants.sol";
+import {FlashLoanMorpho} from "../src/periphery/FlashLoanMorpho.sol";
+import {MorphoVaultV1AdapterLib} from "../src/periphery/MorphoVaultV1AdapterLib.sol";
+import "../src/libraries/Constants.sol";
 
 /// @notice Minimal WETH interface for testing
 interface IWETH {

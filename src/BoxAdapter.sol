@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Morpho Association, Steakhouse Financial
-pragma solidity 0.8.28;
+pragma solidity ^0.8.28;
 
-import "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IVaultV2} from "./../lib/vault-v2/src/interfaces/IVaultV2.sol";
 import {MathLib} from "./../lib/vault-v2/src/libraries/MathLib.sol";
 import {SafeERC20Lib} from "./../lib/vault-v2/src/libraries/SafeERC20Lib.sol";
-import {Box} from "./Box.sol";
-import "./interfaces/IBoxAdapter.sol";
+import {IBox} from "./interfaces/IBox.sol";
+import {IBoxAdapter} from "./interfaces/IBoxAdapter.sol";
 
 contract BoxAdapter is IBoxAdapter {
     using MathLib for uint256;
@@ -17,7 +17,7 @@ contract BoxAdapter is IBoxAdapter {
 
     address public immutable factory;
     address public immutable parentVault;
-    Box public immutable box;
+    IBox public immutable box;
     bytes32 public immutable adapterId;
 
     /* STORAGE */
@@ -26,7 +26,7 @@ contract BoxAdapter is IBoxAdapter {
 
     /* FUNCTIONS */
 
-    constructor(address _parentVault, Box _box) {
+    constructor(address _parentVault, IBox _box) {
         factory = msg.sender;
         parentVault = _parentVault;
         box = _box;

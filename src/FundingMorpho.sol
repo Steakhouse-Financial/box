@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Steakhouse Financial
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.28;
 
 import {IMorpho, Id, MarketParams, Position} from "@morpho-blue/interfaces/IMorpho.sol";
 import {IOracle} from "@morpho-blue/interfaces/IOracle.sol";
@@ -12,7 +12,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {MathLib} from "./../lib/morpho-blue/src/libraries/MathLib.sol";
 import {IFunding} from "./interfaces/IFunding.sol";
-import {ErrorsLib} from "./lib/ErrorsLib.sol";
+import {ErrorsLib} from "./libraries/ErrorsLib.sol";
 
 contract FundingMorpho is IFunding {
     using SafeERC20 for IERC20;

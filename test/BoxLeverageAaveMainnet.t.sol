@@ -1,5 +1,6 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Steakhouse Financial
+pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
@@ -8,12 +9,12 @@ import {Box} from "../src/Box.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
-import {BoxLib} from "../src/lib/BoxLib.sol";
-import {ErrorsLib} from "../src/lib/ErrorsLib.sol";
+import {BoxLib} from "../src/periphery/BoxLib.sol";
+import {ErrorsLib} from "../src/libraries/ErrorsLib.sol";
 
 import {IFunding} from "../src/interfaces/IFunding.sol";
 import {FundingAave, IPool} from "../src/FundingAave.sol";
-import {FlashLoanAave, IPoolAddressesProviderAave} from "../src/FlashLoanAave.sol";
+import {FlashLoanAave, IPoolAddressesProviderAave} from "../src/periphery/FlashLoanAave.sol";
 import {IBox} from "../src/interfaces/IBox.sol";
 import "./mocks/MockSwapper.sol";
 import "./mocks/MockOracle.sol";

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 // Copyright (c) 2025 Steakhouse Financial
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.28;
 
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -9,22 +9,18 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IBox} from "./interfaces/IBox.sol";
+import {IBoxFlashCallback} from "./interfaces/IBox.sol";
 import {IFunding} from "./interfaces/IFunding.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ISwapper} from "./interfaces/ISwapper.sol";
-import "./lib/Constants.sol";
-import {ErrorsLib} from "./lib/ErrorsLib.sol";
-import {EventsLib} from "./lib/EventsLib.sol";
-import {OperationsLib} from "./lib/OperationsLib.sol";
-
-interface IBoxFlashCallback {
-    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external;
-}
+import "./libraries/Constants.sol";
+import {ErrorsLib} from "./libraries/ErrorsLib.sol";
+import {EventsLib} from "./libraries/EventsLib.sol";
+import {OperationsLib} from "./libraries/OperationsLib.sol";
 
 /**
  * @title Box
- * @author Steakhouse
- * @notice An ERC4626 vault that holds a base asset and can invest in other ERC20 tokens
+ * @notice An ERC4626 vault that holds a base asset, invest in other ERC20 tokens and can borrow/lend via funding modules.
  * @dev Features role-based access control, timelocked governance, and slippage protection
  */
 contract Box is IBox, ERC20, ReentrancyGuard {
@@ -320,6 +316,31 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             slippageTolerance = _winddownSlippageTolerance();
         }
 
+        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
+        require(assetsAmount > 0, ErrorsLib.InvalidAmount());
+
+        uint256 tokensBefore = token.balanceOf(address(this));
+        uint256 assetsBefore = IERC20(asset).balanceOf(address(this));
+
+        IERC20(asset).forceApprove(address(swapper), assetsAmount);
+        swapper.sell(IERC20(asset), token, assetsAmount, data);
+
+        uint256 tokensReceived = token.balanceOf(address(this)) - tokensBefore;
+        uint256 assetsSpent = assetsBefore - IERC20(asset).balanceOf(address(this));
+
+        require(assetsSpent <= assetsAmount, ErrorsLib.SwapperDidSpendTooMuch());
+
+        // Validate slippage
+        uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oracle.price());
+        uint256 minTokens = expectedTokens.mulDiv(PRECISION - slippageTolerance, PRECISION);
+        int256 slippage = int256(expectedTokens) - int256(tokensReceived);
+        int256 slippagePct = expectedTokens == 0 ? int256(0) : (slippage * int256(PRECISION)) / int256(expectedTokens);
+
+        require(tokensReceived >= minTokens, ErrorsLib.AllocationTooExpensive());
+
+        // Revoke allowance to prevent residual approvals
+        IERC20(asset).forceApprove(address(swapper), 0);
+/*
         (uint256 tokensReceived, uint256 assetsSpent, int256 slippage, int256 slippagePct) = OperationsLib.allocate(
             IERC20(asset),
             token,
@@ -328,7 +349,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             data,
             oracle,
             slippageTolerance
-        );
+        );*/
 
         // Track slippage, not during wind-down mode
         if (!winddown && slippage > 0) {
@@ -358,6 +379,33 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             slippageTolerance = _winddownSlippageTolerance();
         }
 
+        require(tokensAmount > 0, ErrorsLib.InvalidAmount());
+        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
+        require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
+
+        uint256 assetsBefore = IERC20(asset).balanceOf(address(this));
+        uint256 tokensBefore = token.balanceOf(address(this));
+
+        token.forceApprove(address(swapper), tokensAmount);
+        swapper.sell(token, IERC20(asset), tokensAmount, data);
+
+        uint256 assetsReceived = IERC20(asset).balanceOf(address(this)) - assetsBefore;
+        uint256 tokensSpent = tokensBefore - token.balanceOf(address(this));
+
+        require(tokensSpent <= tokensAmount, ErrorsLib.SwapperDidSpendTooMuch());
+
+        // Revoke allowance to prevent residual approvals
+        token.forceApprove(address(swapper), 0);
+
+        // Validate slippage
+        uint256 expectedAssets = tokensAmount.mulDiv(oracle.price(), ORACLE_PRECISION);
+        uint256 minAssets = expectedAssets.mulDiv(PRECISION - slippageTolerance, PRECISION);
+        int256 slippage = int256(expectedAssets) - int256(assetsReceived);
+        int256 slippagePct = expectedAssets == 0 ? int256(0) : (slippage * int256(PRECISION)) / int256(expectedAssets);
+
+        require(assetsReceived >= minAssets, ErrorsLib.TokenSaleNotGeneratingEnoughAssets());
+
+/*
         (uint256 assetsReceived, uint256 tokensSpent, int256 slippage, int256 slippagePct) = OperationsLib.deallocate(
             IERC20(asset),
             IERC20(token),
@@ -366,7 +414,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             data,
             oracle,
             slippageTolerance
-        );
+        );*/
 
         // Track slippage (only in normal operation)
         if (!winddown && slippage > 0) {
