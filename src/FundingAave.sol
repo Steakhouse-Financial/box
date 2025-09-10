@@ -5,7 +5,7 @@ pragma solidity ^0.8.28;
 import {MathLib} from "@morpho-blue/libraries/MathLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IFunding} from "./interfaces/IFunding.sol";
+import {IFunding, IOracleCallback} from "./interfaces/IFunding.sol";
 import {ErrorsLib} from "./libraries/ErrorsLib.sol";
 
 interface IPool {
@@ -272,6 +272,11 @@ contract FundingAave is IFunding {
 
     function collateralBalance(IERC20 collateralToken) external view override returns (uint256) {
         return _collateralBalance(collateralToken);
+    }
+
+    /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
+    function nav(IOracleCallback oraclesProvider) external view returns (uint256) {
+       revert();
     }
     /*
     function dataToAaveParams(bytes calldata data)

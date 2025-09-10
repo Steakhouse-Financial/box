@@ -3,7 +3,6 @@
 pragma solidity ^0.8.28;
 
 import {IMorpho, Id, MarketParams, Position} from "@morpho-blue/interfaces/IMorpho.sol";
-import {IOracle} from "@morpho-blue/interfaces/IOracle.sol";
 import "@morpho-blue/libraries/ConstantsLib.sol";
 import {MarketParamsLib} from "@morpho-blue/libraries/MarketParamsLib.sol";
 import {MorphoBalancesLib} from "@morpho-blue/libraries/periphery/MorphoBalancesLib.sol";
@@ -11,8 +10,9 @@ import {MorphoLib} from "@morpho-blue/libraries/periphery/MorphoLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {MathLib} from "./../lib/morpho-blue/src/libraries/MathLib.sol";
-import {IFunding} from "./interfaces/IFunding.sol";
+import {IFunding, IOracleCallback} from "./interfaces/IFunding.sol";
 import {ErrorsLib} from "./libraries/ErrorsLib.sol";
+import {IOracle} from "./interfaces/IOracle.sol";
 
 contract FundingMorpho is IFunding {
     using SafeERC20 for IERC20;
@@ -213,6 +213,43 @@ contract FundingMorpho is IFunding {
 
     function collateralBalance(IERC20 collateralToken) external view override returns (uint256) {
         return _collateralBalance(collateralToken);
+    }
+
+    /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
+    function nav(IOracleCallback oraclesProvider) external view returns (uint256) {
+        uint256 nav_ = 0;
+        for (uint256 i = 0; i < facilities.length; i++) {
+            uint256 facilityNav = 0;
+            MarketParams memory market = decodeFacilityData(facilities[i]);
+            uint256 collateralBalance = morpho.collateral(market.id(), address(this));
+
+            if (collateralBalance == 0) continue; // No debt if no collateral
+
+            if(market.collateralToken == oraclesProvider.asset()) {
+                // RIs are considered to have a price of ORACLE_PRECISION
+                facilityNav += collateralBalance;
+            }  else {
+                IOracle oracle = oraclesProvider.oracles(IERC20(market.collateralToken));
+                if (address(oracle) != address(0)) {
+                    facilityNav += collateralBalance.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
+                }
+            }
+
+            uint256 debtBalance = morpho.expectedBorrowAssets(market, address(this));
+
+            if(market.loanToken == oraclesProvider.asset()) {
+                facilityNav = (facilityNav > debtBalance) ? facilityNav - debtBalance : 0;
+            }  else {
+                IOracle oracle = oraclesProvider.oracles(IERC20(market.loanToken));
+                if (address(oracle) != address(0)) {
+                    uint256 value = debtBalance.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
+                    facilityNav = (facilityNav > value) ? facilityNav - value : 0;
+                }
+            }
+            
+            nav_ += facilityNav;
+        }
+        return nav_;
     }
 
     // ========== Other exposed view functions ==========

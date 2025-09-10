@@ -10,7 +10,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IBox} from "./interfaces/IBox.sol";
 import {IBoxFlashCallback} from "./interfaces/IBox.sol";
-import {IFunding} from "./interfaces/IFunding.sol";
+import {IFunding, IOracleCallback} from "./interfaces/IFunding.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ISwapper} from "./interfaces/ISwapper.sol";
 import "./libraries/Constants.sol";
@@ -21,7 +21,11 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @title Box
  * @notice An ERC4626 vault that holds a base asset, invest in other ERC20 tokens and can borrow/lend via funding modules.
  * @dev Features role-based access control, timelocked governance, and slippage protection
- * @dev 
+ * @dev Box is not inflation or donation resistant as deposits are strictly controlled via the isFeeder role.
+ * @dev Should deposit happen in an automated way (liquidity on a Vault V2) and from multiple feeders, it should be seeded first.
+ * @dev Oracles can be manipulated to give an unfair price
+ * @dev It is recommanded to create resiliency by using the BoxAdapterCached
+ * @dev and/or by using a Vault V2 as a parent vault, which can have a reported price a but lower the NAV price and a setMaxRate()
  */
 contract Box is IBox, ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -142,9 +146,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== ERC4626 IMPLEMENTATION ==========
 
     /// @inheritdoc IERC4626
-    function totalAssets() public view returns (uint256 assets_) {
-        int256 nav = _nav();
-        return nav >= 0 ? uint256(nav) : 0;
+    function totalAssets() public view returns (uint256) {
+        return _nav();
     }
 
     /// @inheritdoc IERC4626
@@ -782,7 +785,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             accumulatedSlippage += slippagePct;
         }
 
-        if (accumulatedSlippage >= maxSlippage) revert ErrorsLib.TooMuchAccumulatedSlippage();
+        require(accumulatedSlippage < maxSlippage, ErrorsLib.TooMuchAccumulatedSlippage());
 
         emit EventsLib.SlippageAccumulated(slippagePct, accumulatedSlippage);
     }
@@ -790,10 +793,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /**
      * @dev Calculates the net asset value of all tokens and assets in the vault
      * @return nav The net asset value of all assets
+     * @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
      */
-    function _nav() internal view returns (int256 nav) {
-        uint256 assets_ = IERC20(asset).balanceOf(address(this));
-        uint256 liabilities = 0;
+    function _nav() internal view returns (uint256 nav) {
+        nav = IERC20(asset).balanceOf(address(this));
 
         // Add value of all tokens
         uint256 length = tokens.length;
@@ -803,7 +806,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             if (address(oracle) != address(0)) {
                 uint256 tokenBalance = token.balanceOf(address(this));
                 if (tokenBalance > 0) {
-                    assets_ += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
+                    nav += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
                 }
             }
             unchecked {
@@ -814,7 +817,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         length = fundings.length;
         for (uint256 i; i < length; ) {
             IFunding funding = fundings[i];
-            uint256 collateralLength = funding.collateralTokensLength();
+            nav += funding.nav(IOracleCallback(address(this)));
+            /*uint256 collateralLength = funding.collateralTokensLength();
             for (uint256 c = 0; c < collateralLength; c++) {
                 IERC20 collateralToken = funding.collateralTokens(c);
                 uint256 collateralBalance = funding.collateralBalance(collateralToken);
@@ -845,13 +849,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
                         liabilities += debt.mulDiv(oracle.price(), ORACLE_PRECISION);
                     }
                 }
-            }
+            }*/
             unchecked {
                 ++i;
             }
         }
-
-        nav = int256(assets_) - int256(liabilities);
     }
 
     /**

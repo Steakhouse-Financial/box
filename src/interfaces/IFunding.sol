@@ -3,7 +3,20 @@
 pragma solidity >=0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IOracle} from "./IOracle.sol";
 
+interface IOracleCallback {
+    /// @dev RIs considered to have a price of ORACLE_PRECISION
+    function asset() external view returns (address);
+
+    /// @dev Returns an oracle for tokens that are not the asset
+    function oracles(IERC20 token) external view returns (IOracle);
+}
+
+/**
+ * @notice Interface for a funding module
+ * @notice `nav` should never revert
+ */
 interface IFunding {
     // ========== ADMIN ==========
     function addFacility(bytes calldata facilityData) external;
@@ -36,4 +49,5 @@ interface IFunding {
     function collateralBalance(bytes calldata facilityData, IERC20 collateralToken) external view returns (uint256);
     function debtBalance(IERC20 debtToken) external view returns (uint256);
     function collateralBalance(IERC20 collateralToken) external view returns (uint256);
+    function nav(IOracleCallback oraclesProvider) external view returns (uint256);
 }
