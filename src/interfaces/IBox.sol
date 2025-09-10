@@ -39,7 +39,6 @@ interface IBox is IERC4626 {
     // ========== EMERGENCY ==========
     function shutdown() external;
     function recover() external;
-    function unbox(uint256 shares) external;
 
     // ========== ADMIN FUNCTIONS ==========
     function setSkimRecipient(address newSkimRecipient) external;

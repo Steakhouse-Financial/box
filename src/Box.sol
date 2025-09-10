@@ -280,42 +280,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit Withdraw(msg.sender, receiver, owner_, assets, shares);
     }
 
-    // ========== EMERGENCY EXIT ==========
-
-    /**
-     * @notice Emergency exit that returns pro-rata share of all assets
-     * @param shares Amount of shares to burn
-     * @dev Can be called by anyone holding shares
-     */
-    function unbox(uint256 shares) external nonReentrant {
-        require(shares > 0, ErrorsLib.CannotUnboxZeroShares());
-        if (balanceOf(msg.sender) < shares) revert ErrorsLib.InsufficientShares();
-
-        uint256 supply = totalSupply();
-        uint256 assetsAmount = IERC20(asset).balanceOf(address(this)).mulDiv(shares, supply);
-
-        _burn(msg.sender, shares);
-
-        if (assetsAmount > 0) {
-            IERC20(asset).safeTransfer(msg.sender, assetsAmount);
-        }
-
-        // Transfer pro-rata share of each token
-        uint256 length = tokens.length;
-        for (uint256 i; i < length; ) {
-            IERC20 token = tokens[i];
-            uint256 tokenAmount = token.balanceOf(address(this)).mulDiv(shares, supply);
-            if (tokenAmount > 0) {
-                token.safeTransfer(msg.sender, tokenAmount);
-            }
-            unchecked {
-                ++i;
-            }
-        }
-
-        emit EventsLib.Unbox(msg.sender, shares);
-    }
-
     // ========== INVESTMENT MANAGEMENT ==========
 
     /**
