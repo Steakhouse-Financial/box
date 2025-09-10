@@ -26,6 +26,8 @@ import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {VaultV2} from "@vault-v2/src/VaultV2.sol";
 import {BoxAdapterFactory} from "../src/factories/BoxAdapterFactory.sol";
 import {BoxAdapterCachedFactory} from "../src/factories/BoxAdapterCachedFactory.sol";
+import {FundingMorphoFactory} from "../src/factories/FundingMorphoFactory.sol";
+import {FundingAaveFactory} from "../src/factories/FundingAaveFactory.sol";
 import "@vault-v2/src/libraries/ConstantsLib.sol";
 
 ///@dev This script deploys the necessary contracts for the Peaty product on Base.
@@ -41,6 +43,8 @@ contract DeployBaseScript is Script {
     BoxFactory boxFactory = BoxFactory(0x2f8Db77fBd818D8688a32D648c525F415abC260F);
     BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x808F9fcf09921a21aa5Cd71D87BE50c0F05A5203);
     BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x09EA5EafbA623D9012124E05068ab884008f32BD);
+    FundingMorphoFactory fundingMorphoFactory = FundingMorphoFactory(address(0));
+    FundingAaveFactory fundingAaveFactory = FundingAaveFactory(address(0));
 
     address owner = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address curator = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
