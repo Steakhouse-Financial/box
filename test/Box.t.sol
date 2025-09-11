@@ -367,8 +367,8 @@ contract BoxTest is Test {
         assertEq(box.shutdownSlippageDuration(), shutdownSlippageDuration_);
     }
 
-    function testDefaultSkimRecipientIsOwner() public view {
-        assertEq(box.skimRecipient(), owner, "skimRecipient should default to owner");
+    function testDefaultSkimRecipientIsZero() public view {
+        assertEq(box.skimRecipient(), address(0), "skimRecipient should default to zero");
     }
 
     function testSkimTransfersToRecipient() public {
@@ -377,12 +377,18 @@ contract BoxTest is Test {
         token3.mint(address(box), amount);
         assertEq(token3.balanceOf(address(box)), amount);
 
-        uint256 beforeOwner = token3.balanceOf(owner);
+        vm.prank(box.skimRecipient());
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        box.skim(token3);
+
+        vm.prank(owner);
+        box.setSkimRecipient(nonAuthorized);
+
         vm.prank(box.skimRecipient());
         box.skim(token3);
 
         assertEq(token3.balanceOf(address(box)), 0);
-        assertEq(token3.balanceOf(owner), beforeOwner + amount);
+        assertEq(token3.balanceOf(nonAuthorized), amount);
     }
 
     function testSkimNotAuthorized(address nonAuthorized_) public {
@@ -773,16 +779,21 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
-        // But fails when we reach wind-down mode
-        vm.warp(block.timestamp + SHUTDOWN_WARMUP);
+        vm.prank(nonAuthorized);
         vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
-        vm.prank(allocator);
-        box.allocate(token1, 50e18, swapper, "");
+        box.allocate(token1, 10e18, swapper, "");
 
-        vm.prank(guardian);
-        box.recover();
+        // Should not work because allocator don't have much power anymore
+        // And as there is no debt it should work
+        vm.warp(block.timestamp + SHUTDOWN_WARMUP);
         vm.prank(allocator);
-        box.allocate(token1, 50e18, swapper, "");
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
+        box.allocate(token1, 10e18, swapper, "");
+
+        vm.prank(nonAuthorized);
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
+        box.allocate(token1, 10e18, swapper, "");
+
     }
 
     function testAllocateNonWhitelistedToken() public {
@@ -884,7 +895,7 @@ contract BoxTest is Test {
     }
 
     function testDeallocateNonWhitelistedToken() public {
-        vm.expectRevert(ErrorsLib.NoOracleForToken.selector);
+        vm.expectRevert(ErrorsLib.TokenNotWhitelisted.selector);
         vm.prank(allocator);
         box.deallocate(token3, 25e18, swapper, "");
     }
@@ -1362,6 +1373,60 @@ contract BoxTest is Test {
         assertFalse(box.isFunding(fundingMorpho));
         assertEq(box.fundingsLength(), 0);
 
+        vm.stopPrank();
+    }
+
+
+    IERC20 public flashToken;
+    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external {
+        require(msg.sender == address(box), "Only Box can call");
+        require(token == flashToken, "Only asset token");
+
+        vm.expectRevert(ErrorsLib.NoNavDuringFlash.selector);
+        box.totalAssets();
+
+    }
+
+    function testFlashNav() public {
+        asset.mint(address(feeder), 50e18);
+        vm.startPrank(feeder);
+        asset.approve(address(box), 50e18);
+        box.deposit(50e18, feeder);
+        vm.stopPrank();
+
+
+        vm.prank(curator);
+        box.setIsAllocator(address(this), true);
+
+        assertEq(box.totalAssets(), 50e18, "Initial total assets is 50e18");
+
+        token1.mint(address(this), 100e18); // Add some investment token to have non-trivial nav
+
+        // Set a random price
+        oracle1.setPrice(2e36); // 1 token1 = 2 asset, so nav should be 50 + 100*2 = 250
+        token1.approve(address(box), 100e18);
+        flashToken = token1;
+        box.flash(token1, 100e18, "");
+
+        assertEq(box.totalAssets(), 50e18, "After flash, total assets is 50e18");
+
+        // Same test with the underlying asset
+        asset.mint(address(this), 100e18);
+        asset.approve(address(box), 100e18);
+        flashToken = asset;
+        box.flash(asset, 100e18, "");
+
+        assertEq(box.totalAssets(), 50e18, "After flash, total assets is 50e18");
+
+    }
+
+    function testFlashWrongToken() public {
+        token3.mint(address(allocator), 50e18);
+        
+        vm.startPrank(allocator);
+        token3.approve(address(box), 50e18);
+        vm.expectRevert(ErrorsLib.TokenNotWhitelisted.selector);
+        box.flash(token3, 10e18, "");
         vm.stopPrank();
     }
 
@@ -1874,7 +1939,7 @@ contract BoxTest is Test {
         vm.prank(curator);
         vm.expectRevert(ErrorsLib.OnlyGuardianCanRecover.selector);
         box.recover();
-        assertEq(box.isShutdown(), false);
+        assertEq(box.isShutdown(), true);
 
         vm.prank(guardian);
         box.recover();

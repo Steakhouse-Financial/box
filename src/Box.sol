@@ -26,6 +26,7 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @dev Oracles can be manipulated to give an unfair price
  * @dev It is recommanded to create resiliency by using the BoxAdapterCached
  * @dev and/or by using a Vault V2 as a parent vault, which can have a reported price a but lower the NAV price and a setMaxRate()
+ * @dev During flash operations there is no totalAssets() calculation possible to avoid NAV based attacks
  */
 contract Box is IBox, ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -80,9 +81,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     IFunding[] public fundings;
     mapping(IFunding => bool) internal fundingMap;
 
-    // Flash loan tracking (to compute accurate NAV)
-    IERC20 private _flashToken;
-    uint256 private _flashAmount;
+    // Flash loan tracking
+    bool private _isInFlash;
 
     // ========== MODIFIERS ==========
 
@@ -150,6 +150,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== ERC4626 IMPLEMENTATION ==========
 
     /// @inheritdoc IERC4626
+    /// @dev No NAV calculation during flash loans
     function totalAssets() public view returns (uint256) {
         return _nav();
     }
@@ -291,6 +292,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function skim(IERC20 token) external nonReentrant {
         require(msg.sender == skimRecipient, ErrorsLib.OnlySkimRecipient());
+        require(skimRecipient != address(0), ErrorsLib.InvalidAddress());
         require(address(token) != address(asset), ErrorsLib.CannotSkimAsset());
         require(!isToken(token), ErrorsLib.CannotSkimToken());
 
@@ -799,8 +801,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Calculates the net asset value of all tokens and assets in the vault
      * @return nav The net asset value of all assets
      * @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
+     * @dev No NAV calculation during flash loans
      */
     function _nav() internal view returns (uint256 nav) {
+        require(_isInFlash == false, ErrorsLib.NoNavDuringFlash());
         nav = IERC20(asset).balanceOf(address(this));
 
         // Add value of all tokens
@@ -1008,6 +1012,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
         require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
 
+        _isInFlash = true;
+
         // Transfer flash amount FROM caller TO this contract
         flashToken.safeTransferFrom(msg.sender, address(this), flashAmount);
 
@@ -1016,6 +1022,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Repay the flash loan by transferring back TO caller
         flashToken.safeTransfer(msg.sender, flashAmount);
+
+        _isInFlash = false;
 
         emit EventsLib.Flash(msg.sender, flashToken, flashAmount);
     }
