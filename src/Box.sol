@@ -80,6 +80,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     IFunding[] public fundings;
     mapping(IFunding => bool) internal fundingMap;
 
+    // Flash loan tracking (to compute accurate NAV)
+    IERC20 private _flashToken;
+    uint256 private _flashAmount;
+
     // ========== MODIFIERS ==========
 
     function timelocked() internal {
@@ -121,7 +125,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         asset = _asset;
         owner = _owner;
         curator = _curator;
-        skimRecipient = _owner;
+        skimRecipient = address(0);
         maxSlippage = _maxSlippage;
         slippageEpochDuration = _slippageEpochDuration;
         shutdownSlippageDuration = _shutdownSlippageDuration;
@@ -355,15 +359,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param tokensAmount Amount of tokens to sell
      * @param swapper Swapper contract to use
      * @param data Additional data to pass to the swapper
-     * @dev Can be called by allocators or anyone during shutdown after warmup, except if there is no debt for `token`
+     * @dev Can be called by allocators or anyone during wind-down, except if there is no debt for `token`
      */
     function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && debtBalance(token) == 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
+        require(isToken(token), ErrorsLib.TokenNotWhitelisted());
 
         IOracle oracle = oracles[token];
-        require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
 
         uint256 slippageTolerance = maxSlippage;
         if (winddown) {
@@ -525,10 +529,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /**
      * @notice Triggers shutdown
-     * @dev Only guardian can trigger shutdown
+     * @dev Only guardian and curators can trigger shutdown
      */
     function shutdown() external {
-        require(msg.sender == guardian, ErrorsLib.OnlyGuardianCanShutdown());
+        require(msg.sender == guardian || msg.sender == curator, ErrorsLib.OnlyGuardianOrCuratorCanShutdown());
         require(!isShutdown(), ErrorsLib.AlreadyShutdown());
 
         shutdownTime = block.timestamp;
@@ -538,11 +542,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /**
      * @notice Recover from shutdown
-     * @dev Only guardian can recover from shutdown
+     * @dev Only guardian can recover from shutdown, and only before wind-down period
      */
     function recover() external {
         require(msg.sender == guardian, ErrorsLib.OnlyGuardianCanRecover());
         require(isShutdown(), ErrorsLib.NotShutdown());
+        require(!isWinddown(), ErrorsLib.CannotRecoverAfterWinddown());
 
         shutdownTime = type(uint256).max;
 
@@ -818,38 +823,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         for (uint256 i; i < length; ) {
             IFunding funding = fundings[i];
             nav += funding.nav(IOracleCallback(address(this)));
-            /*uint256 collateralLength = funding.collateralTokensLength();
-            for (uint256 c = 0; c < collateralLength; c++) {
-                IERC20 collateralToken = funding.collateralTokens(c);
-                uint256 collateralBalance = funding.collateralBalance(collateralToken);
-                if (collateralBalance == 0) {
-                    continue;
-                } else if (address(collateralToken) == asset) {
-                    assets_ += collateralBalance;
-                } else {
-                    // isTokenOrAsset
-                    IOracle oracle = oracles[collateralToken];
-                    if (address(oracle) != address(0)) {
-                        assets_ += collateralBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
-                    }
-                }
-            }
-            uint256 debtTokensLength = funding.debtTokensLength();
-            for (uint256 d = 0; d < debtTokensLength; d++) {
-                IERC20 debtToken = funding.debtTokens(d);
-                uint256 debt = funding.debtBalance(debtToken);
-                if (debt == 0) {
-                    continue;
-                } else if (address(debtToken) == asset) {
-                    liabilities += debt;
-                } else {
-                    // isTokenOrAsset
-                    IOracle oracle = oracles[debtToken];
-                    if (address(oracle) != address(0)) {
-                        liabilities += debt.mulDiv(oracle.price(), ORACLE_PRECISION);
-                    }
-                }
-            }*/
             unchecked {
                 ++i;
             }
@@ -981,7 +954,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
-        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
         collateralToken.safeTransfer(address(fundingModule), collateralAmount);
@@ -1006,7 +979,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
-        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
         fundingModule.borrow(facilityData, debtToken, borrowAmount);
@@ -1031,8 +1004,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
-        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocators());
         require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
+        require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
 
         // Transfer flash amount FROM caller TO this contract
         flashToken.safeTransferFrom(msg.sender, address(this), flashAmount);

@@ -152,6 +152,9 @@ contract FundingMorpho is IFunding {
 
         MarketParams memory market = decodeFacilityData(facilityData);
         morpho.withdrawCollateral(market, collateralAmount, address(this), address(this));
+
+        require(ltv(facilityData) <= (market.lltv * lltvCap) / 100e16, ErrorsLib.ExcessiveLTV());
+
         collateralToken.safeTransfer(owner, collateralAmount);
     }
 

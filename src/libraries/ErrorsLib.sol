@@ -55,10 +55,11 @@ library ErrorsLib {
     error SlippageTooHigh();
 
     // Shutdown/Recover errors
-    error OnlyGuardianCanShutdown();
+    error OnlyGuardianOrCuratorCanShutdown();
     error OnlyGuardianCanRecover();
     error AlreadyShutdown();
     error NotShutdown();
+    error CannotRecoverAfterWinddown();
 
     // Timelock errors
     error TimelockNotExpired();

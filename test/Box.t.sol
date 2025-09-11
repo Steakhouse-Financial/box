@@ -1369,7 +1369,7 @@ contract BoxTest is Test {
     /// SHUTDOWN TESTS
     /////////////////////////////
 
-    function testShutdown() public {
+    function testShutdownGuardian() public {
         vm.expectEmit(true, true, true, true);
         emit Shutdown(guardian);
 
@@ -1382,9 +1382,32 @@ contract BoxTest is Test {
         assertEq(box.maxMint(feeder), 0);
     }
 
+    function testShutdownCurator() public {
+        vm.expectEmit(true, true, true, true);
+        emit Shutdown(curator);
+
+        vm.prank(curator);
+        box.shutdown();
+
+        assertTrue(box.isShutdown());
+        assertEq(box.shutdownTime(), block.timestamp);
+    }
+
     function testShutdownNonGuardian() public {
-        vm.expectRevert(ErrorsLib.OnlyGuardianCanShutdown.selector);
+        vm.expectRevert(ErrorsLib.OnlyGuardianOrCuratorCanShutdown.selector);
         vm.prank(nonAuthorized);
+        box.shutdown();
+
+        vm.expectRevert(ErrorsLib.OnlyGuardianOrCuratorCanShutdown.selector);
+        vm.prank(owner);
+        box.shutdown();
+
+        vm.expectRevert(ErrorsLib.OnlyGuardianOrCuratorCanShutdown.selector);
+        vm.prank(allocator);
+        box.shutdown();
+
+        vm.expectRevert(ErrorsLib.OnlyGuardianOrCuratorCanShutdown.selector);
+        vm.prank(feeder);
         box.shutdown();
     }
 
@@ -1442,7 +1465,7 @@ contract BoxTest is Test {
         assertEq(token1.balanceOf(address(box)), 25e18);
     }
 
-    function testWithdrawAfterShutdownWithAutoDeallocation() public {
+    function testWithdrawAfterShutdown() public {
         vm.startPrank(feeder);
         asset.approve(address(box), 200e18);
         box.deposit(200e18, feeder);
@@ -1459,8 +1482,14 @@ contract BoxTest is Test {
         vm.prank(feeder);
         box.withdraw(50e18, feeder, feeder);
 
+        // Go after wind-down
+        vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
+
+        vm.prank(feeder);
+        box.withdraw(50e18, feeder, feeder);
+
         // Verify withdrawal worked
-        assertEq(asset.balanceOf(address(box)), 50e18);
+        assertEq(asset.balanceOf(address(box)), 0e18);
         assertEq(token1.balanceOf(address(box)), 100e18);
     }
 
@@ -1842,6 +1871,11 @@ contract BoxTest is Test {
         assertEq(box.maxWithdraw(feeder), 100e18); // Can still withdraw
         assertEq(box.maxRedeem(feeder), 100e18); // Can still redeem
 
+        vm.prank(curator);
+        vm.expectRevert(ErrorsLib.OnlyGuardianCanRecover.selector);
+        box.recover();
+        assertEq(box.isShutdown(), false);
+
         vm.prank(guardian);
         box.recover();
         assertEq(box.isShutdown(), false);
@@ -1857,6 +1891,18 @@ contract BoxTest is Test {
         box.reallocate(token1, token2, 100e18, swapper, "");
         box.deallocate(token2, 100e18, swapper, "");
         vm.stopPrank();
+
+        // Test shurdown and go until wind-down to check that we can't recover during wind-down
+        vm.prank(guardian);
+        box.shutdown();
+        assertEq(box.isShutdown(), true);
+
+        vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
+
+        vm.prank(guardian);
+        vm.expectRevert(ErrorsLib.CannotRecoverAfterWinddown.selector);
+        box.recover();
+        assertEq(box.isShutdown(), true);
     }
 
     function testComplexScenario() public {
