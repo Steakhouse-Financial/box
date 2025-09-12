@@ -83,6 +83,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     // Flash loan tracking
     bool private _isInFlash;
+    uint256 private _cachedNavForFlash;
 
     // ========== MODIFIERS ==========
 
@@ -349,7 +350,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage, not during wind-down mode
         if (!winddown && slippage > 0) {
             uint256 slippageValue = uint256(slippage).mulDiv(oracle.price(), ORACLE_PRECISION);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
         emit EventsLib.Allocation(token, assetsSpent, tokensReceived, slippagePct, swapper, data);
@@ -402,7 +403,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         if (!winddown && slippage > 0) {
             // slippage is already in asset units
             uint256 slippageValue = uint256(slippage);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
         emit EventsLib.Deallocation(token, tokensSpent, assetsReceived, slippagePct, swapper, data);
@@ -451,7 +452,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage
         if (slippage > 0) {
             uint256 slippageValue = uint256(slippage).mulDiv(toOracle.price(), ORACLE_PRECISION);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
         emit EventsLib.Reallocation(from, to, fromSpent, toReceived, slippagePct, swapper, data);
@@ -780,6 +781,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== INTERNAL FUNCTIONS ==========
 
     /**
+     * @dev Returns NAV for slippage calculations - uses cached value during flash operations
+     */
+    function _navForSlippage() internal view returns (uint256) {
+        return _isInFlash ? _cachedNavForFlash : _nav();
+    }
+
+    /**
      * @dev Increases accumulated slippage and checks against maximum
      */
     function _increaseSlippage(uint256 slippagePct) internal {
@@ -1012,6 +1020,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
         require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
 
+        // Cache NAV before starting flash operation for slippage calculations
+        _cachedNavForFlash = _nav();
         _isInFlash = true;
 
         // Transfer flash amount FROM caller TO this contract

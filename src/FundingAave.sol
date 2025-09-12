@@ -3,9 +3,12 @@
 pragma solidity ^0.8.28;
 
 import {MathLib} from "@morpho-blue/libraries/MathLib.sol";
+import "@morpho-blue/libraries/ConstantsLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IFunding, IOracleCallback} from "./interfaces/IFunding.sol";
+import {IOracle} from "./interfaces/IOracle.sol";
 import {ErrorsLib} from "./libraries/ErrorsLib.sol";
 
 interface IPool {
@@ -68,6 +71,7 @@ interface IScaledBalanceToken {
 contract FundingAave is IFunding {
     using SafeERC20 for IERC20;
     using MathLib for uint256;
+    using Math for uint256;
 
     uint256 internal constant RAY = 1e27;
 
@@ -276,7 +280,49 @@ contract FundingAave is IFunding {
 
     /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
     function nav(IOracleCallback oraclesProvider) external view returns (uint256) {
-        revert();
+        uint256 totalCollateralValue = 0;
+        uint256 totalDebtValue = 0;
+        
+        // Calculate total collateral value
+        for (uint256 i = 0; i < collateralTokens.length; i++) {
+            IERC20 collateralToken = collateralTokens[i];
+            uint256 collateralBalance_ = _collateralBalance(collateralToken);
+            
+            if (collateralBalance_ > 0) {
+                if (address(collateralToken) == oraclesProvider.asset()) {
+                    totalCollateralValue += collateralBalance_;
+                } else {
+                    IOracle oracle = oraclesProvider.oracles(collateralToken);
+                    if (address(oracle) != address(0)) {
+                        uint256 price = oracle.price();
+                        uint256 value = collateralBalance_.mulDivDown(price, ORACLE_PRICE_SCALE);
+                        totalCollateralValue += value;
+                    }
+                }
+            }
+        }
+        
+        // Calculate total debt value
+        for (uint256 i = 0; i < debtTokens.length; i++) {
+            IERC20 debtToken = debtTokens[i];
+            uint256 debtBalance_ = _debtBalance(debtToken);
+            
+            if (debtBalance_ > 0) {
+                if (address(debtToken) == oraclesProvider.asset()) {
+                    totalDebtValue += debtBalance_;
+                } else {
+                    IOracle oracle = oraclesProvider.oracles(debtToken);
+                    if (address(oracle) != address(0)) {
+                        uint256 price = oracle.price();
+                        uint256 value = debtBalance_.mulDivDown(price, ORACLE_PRICE_SCALE);
+                        totalDebtValue += value;
+                    }
+                }
+            }
+        }
+        
+        // Return NAV = collateral - debt (floor at 0)
+        return totalCollateralValue >= totalDebtValue ? totalCollateralValue - totalDebtValue : 0;
     }
     /*
     function dataToAaveParams(bytes calldata data)
