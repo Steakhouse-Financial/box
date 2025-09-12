@@ -129,7 +129,13 @@ contract BoxLeverageAaveMainnetTest is Test {
         // Configure Box
         vm.startPrank(curator);
         box.setGuardianInstant(guardian);
-        box.addTokenInstant(ptSusde25Sep, ptSusdeOracle);
+        // Create properly scaled oracle for USDe base asset
+        // ptSusdeOracle is for USDC (6 decimals), we need it for USDe (18 decimals)
+        // Scale factor = 10^(target_decimals - source_decimals) = 10^(36+18-18 - (36+6-18)) = 10^12
+        uint256 originalPrice = ptSusdeOracle.price();
+        uint256 scaledPrice = originalPrice * 1e12;
+        MockOracle ptSusdeUSDe_Oracle = new MockOracle(scaledPrice);
+        box.addTokenInstant(ptSusde25Sep, IOracle(address(ptSusdeUSDe_Oracle)));
         box.setIsAllocator(allocator, true);
         box.addFeederInstant(address(this));
 
