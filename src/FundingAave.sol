@@ -2,8 +2,8 @@
 // Copyright (c) 2025 Steakhouse Financial
 pragma solidity ^0.8.28;
 
-import {MathLib} from "@morpho-blue/libraries/MathLib.sol";
 import "@morpho-blue/libraries/ConstantsLib.sol";
+import {MathLib} from "@morpho-blue/libraries/MathLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -282,12 +282,12 @@ contract FundingAave is IFunding {
     function nav(IOracleCallback oraclesProvider) external view returns (uint256) {
         uint256 totalCollateralValue = 0;
         uint256 totalDebtValue = 0;
-        
+
         // Calculate total collateral value
         for (uint256 i = 0; i < collateralTokens.length; i++) {
             IERC20 collateralToken = collateralTokens[i];
             uint256 collateralBalance_ = _collateralBalance(collateralToken);
-            
+
             if (collateralBalance_ > 0) {
                 if (address(collateralToken) == oraclesProvider.asset()) {
                     totalCollateralValue += collateralBalance_;
@@ -301,12 +301,12 @@ contract FundingAave is IFunding {
                 }
             }
         }
-        
+
         // Calculate total debt value
         for (uint256 i = 0; i < debtTokens.length; i++) {
             IERC20 debtToken = debtTokens[i];
             uint256 debtBalance_ = _debtBalance(debtToken);
-            
+
             if (debtBalance_ > 0) {
                 if (address(debtToken) == oraclesProvider.asset()) {
                     totalDebtValue += debtBalance_;
@@ -320,7 +320,7 @@ contract FundingAave is IFunding {
                 }
             }
         }
-        
+
         // Return NAV = collateral - debt (floor at 0)
         return totalCollateralValue >= totalDebtValue ? totalCollateralValue - totalDebtValue : 0;
     }

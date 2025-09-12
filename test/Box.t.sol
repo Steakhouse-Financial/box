@@ -793,7 +793,6 @@ contract BoxTest is Test {
         vm.prank(nonAuthorized);
         vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         box.allocate(token1, 10e18, swapper, "");
-
     }
 
     function testAllocateNonWhitelistedToken() public {
@@ -1376,7 +1375,6 @@ contract BoxTest is Test {
         vm.stopPrank();
     }
 
-
     IERC20 public flashToken;
     function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external {
         require(msg.sender == address(box), "Only Box can call");
@@ -1384,7 +1382,6 @@ contract BoxTest is Test {
 
         vm.expectRevert(ErrorsLib.NoNavDuringFlash.selector);
         box.totalAssets();
-
     }
 
     function testFlashNav() public {
@@ -1393,7 +1390,6 @@ contract BoxTest is Test {
         asset.approve(address(box), 50e18);
         box.deposit(50e18, feeder);
         vm.stopPrank();
-
 
         vm.prank(curator);
         box.setIsAllocator(address(this), true);
@@ -1417,12 +1413,11 @@ contract BoxTest is Test {
         box.flash(asset, 100e18, "");
 
         assertEq(box.totalAssets(), 50e18, "After flash, total assets is 50e18");
-
     }
 
     function testFlashWrongToken() public {
         token3.mint(address(allocator), 50e18);
-        
+
         vm.startPrank(allocator);
         token3.approve(address(box), 50e18);
         vm.expectRevert(ErrorsLib.TokenNotWhitelisted.selector);
