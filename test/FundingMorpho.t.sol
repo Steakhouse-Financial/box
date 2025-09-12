@@ -81,10 +81,10 @@ contract FundingMorphoTest is Test {
         fundingMorpho = new FundingMorpho(owner, address(morpho), 99e16);
 
         vm.startPrank(owner);
-        fundingMorpho.addFacility(facilityDataLtv80);
-        fundingMorpho.addFacility(facilityDataLtv90);
         fundingMorpho.addCollateralToken(collateralToken);
         fundingMorpho.addDebtToken(debtToken);
+        fundingMorpho.addFacility(facilityDataLtv80);
+        fundingMorpho.addFacility(facilityDataLtv90);
         vm.stopPrank();
     }
 

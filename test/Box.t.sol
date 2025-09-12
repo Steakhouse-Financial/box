@@ -305,9 +305,9 @@ contract BoxTest is Test {
         // Funding config
         fundingMorpho = new FundingMorpho(address(box), address(morpho), 99e16);
         box.addFundingInstant(fundingMorpho);
-        box.addFundingFacilityInstant(fundingMorpho, facilityDataLtv80);
         box.addFundingCollateralInstant(fundingMorpho, token1);
         box.addFundingDebtInstant(fundingMorpho, asset);
+        box.addFundingFacilityInstant(fundingMorpho, facilityDataLtv80);
 
         vm.stopPrank();
     }
@@ -1168,7 +1168,7 @@ contract BoxTest is Test {
     /// FUNDING TESTS
     /////////////////////////////
 
-    function testFundingSetup() public {
+    function testFundingSetup() public view {
         assertTrue(box.isFunding(fundingMorpho));
         assertEq(box.fundingsLength(), 1);
 
@@ -1207,28 +1207,11 @@ contract BoxTest is Test {
         vm.stopPrank();
     }
 
-    function testAtestRemoveFundingOneFacility() public {
-        vm.startPrank(curator);
-
-        // remove debt and collaterals
-        box.removeFundingDebt(fundingMorpho, asset);
-        box.removeFundingCollateral(fundingMorpho, token1);
-
-        vm.expectRevert(ErrorsLib.CannotRemove.selector);
-        box.removeFunding(fundingMorpho);
-
-        box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
-
-        box.removeFunding(fundingMorpho);
-
-        vm.stopPrank();
-    }
-
     function testRemoveFundingOneCollateral() public {
         vm.startPrank(curator);
 
-        box.removeFundingDebt(fundingMorpho, asset);
         box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
+        box.removeFundingDebt(fundingMorpho, asset);
 
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         box.removeFunding(fundingMorpho);
@@ -1243,8 +1226,8 @@ contract BoxTest is Test {
     function testRemoveFundingOneDebt() public {
         vm.startPrank(curator);
 
-        box.removeFundingCollateral(fundingMorpho, token1);
         box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
+        box.removeFundingCollateral(fundingMorpho, token1);
 
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         box.removeFunding(fundingMorpho);
@@ -1262,6 +1245,7 @@ contract BoxTest is Test {
         vm.startPrank(curator);
 
         // Don't need this one
+        box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
         box.removeFundingDebt(fundingMorpho, asset);
 
         // Shouldn't work after setup as there is a facility, debt and collateral
@@ -1281,16 +1265,16 @@ contract BoxTest is Test {
         box.removeToken(token4);
 
         // Create a 90% lltv market and seed it
+        box.addTokenInstant(token3, oracle3);
+        box.addFundingCollateralInstant(fundingMorpho, token3);
         MarketParams memory marketParamsLocal = MarketParams(address(token3), address(token1), address(oracle1), address(irm), lltv90);
         morpho.createMarket(marketParamsLocal);
         token3.mint(address(curator), 100e18);
         token3.approve(address(morpho), 100e18);
         morpho.supply(marketParamsLocal, 100e18, 0, address(curator), "");
         bytes memory facilityDataLocal = fundingMorpho.encodeFacilityData(marketParamsLocal);
+        box.addFundingDebtInstant(fundingMorpho, token3);
         box.addFundingFacilityInstant(fundingMorpho, facilityDataLocal);
-
-        box.addTokenInstant(token3, oracle3);
-        box.addFundingCollateralInstant(fundingMorpho, token3);
 
         // No longer can remove token3 from Box, because there are token3 balance
         vm.expectRevert(ErrorsLib.TokenBalanceMustBeZero.selector);
@@ -1303,7 +1287,7 @@ contract BoxTest is Test {
         token1.safeTransfer(address(curator), token1.balanceOf(address(box)));
         vm.stopPrank();
 
-        // Still can't remove token3 beacause there is a facility using it as debt token
+        // Still can't remove token3 beacause there is a funding using it as debt token
         vm.startPrank(curator);
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         box.removeToken(token3);
@@ -1311,8 +1295,6 @@ contract BoxTest is Test {
         // Can't remove token1 from Box
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         box.removeToken(token1);
-
-        box.addFundingDebtInstant(fundingMorpho, token3);
 
         vm.stopPrank();
         token1.mint(address(box), 10e18);
@@ -1324,16 +1306,12 @@ contract BoxTest is Test {
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         box.removeFundingCollateral(fundingMorpho, token1);
 
-        // Check that we can remove token3 as debt token while not borrowed
-        box.removeFundingDebt(fundingMorpho, token3);
-        box.addFundingDebtInstant(fundingMorpho, token3);
-
         vm.stopPrank();
         vm.prank(allocator);
         box.borrow(fundingMorpho, facilityDataLocal, token3, 1e18);
         vm.startPrank(curator);
 
-        // Can't remove collateral while borrowed
+        // Can't remove debt token
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         box.removeFundingDebt(fundingMorpho, token3);
 
@@ -1350,6 +1328,8 @@ contract BoxTest is Test {
 
         vm.startPrank(curator);
 
+        box.removeFundingFacility(fundingMorpho, facilityDataLocal);
+
         box.removeFundingCollateral(fundingMorpho, token3);
 
         // Still a debt token
@@ -1364,9 +1344,6 @@ contract BoxTest is Test {
 
         box.removeToken(token1);
 
-        box.removeFundingFacility(fundingMorpho, facilityDataLocal);
-        box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
-
         box.removeFunding(fundingMorpho);
 
         assertFalse(box.isFunding(fundingMorpho));
@@ -1376,7 +1353,7 @@ contract BoxTest is Test {
     }
 
     IERC20 public flashToken;
-    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external {
+    function onBoxFlash(IERC20 token, uint256, bytes calldata) external {
         require(msg.sender == address(box), "Only Box can call");
         require(token == flashToken, "Only asset token");
 
@@ -1751,7 +1728,12 @@ contract BoxTest is Test {
 
     function testInvestmentTokenRemove() public {
         vm.startPrank(curator);
+
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeToken(token1);
+
         // Remove it from collateral
+        box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
         box.removeFundingCollateral(fundingMorpho, token1);
 
         box.removeToken(token1);
@@ -1775,6 +1757,7 @@ contract BoxTest is Test {
         // Try to remove token with balance - should fail at execution stage
         vm.startPrank(curator);
         // Remove it from collateral
+        box.removeFundingFacility(fundingMorpho, facilityDataLtv80);
         box.removeFundingCollateral(fundingMorpho, token1);
 
         bytes memory tokenData = abi.encodeWithSelector(box.removeToken.selector, token1);

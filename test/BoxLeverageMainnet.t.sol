@@ -77,18 +77,18 @@ contract BoxLeverageMainnetTest is Test {
         FundingAave aaveModule = new FundingAave(address(box), aavePool, eModeCategory);
         bytes memory aaveFacilityData = ""; // No extra data needed for Aave
         box.addFundingInstant(aaveModule);
-        box.addFundingFacilityInstant(aaveModule, aaveFacilityData);
         box.addFundingCollateralInstant(aaveModule, ptSusde25Sep);
         box.addFundingDebtInstant(aaveModule, usdc);
+        box.addFundingFacilityInstant(aaveModule, aaveFacilityData);
 
         // Setup Morpho adapter - get market params directly from Morpho
         FundingMorpho morphoModule = new FundingMorpho(address(box), address(morpho), 99e16);
         MarketParams memory marketParams = morpho.idToMarketParams(Id.wrap(MORPHO_MARKET_ID));
         bytes memory morphoFacilityData = morphoModule.encodeFacilityData(marketParams);
         box.addFundingInstant(morphoModule);
-        box.addFundingFacilityInstant(morphoModule, morphoFacilityData);
         box.addFundingCollateralInstant(morphoModule, ptSusde25Sep);
         box.addFundingDebtInstant(morphoModule, usdc);
+        box.addFundingFacilityInstant(morphoModule, morphoFacilityData);
 
         vm.stopPrank();
 

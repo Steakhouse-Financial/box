@@ -99,9 +99,11 @@ contract FundingAave is IFunding {
 
     // ========== ADMIN ==========
 
+    /// @dev FundingAave always expect "" as facilityData
     function addFacility(bytes calldata facilityData) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(!isFacility(facilityData), ErrorsLib.AlreadyWhitelisted());
+        require(facilityData.length == 0, ErrorsLib.InvalidValue());
 
         facilities.push(facilityData);
     }
@@ -188,19 +190,21 @@ contract FundingAave is IFunding {
 
     // ========== ACTIONS ==========
 
+    /// @dev Assume caller did transfer the collateral tokens to this contract before calling
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(isFacility(facilityData), "Invalid facility");
-        require(isCollateralToken(collateralToken), "Invalid collateral token");
+        require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
+        require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
         IERC20(collateralToken).forceApprove(address(pool), collateralAmount);
         pool.supply(address(collateralToken), collateralAmount, address(this), 0);
         pool.setUserUseReserveAsCollateral(address(collateralToken), true);
     }
 
-    /// @dev We don't check if valid facility/collateral, allowing donations
-    function depledge(bytes calldata, IERC20 collateralToken, uint256 collateralAmount) external {
+    function depledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
+        require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
         pool.withdraw(address(collateralToken), collateralAmount, address(this));
         collateralToken.safeTransfer(owner, collateralAmount);
@@ -208,40 +212,22 @@ contract FundingAave is IFunding {
 
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(isFacility(facilityData), "Invalid facility");
-        require(isDebtToken(debtToken), "Invalid debt token");
+        require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
+        require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         pool.borrow(address(debtToken), borrowAmount, rateMode, 0, address(this));
         debtToken.safeTransfer(owner, borrowAmount);
     }
 
+    /// @dev Assume caller did transfer the debt tokens to this contract before calling
     function repay(bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(isFacility(facilityData), "Invalid facility");
-        require(isDebtToken(debtToken), "Invalid debt token");
+        require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
+        require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         debtToken.forceApprove(address(pool), repayAmount);
         pool.repay(address(debtToken), repayAmount, rateMode, address(this));
     }
-
-    /* TODO: We probably don't need this anymore, type(uint256).max for repayAmount is fixing it, but let me know if we do
-    function repayShares(bytes calldata data, uint256 shares) external {
-        (IPool pool, address loanAsset, , uint256 rateMode,) = dataToAaveParams(data);
-
-        uint256 repayAmount;
-        if (rateMode == 2) {
-            // Variable debt: shares are scaledBalance; convert to amount using normalized variable debt index
-            uint256 normalizedIndex = pool.getReserveNormalizedVariableDebt(loanAsset); // RAY-scaled
-            repayAmount = shares.mulDivUp(normalizedIndex, RAY);
-        } else {
-            // Stable debt has no shares concept; interpret shares as amount
-            repayAmount = shares;
-        }
-
-        IERC20(loanAsset).forceApprove(address(pool), repayAmount);
-        pool.repay(loanAsset, repayAmount, rateMode, address(this));
-    }
-*/
 
     // ========== POSITION ==========
 
@@ -254,17 +240,6 @@ contract FundingAave is IFunding {
     function debtBalance(bytes calldata facilityData, IERC20 debtToken) public view returns (uint256) {
         return _debtBalance(debtToken);
     }
-    /*
-    function debtShares(bytes calldata data, address who) external view returns (uint256) {
-        (IPool pool, address loanAsset, , uint256 rateMode,) = dataToAaveParams(data);
-        if (rateMode == 2) {
-            (,,,,,,,, , , address variableDebtToken,,,,) = pool.getReserveData(loanAsset);
-            return IScaledBalanceToken(variableDebtToken).scaledBalanceOf(who);
-        } else {
-            (,,,,,,,, , address stableDebtToken, ,,,,) = pool.getReserveData(loanAsset);
-            return IERC20(stableDebtToken).balanceOf(who);
-        }
-    }*/
 
     function collateralBalance(bytes calldata facilityData, IERC20 collateralToken) external view returns (uint256) {
         return _collateralBalance(collateralToken);
@@ -324,50 +299,6 @@ contract FundingAave is IFunding {
         // Return NAV = collateral - debt (floor at 0)
         return totalCollateralValue >= totalDebtValue ? totalCollateralValue - totalDebtValue : 0;
     }
-    /*
-    function dataToAaveParams(bytes calldata data)
-        public
-        pure
-        returns (IPool pool, address loanAsset, address collateralAsset, uint256 interestRateMode, uint8 eMode)
-    {
-        // Check data length to determine format
-        if (data.length == 160) { // 5 * 32 bytes for new format with e-mode
-            (address poolAddress, address _loanAsset, address _collateralAsset, uint256 rateMode, uint8 _eMode) =
-                abi.decode(data, (address, address, address, uint256, uint8));
-            return (IPool(poolAddress), _loanAsset, _collateralAsset, rateMode, _eMode);
-        } else { // Old format without e-mode
-            (address poolAddress, address _loanAsset, address _collateralAsset, uint256 rateMode) =
-                abi.decode(data, (address, address, address, uint256));
-            return (IPool(poolAddress), _loanAsset, _collateralAsset, rateMode, 0);
-        }
-    }
-
-    function aaveParamsToData(IPool pool, address loanAsset, address collateralAsset, uint256 interestRateMode)
-        public
-        pure
-        returns (bytes memory)
-    {
-        return abi.encode(address(pool), loanAsset, collateralAsset, interestRateMode);
-    }
-    
-    function aaveParamsToDataWithEMode(IPool pool, address loanAsset, address collateralAsset, uint256 interestRateMode, uint8 eMode)
-        public
-        pure
-        returns (bytes memory)
-    {
-        return abi.encode(address(pool), loanAsset, collateralAsset, interestRateMode, eMode);
-    }
-
-    function collateralPositionKey(bytes calldata data) external pure returns (bytes32) {
-        (IPool pool, , address collateralAsset, ,) = dataToAaveParams(data);
-        return keccak256(abi.encodePacked(address(pool), collateralAsset));
-    }
-
-    function debtPositionKey(bytes calldata data) external pure returns (bytes32) {
-        (IPool pool, address loanAsset, , ,) = dataToAaveParams(data);
-        return keccak256(abi.encodePacked(address(pool), loanAsset));
-    }
-    */
 
     function _debtBalance(IERC20 debtToken) internal view returns (uint256 balance) {
         (, , , , , , , , , address stableDebtToken, address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
@@ -392,7 +323,7 @@ contract FundingAave is IFunding {
                 return i;
             }
         }
-        revert("Facility not found");
+        revert ErrorsLib.NotWhitelisted();
     }
 
     function _findCollateralTokenIndex(IERC20 collateralToken) internal view returns (uint256) {
@@ -401,7 +332,7 @@ contract FundingAave is IFunding {
                 return i;
             }
         }
-        revert("Collateral token not found");
+        revert ErrorsLib.NotWhitelisted();
     }
 
     function _findDebtTokenIndex(IERC20 debtToken) internal view returns (uint256) {
@@ -410,6 +341,6 @@ contract FundingAave is IFunding {
                 return i;
             }
         }
-        revert("Debt token not found");
+        revert ErrorsLib.NotWhitelisted();
     }
 }

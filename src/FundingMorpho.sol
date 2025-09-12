@@ -46,9 +46,14 @@ contract FundingMorpho is IFunding {
 
     // ========== ADMIN ==========
 
+    /// @dev Before adding a facility, you need to add the underlying tokens as collateral/debt tokens
     function addFacility(bytes calldata facilityData) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(!isFacility(facilityData), ErrorsLib.AlreadyWhitelisted());
+
+        MarketParams memory market = decodeFacilityData(facilityData);
+        require(isCollateralToken(IERC20(market.collateralToken)), ErrorsLib.TokenNotWhitelisted());
+        require(isDebtToken(IERC20(market.loanToken)), ErrorsLib.TokenNotWhitelisted());
 
         facilities.push(facilityData);
     }
@@ -82,9 +87,15 @@ contract FundingMorpho is IFunding {
         collateralTokens.push(collateralToken);
     }
 
+    /// @dev Before being able to remove a collateral, no facility should reference it and the balance should be 0
     function removeCollateralToken(IERC20 collateralToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_collateralBalance(collateralToken) == 0, ErrorsLib.CannotRemove());
+
+        for (uint i = 0; i < facilities.length; i++) {
+            MarketParams memory market = decodeFacilityData(facilities[i]);
+            require(address(market.collateralToken) != address(collateralToken), ErrorsLib.CannotRemove());
+        }
 
         uint256 index = _findCollateralTokenIndex(collateralToken);
         collateralTokens[index] = collateralTokens[collateralTokens.length - 1];
@@ -111,9 +122,15 @@ contract FundingMorpho is IFunding {
         debtTokens.push(debtToken);
     }
 
+    /// @dev Before being able to remove a debt, no facility should reference it and the balance should be 0
     function removeDebtToken(IERC20 debtToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_debtBalance(debtToken) == 0, ErrorsLib.CannotRemove());
+
+        for (uint i = 0; i < facilities.length; i++) {
+            MarketParams memory market = decodeFacilityData(facilities[i]);
+            require(address(market.loanToken) != address(debtToken), ErrorsLib.CannotRemove());
+        }
 
         uint256 index = _findDebtTokenIndex(debtToken);
         debtTokens[index] = debtTokens[debtTokens.length - 1];
@@ -138,17 +155,18 @@ contract FundingMorpho is IFunding {
     /// @dev Assume caller did transfer the collateral tokens to this contract before calling
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(isFacility(facilityData), "Invalid facility");
-        require(isCollateralToken(collateralToken), "Invalid collateral token");
+        require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
+        require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
         collateralToken.forceApprove(address(morpho), collateralAmount);
         morpho.supplyCollateral(market, collateralAmount, address(this), "");
     }
 
-    /// @dev We don't check if valid facility/collateral, allowing donations
     function depledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
+        require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
         morpho.withdrawCollateral(market, collateralAmount, address(this), address(this));
@@ -160,8 +178,8 @@ contract FundingMorpho is IFunding {
 
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(isFacility(facilityData), "Invalid facility");
-        require(isDebtToken(debtToken), "Invalid debt token");
+        require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
+        require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
         morpho.borrow(market, borrowAmount, 0, address(this), address(this));
@@ -174,8 +192,8 @@ contract FundingMorpho is IFunding {
     /// @dev Assume caller did transfer the debt tokens to this contract before calling
     function repay(bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(isFacility(facilityData), "Invalid facility");
-        require(isDebtToken(debtToken), "Invalid debt token");
+        require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
+        require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
 

@@ -245,9 +245,9 @@ contract DeployBaseScript is Script {
         });
         bytes memory facilityData = fundingMorpho.encodeFacilityData(fundingMarketParams);
         box2.addFundingInstant(fundingMorpho);
-        box2.addFundingFacilityInstant(fundingMorpho, facilityData);
         box2.addFundingCollateralInstant(fundingMorpho, ptusr25sep);
         box2.addFundingDebtInstant(fundingMorpho, usdc);
+        box2.addFundingFacilityInstant(fundingMorpho, facilityData);
 
         box2.setIsAllocator(address(allocator1), true);
         box2.setIsAllocator(address(allocator2), true);

@@ -98,9 +98,9 @@ contract BoxLeverageMorphoBaseTest is Test {
         // And the funding facility
         facilityData = fundingModule.encodeFacilityData(marketParams);
         box.addFundingInstant(fundingModule);
-        box.addFundingFacilityInstant(fundingModule, facilityData);
-        box.addFundingCollateralInstant(fundingModule, ptusr25sep);
         box.addFundingDebtInstant(fundingModule, usdc);
+        box.addFundingCollateralInstant(fundingModule, ptusr25sep);
+        box.addFundingFacilityInstant(fundingModule, facilityData);
 
         // Creating Box ETH which will invest in wstETH
         name = "Box ETH";
@@ -122,9 +122,9 @@ contract BoxLeverageMorphoBaseTest is Test {
         // And the funding facility
         facilityDataEth1 = fundingModuleEth.encodeFacilityData(marketParamsEth1);
         boxEth.addFundingInstant(fundingModuleEth);
-        boxEth.addFundingFacilityInstant(fundingModuleEth, facilityDataEth1);
         boxEth.addFundingCollateralInstant(fundingModuleEth, wsteth);
         boxEth.addFundingDebtInstant(fundingModuleEth, weth);
+        boxEth.addFundingFacilityInstant(fundingModuleEth, facilityDataEth1);
 
         marketParamsEth2 = MarketParams(address(weth), address(wsteth), address(wstethOracle96), irm, 965000000000000000);
         // And the funding facility
@@ -138,7 +138,7 @@ contract BoxLeverageMorphoBaseTest is Test {
     /// Setup checks
     /////////////////////////////
 
-    function testSetup() public {
+    function testSetup() public view {
         assertEq(box.fundingsLength(), 1, "There is one source of funding");
         IFunding funding = box.fundings(0);
         assertEq(funding.facilitiesLength(), 1, "There is one funding facility");
@@ -240,7 +240,22 @@ contract BoxLeverageMorphoBaseTest is Test {
         box.repay(fundingModule, facilityData, usdc, USDC_500 + 1);
         assertEq(fundingModule.debtBalance(facilityData, usdc), 0, "No more debt");
 
+        vm.prank(curator);
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        box.removeFundingCollateral(fundingModule, ptusr25sep);
+
+        vm.prank(allocator);
+        box.depledge(fundingModule, facilityData, ptusr25sep, ptBalance);
+
+
         vm.startPrank(curator);
+        // Can remove facility now, need to start from it because it's Morpho
+        box.removeFundingFacility(fundingModule, facilityData);
+
+        // Can't remove twice
+        vm.expectRevert(ErrorsLib.NotWhitelisted.selector);
+        box.removeFundingFacility(fundingModule, facilityData);
+
         // Can remove debt USDC now
         box.removeFundingDebt(fundingModule, usdc);
 
@@ -250,35 +265,17 @@ contract BoxLeverageMorphoBaseTest is Test {
 
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         box.removeFunding(fundingModule);
-        vm.expectRevert(ErrorsLib.CannotRemove.selector);
-        box.removeFundingFacility(fundingModule, facilityData);
-        vm.expectRevert(ErrorsLib.CannotRemove.selector);
-        box.removeFundingCollateral(fundingModule, ptusr25sep);
-        vm.stopPrank();
-
-        vm.prank(allocator);
-        box.depledge(fundingModule, facilityData, ptusr25sep, ptBalance);
-
-        vm.startPrank(curator);
-
-        // Can remove collateral ptusr25sep now
+        
+        // We can remove collateral as no balance
         box.removeFundingCollateral(fundingModule, ptusr25sep);
 
         // Can't remove twice
         vm.expectRevert(ErrorsLib.NotWhitelisted.selector);
         box.removeFundingCollateral(fundingModule, ptusr25sep);
 
-        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        // Can remove funding module now as there are no debt or collateral tokens
         box.removeFunding(fundingModule);
 
-        // Can remove facility now
-        box.removeFundingFacility(fundingModule, facilityData);
-        // Can't remove twice
-        vm.expectRevert(ErrorsLib.NotWhitelisted.selector);
-        box.removeFundingFacility(fundingModule, facilityData);
-
-        // Can remove funding module as well
-        box.removeFunding(fundingModule);
         // Can't remove twice
         vm.expectRevert(ErrorsLib.NotWhitelisted.selector);
         box.removeFunding(fundingModule);

@@ -83,7 +83,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
         loanToken.forceApprove(msg.sender, assets);
     }
 
-    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external {
+    function onBoxFlash(IERC20, uint256, bytes calldata data) external {
         bytes4 operation = abi.decode(bytes(data), (bytes4));
 
         IBox box = IBox(msg.sender);

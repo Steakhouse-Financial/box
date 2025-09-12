@@ -44,7 +44,7 @@ contract MockSwapper is ISwapper {
     }
 
     // Helper to ensure we have enough balance (use vm.deal equivalent for tokens)
-    function _ensureBalance(IERC20 token, uint256 amount) internal {
+    function _ensureBalance(IERC20 token, uint256 amount) internal view {
         uint256 currentBalance = token.balanceOf(address(this));
         if (currentBalance < amount) {
             // In a test environment, we would use vm.deal or similar

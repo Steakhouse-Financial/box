@@ -2,7 +2,7 @@
 
 **Box** is an ERC-4626–compatible vault contract designed to manage assets, allocations, and funding in a modular way.  
 
-It allows a curator to:  
+It allows to:  
 - Hold an **underlying asset** (e.g. USDC) used for `deposit` and `redeem`.  
 - `allocate` / `deallocate` / `reallocate` liquidity between the underlying asset and whitelisted tokens.  
 - `pledge` / `depledge` assets as collateral and `borrow` / `repay` through funding modules.  
@@ -18,10 +18,10 @@ It allows a curator to:
 
 ### Remaining assumptions
 - Allocators will not manipulate weak oracles during allocations.  
-- Feeder addresses (depositors) will veto malicious curator proposals.  
-- The curator will not deliberately set excessive LTVs that harm depositors.  
+- Guardian will veto malicious curator proposals.  
+- Allocators will not deliberately set excessive LTVs that harm depositors.  
 
-⚠️ Deposits are restricted to whitelisted **feeder** addresses to prevent arbitrage. Liquidity is not expected under normal conditions, so `redeem` is not intended as an arbitrage path.  
+⚠️ Deposits are restricted to whitelisted **feeder** addresses to prevent arbitrage. Liquidity is not expected under normal conditions, so that `redeem` can't be used as an arbitrage path.  
 
 ## Roles & Controls
 
@@ -52,14 +52,14 @@ Each Box has one `curator`, it can:
 - Decrease timelocks (timelocked)
 - `revoke`a timelocked action (cancel it before execution)  
 
-The `owner`is an important role that should be strongly protected, but all critical action can be revoked during a timelock and a compromised curator can be removed by the `owner`.
+The `curator` is an important role that should be strongly protected, but all critical actions can be revoked during a timelock and a compromised curator can be removed by the `owner`.
 
 ### Feeders
 Direct depositor in the Box are given the role `feeder`
 - `deposit` while the Box is active (not in `shutdown`)  
 - `withdraw` available liquidity in normal mode, or all assets during `winddown`  
 
-Notice that a Box holder don't need to be a `feeder`to redeem and transfer a Box token.
+Notice that a Box holder don't need to be a `feeder` to redeem and transfer a Box token.
 
 ### Allocators (when not in `winddown` mode)
 - `allocate` from the underlying asset to whitelisted tokens (within slippage constraints)
@@ -85,18 +85,18 @@ Notice that a Box holder don't need to be a `feeder`to redeem and transfer a Box
 The curator can add modular funding integrations (`IFunding`).  
 Supported modules: **Morpho Blue** and **Aave v3**.  
 
-- Each module belongs to a single Box (constructor parameter).  
+- Each module instance belongs to a single Box (constructor parameter).  
 - Only whitelisted tokens from the parent Box can be used as collateral/debt.  
 - Only empty modules (no facilities, collateral, or debt tokens) can be added.  
 
 ### Morpho Module
 - `facilityData` encodes Morpho Blue market parameters.  
-- Each module is tied to a Morpho instance address.  
+- Each module instance is tied to a Morpho instance address.  
 - Borrowing is capped by a max LTV relative to the market’s LLTV.  
 
 ### Aave Module
 - `facilityData` is always empty (`""`).  
-- Each module is tied to an Aave pool address and a given **emode** parameter.  
+- Each module is tied to an Aave pool address and a given `eMode` parameter.  
 
 ## Arbitrage Protection
 
