@@ -20,6 +20,7 @@ interface IBox is IERC4626 {
     function asset() external view returns (address);
     function slippageEpochDuration() external view returns (uint256);
     function shutdownSlippageDuration() external view returns (uint256);
+    function shutdownWarmup() external view returns (uint256);
     function owner() external view returns (address);
     function curator() external view returns (address);
     function guardian() external view returns (address);

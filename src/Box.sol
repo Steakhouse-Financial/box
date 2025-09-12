@@ -43,6 +43,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Duration over which shutdown slippage tolerance increases
     uint256 public immutable shutdownSlippageDuration;
 
+    /// @notice Duration between shutdown and wind-down phase
+    uint256 public immutable shutdownWarmup;
+
     // ========== MUTABLE STATE ==========
 
     /// @notice Contract owner with administrative privileges
@@ -106,6 +109,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param _maxSlippage Max allowed slippage for a swap or aggregated over `_slippageEpochDuration`
      * @param _slippageEpochDuration Duration for which slippage is measured
      * @param _shutdownSlippageDuration When shutdown duration for slippage allowance to widen
+     * @param _shutdownWarmup Duration between shutdown and wind-down phase
      */
     constructor(
         address _asset,
@@ -115,13 +119,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         string memory _symbol,
         uint256 _maxSlippage,
         uint256 _slippageEpochDuration,
-        uint256 _shutdownSlippageDuration
+        uint256 _shutdownSlippageDuration,
+        uint256 _shutdownWarmup
     ) ERC20(_name, _symbol) {
         require(_asset != address(0), ErrorsLib.InvalidAddress());
         require(_owner != address(0), ErrorsLib.InvalidAddress());
         require(_maxSlippage <= MAX_SLIPPAGE_LIMIT, ErrorsLib.SlippageTooHigh());
-        require(_slippageEpochDuration != 0, ErrorsLib.InvalidAmount());
-        require(_shutdownSlippageDuration != 0, ErrorsLib.InvalidAmount());
+        require(_slippageEpochDuration != 0, ErrorsLib.InvalidValue());
+        require(_shutdownSlippageDuration != 0, ErrorsLib.InvalidValue());
+        require(_shutdownWarmup <= MAX_SHUTDOWN_WARMUP, ErrorsLib.InvalidValue());
 
         asset = _asset;
         owner = _owner;
@@ -130,6 +136,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         maxSlippage = _maxSlippage;
         slippageEpochDuration = _slippageEpochDuration;
         shutdownSlippageDuration = _shutdownSlippageDuration;
+        shutdownWarmup = _shutdownWarmup;
         slippageEpochStart = block.timestamp;
         shutdownTime = type(uint256).max; // No shutdown initially
 
@@ -449,7 +456,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         require(toReceived >= minToTokens, ErrorsLib.ReallocationSlippageTooHigh());
 
-        // Track slippage
+        // Track slippage, we don't have to exclude wind-down mode as this cannot be called then
         if (slippage > 0) {
             uint256 slippageValue = uint256(slippage).mulDiv(toOracle.price(), ORACLE_PRECISION);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
@@ -762,7 +769,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @return true if the Box is in wind-down mode
      */
     function isWinddown() public view returns (bool) {
-        return shutdownTime != type(uint256).max && block.timestamp >= shutdownTime + SHUTDOWN_WARMUP;
+        return shutdownTime != type(uint256).max && block.timestamp >= shutdownTime + shutdownWarmup;
     }
 
     /**
@@ -845,7 +852,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Assume wind-down mode, otherwise will revert
      */
     function _winddownSlippageTolerance() internal view returns (uint256) {
-        uint256 timeElapsed = block.timestamp - SHUTDOWN_WARMUP - shutdownTime;
+        uint256 timeElapsed = block.timestamp - shutdownWarmup - shutdownTime;
         return
             (timeElapsed < shutdownSlippageDuration)
                 ? timeElapsed.mulDiv(MAX_SLIPPAGE_LIMIT, shutdownSlippageDuration)

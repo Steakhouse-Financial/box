@@ -18,6 +18,7 @@ import {FlashLoanAave, IPoolAddressesProviderAave} from "../src/periphery/FlashL
 import {IBox} from "../src/interfaces/IBox.sol";
 import "./mocks/MockSwapper.sol";
 import "./mocks/MockOracle.sol";
+import "../src/libraries/Constants.sol";
 
 /// @notice Minimal Aave v3 Addresses Provider to obtain the Pool
 interface IPoolAddressesProvider {
@@ -58,7 +59,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
     function testBorrowUSDCAgainstPTsUSDe() public {
         // Deploy Box for USDC
-        Box box = new Box(address(usdc), owner, curator, "Box USDC", "BOX_USDC", 0.01 ether, 7 days, 10 days);
+        Box box = new Box(address(usdc), owner, curator, "Box USDC", "BOX_USDC", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
         // Configure Box
         vm.startPrank(curator);
@@ -124,7 +125,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
     function testBorrowUSDeAgainstPTsUSDe() public {
         // Deploy Box for USDe
-        Box box = new Box(address(usde), owner, curator, "Box USDe", "BOX_USDe", 0.01 ether, 7 days, 10 days);
+        Box box = new Box(address(usde), owner, curator, "Box USDe", "BOX_USDe", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
         // Configure Box
         vm.startPrank(curator);
@@ -199,7 +200,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
     function testLeverageAccess() public {
         // Simple box setup for access control testing
-        Box box = new Box(address(usdc), owner, curator, "Test Box", "TBOX", 0.01 ether, 7 days, 10 days);
+        Box box = new Box(address(usdc), owner, curator, "Test Box", "TBOX", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
         vm.prank(curator);
         box.setIsAllocator(allocator, true);
@@ -234,7 +235,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
     function testTwoAdaptersDifferentEModes() public {
         // Deploy Box for USDC
-        Box box = new Box(address(usdc), owner, curator, "Box Multi Collateral", "BOX_MC", 0.01 ether, 7 days, 10 days);
+        Box box = new Box(address(usdc), owner, curator, "Box Multi Collateral", "BOX_MC", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
         // sUSDe - using e-mode 2 for borrowing stablecoins
         IERC20 sUsde = IERC20(0x9D39A5DE30e57443BfF2A8307A4256c8797A3497);
@@ -322,7 +323,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
     function testCombinedLTVWithTwoBorrows() public {
         // Deploy Box that can handle both USDC and USDe
-        Box box = new Box(address(usdc), owner, curator, "Box Multi", "BOX_MULTI", 0.01 ether, 7 days, 10 days);
+        Box box = new Box(address(usdc), owner, curator, "Box Multi", "BOX_MULTI", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
         // Configure Box
         vm.startPrank(curator);
@@ -410,7 +411,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         console2.log("\n=== Aave Flash Loan Leverage Test ===");
 
         // Deploy Box for USDC
-        Box box = new Box(address(usdc), owner, curator, "Flash Box", "FBOX", 0.01 ether, 7 days, 10 days);
+        Box box = new Box(address(usdc), owner, curator, "Flash Box", "FBOX", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
         // Configure Box
         vm.startPrank(curator);
@@ -497,7 +498,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         console2.log("\n=== Aave Flash Loan Deleverage Test ===");
 
         // Deploy Box for USDC
-        Box box = new Box(address(usdc), owner, curator, "Flash Box", "FBOX", 0.01 ether, 7 days, 10 days);
+        Box box = new Box(address(usdc), owner, curator, "Flash Box", "FBOX", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
         // Configure Box (similar to leverage test)
         vm.startPrank(curator);
@@ -599,7 +600,7 @@ contract BoxLeverageAaveMainnetTest is Test {
     }
 
     function testAaveFlashLoanAccessControl() public {
-        Box box = new Box(address(usdc), owner, curator, "Test Box", "TBOX", 0.01 ether, 7 days, 10 days);
+        Box box = new Box(address(usdc), owner, curator, "Test Box", "TBOX", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
         vm.prank(curator);
         box.setIsAllocator(allocator, true);
@@ -624,7 +625,7 @@ contract BoxLeverageAaveMainnetTest is Test {
     }
 
     function testMaxLeveragePTsUSDe() public {
-        Box box = new Box(address(usdc), owner, curator, "Max Leverage Box", "MAXBOX", 0.01 ether, 7 days, 10 days);
+        Box box = new Box(address(usdc), owner, curator, "Max Leverage Box", "MAXBOX", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
         vm.startPrank(curator);
         box.setGuardianInstant(guardian);

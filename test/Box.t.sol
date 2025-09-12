@@ -267,6 +267,7 @@ contract BoxTest is Test {
         uint256 maxSlippage = 0.01 ether; // 1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
+        uint256 shutdownWarmup = 7 days;
 
         box = boxFactory.createBox(
             asset,
@@ -277,6 +278,7 @@ contract BoxTest is Test {
             maxSlippage,
             slippageEpochDuration,
             shutdownSlippageDuration,
+            shutdownWarmup,
             bytes32(0)
         );
 
@@ -324,6 +326,7 @@ contract BoxTest is Test {
         uint256 maxSlippage_,
         uint256 slippageEpochDuration_,
         uint256 shutdownSlippageDuration_,
+        uint256 shutdownWarmup_,
         bytes32 salt
     ) public {
         vm.assume(asset_ != address(0));
@@ -332,10 +335,11 @@ contract BoxTest is Test {
         vm.assume(maxSlippage_ <= MAX_SLIPPAGE_LIMIT);
         vm.assume(slippageEpochDuration_ != 0);
         vm.assume(shutdownSlippageDuration_ != 0);
+        vm.assume(shutdownWarmup_ <= MAX_SHUTDOWN_WARMUP);
 
         bytes memory initCode = abi.encodePacked(
             type(Box).creationCode,
-            abi.encode(asset_, owner_, curator_, name_, symbol_, maxSlippage_, slippageEpochDuration_, shutdownSlippageDuration_)
+            abi.encode(asset_, owner_, curator_, name_, symbol_, maxSlippage_, slippageEpochDuration_, shutdownSlippageDuration_, shutdownWarmup_)
         );
 
         address predicted = vm.computeCreate2Address(
@@ -353,6 +357,7 @@ contract BoxTest is Test {
             maxSlippage_,
             slippageEpochDuration_,
             shutdownSlippageDuration_,
+            shutdownWarmup_,
             salt
         );
 
@@ -785,7 +790,7 @@ contract BoxTest is Test {
 
         // Should not work because allocator don't have much power anymore
         // And as there is no debt it should work
-        vm.warp(block.timestamp + SHUTDOWN_WARMUP);
+        vm.warp(block.timestamp + box.shutdownWarmup());
         vm.prank(allocator);
         vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         box.allocate(token1, 10e18, swapper, "");
@@ -965,7 +970,7 @@ contract BoxTest is Test {
         box.reallocate(token1, token2, 25e18, swapper, "");
 
         // But no longer when wind-down mode is reached
-        vm.warp(block.timestamp + SHUTDOWN_WARMUP);
+        vm.warp(block.timestamp + box.shutdownWarmup());
         vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, swapper, "");
@@ -1472,12 +1477,12 @@ contract BoxTest is Test {
         // Anyone should be able to deallocate after shutdown
         vm.startPrank(nonAuthorized);
 
-        // But need to wait SHUTDOWN_WARMUP before deallocation
+        // But need to wait box.shutdownWarmup() before deallocation
         vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         box.deallocate(token1, 25e18, swapper, "");
 
         // After warmup it should work
-        vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
+        vm.warp(block.timestamp + box.shutdownWarmup() + 1);
         box.deallocate(token1, 25e18, swapper, "");
 
         assertEq(token1.balanceOf(address(box)), 25e18);
@@ -1520,7 +1525,7 @@ contract BoxTest is Test {
         box.withdraw(50e18, feeder, feeder);
 
         // Go after wind-down
-        vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
+        vm.warp(block.timestamp + box.shutdownWarmup() + 1);
 
         vm.prank(feeder);
         box.withdraw(50e18, feeder, feeder);
@@ -1940,7 +1945,7 @@ contract BoxTest is Test {
         box.shutdown();
         assertEq(box.isShutdown(), true);
 
-        vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
+        vm.warp(block.timestamp + box.shutdownWarmup() + 1);
 
         vm.prank(guardian);
         vm.expectRevert(ErrorsLib.CannotRecoverAfterWinddown.selector);
@@ -2265,7 +2270,7 @@ contract BoxTest is Test {
         asset.mint(address(highSlippageSwapper), 1000e18);
 
         // Wait for warmup period
-        vm.warp(block.timestamp + SHUTDOWN_WARMUP + 1);
+        vm.warp(block.timestamp + box.shutdownWarmup() + 1);
 
         // At start of shutdown slippage duration, should fail with 5% slippage
         vm.expectRevert(ErrorsLib.TokenSaleNotGeneratingEnoughAssets.selector);

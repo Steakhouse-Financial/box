@@ -63,6 +63,8 @@ contract DeployBaseScript is Script {
     IERC20 ptusr25sep = IERC20(0xa6F0A4D18B6f6DdD408936e81b7b3A8BEFA18e77);
     IOracle ptusr25sepOracle = IOracle(0x6AdeD60f115bD6244ff4be46f84149bA758D9085);
 
+    IERC20 ptusde11dec = IERC20(0x194b8FeD256C02eF1036Ed812Cae0c659ee6F7FD);
+
     ///@dev This script deploys the necessary contracts for the Peaty product on Base.
     function run() public {
         vaultV2Factory = deployVaultV2Factory();
@@ -186,6 +188,7 @@ contract DeployBaseScript is Script {
         uint256 maxSlippage = 0.001 ether; // 0.1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
+        uint256 shutdownWarmup = 7 days;
         IBox box1 = boxFactory.createBox(
             usdc,
             address(tx.origin),
@@ -195,6 +198,7 @@ contract DeployBaseScript is Script {
             maxSlippage,
             slippageEpochDuration,
             shutdownSlippageDuration,
+            shutdownWarmup,
             salt
         );
         console.log("Box Angle deployed at:", address(box1));
@@ -217,6 +221,7 @@ contract DeployBaseScript is Script {
         maxSlippage = 0.01 ether; // 1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
+        shutdownWarmup = 7 days;
         IBox box2 = boxFactory.createBox(
             usdc,
             address(tx.origin),
@@ -226,6 +231,7 @@ contract DeployBaseScript is Script {
             maxSlippage,
             slippageEpochDuration,
             shutdownSlippageDuration,
+            shutdownWarmup,
             salt
         );
         console.log("Box Resolv deployed at:", address(box2));

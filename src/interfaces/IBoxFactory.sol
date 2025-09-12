@@ -17,6 +17,7 @@ interface IBoxFactory {
         uint256 _maxSlippage,
         uint256 _slippageEpochDuration,
         uint256 _shutdownSlippageDuration,
+        uint256 _shutdownWarmup,
         bytes32 salt
     ) external returns (IBox box);
 }

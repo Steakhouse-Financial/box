@@ -131,7 +131,7 @@ contract IntegrationForkBaseTest is Test {
         uint256 maxSlippage = 0.01 ether; // 1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
-        box1 = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
+        box1 = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration, MAX_SHUTDOWN_WARMUP);
 
         // Creating the ERC4626 adapter between the vault and box1
         adapter1 = boxAdapterFactory.createBoxAdapter(address(vault), box1);
@@ -151,7 +151,7 @@ contract IntegrationForkBaseTest is Test {
         maxSlippage = 0.01 ether; // 1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
-        box1b = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
+        box1b = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration, MAX_SHUTDOWN_WARMUP);
         // Creating the Box adapter between the vault and box1b
         adapter1b = BoxAdapterCached(address(boxAdapterCachedFactory.createBoxAdapter(address(vault), box1b)));
 
@@ -171,7 +171,7 @@ contract IntegrationForkBaseTest is Test {
         maxSlippage = 0.01 ether; // 1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
-        box2 = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
+        box2 = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration, MAX_SHUTDOWN_WARMUP);
         // Creating the ERC4626 adapter between the vault and box2
         adapter2 = BoxAdapterCached(address(boxAdapterCachedFactory.createBoxAdapter(address(vault), box2)));
 
@@ -566,7 +566,7 @@ contract IntegrationForkBaseTest is Test {
         box2.deallocate(ptusr25sep, dealloc, swapper, "");
 
         // Move forward enough to have the maximum allowed slippage
-        vm.warp(block.timestamp + SHUTDOWN_WARMUP + box2.shutdownSlippageDuration());
+        vm.warp(block.timestamp + box2.shutdownWarmup() + box2.shutdownSlippageDuration());
 
         vault.resetFirstTotalAssets();
 

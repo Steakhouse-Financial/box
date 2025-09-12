@@ -20,6 +20,7 @@ import {BoxAdapter} from "../src/BoxAdapter.sol";
 import {IBoxAdapterFactory} from "../src/interfaces/IBoxAdapterFactory.sol";
 import {BoxAdapterFactory} from "../src/factories/BoxAdapterFactory.sol";
 import {BoxLib} from "../src/periphery/BoxLib.sol";
+import "../src/libraries/Constants.sol";
 
 contract BoxAdapterTest is Test {
     using MathLib for uint256;
@@ -44,7 +45,7 @@ contract BoxAdapterTest is Test {
 
         asset = IERC20(address(new ERC20Mock(18)));
         rewardToken = IERC20(address(new ERC20Mock(18)));
-        box = new Box(address(asset), owner, owner, "Box", "BOX", 0, 1, 1);
+        box = new Box(address(asset), owner, owner, "Box", "BOX", 0, 1, 1, MAX_SHUTDOWN_WARMUP);
 
         parentVault = new VaultV2Mock(address(asset), owner, address(0), address(0), address(0));
 
@@ -122,7 +123,7 @@ contract BoxAdapterTest is Test {
 
     function testFactoryCreateAdapter() public {
         VaultV2Mock newParentVault = new VaultV2Mock(address(asset), owner, address(0), address(0), address(0));
-        Box newBox = new Box(address(asset), owner, owner, "Box2", "BOX2", 0, 1, 1);
+        Box newBox = new Box(address(asset), owner, owner, "Box2", "BOX2", 0, 1, 1, MAX_SHUTDOWN_WARMUP);
 
         vm.expectEmit(true, true, false, false);
         emit IBoxAdapterFactory.CreateBoxAdapter(address(newParentVault), address(newBox), IBoxAdapter(address(0)));
@@ -205,7 +206,7 @@ contract BoxAdapterTest is Test {
         vm.assume(randomAsset != parentVault.asset());
         vm.assume(randomAsset != address(0));
 
-        Box newBox = new Box(randomAsset, owner, owner, "Box2", "BOX2", 0, 1, 1);
+        Box newBox = new Box(randomAsset, owner, owner, "Box2", "BOX2", 0, 1, 1, MAX_SHUTDOWN_WARMUP);
         vm.expectRevert(IBoxAdapter.AssetMismatch.selector);
         new BoxAdapter(address(parentVault), newBox);
     }
@@ -214,7 +215,7 @@ contract BoxAdapterTest is Test {
         deposit = bound(deposit, 0, MAX_TEST_ASSETS);
         donation = bound(donation, 1, MAX_TEST_ASSETS);
 
-        Box otherBox = new Box(address(asset), owner, owner, "Box Mock Extended", "BOX_MOCK_EXTENDED", 0, 1, 1);
+        Box otherBox = new Box(address(asset), owner, owner, "Box Mock Extended", "BOX_MOCK_EXTENDED", 0, 1, 1, MAX_SHUTDOWN_WARMUP);
 
         // Deposit some assets
         deal(address(asset), address(adapter), deposit * 2);

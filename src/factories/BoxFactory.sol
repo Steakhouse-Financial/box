@@ -10,7 +10,7 @@ import {IBoxFactory} from "./../interfaces/IBoxFactory.sol";
 contract BoxFactory is IBoxFactory {
     /* FUNCTIONS */
 
-    /// @dev Returns the address of the deployed BoxAdapter.
+    /// @dev Returns the address of the deployed Box
     function createBox(
         IERC20 _asset,
         address _owner,
@@ -20,6 +20,7 @@ contract BoxFactory is IBoxFactory {
         uint256 _maxSlippage,
         uint256 _slippageEpochDuration,
         uint256 _shutdownSlippageDuration,
+        uint256 _shutdownWarmup,
         bytes32 salt
     ) external returns (IBox) {
         IBox _box = new Box{salt: salt}(
@@ -30,7 +31,34 @@ contract BoxFactory is IBoxFactory {
             _symbol,
             _maxSlippage,
             _slippageEpochDuration,
-            _shutdownSlippageDuration
+            _shutdownSlippageDuration,
+            _shutdownWarmup
+        );
+
+        return _box;
+    }
+
+    /// @dev Create a Box with default values
+    /// @dev Returns the address of the deployed Box
+    function createBox(
+        IERC20 _asset,
+        address _owner,
+        address _curator,
+        string memory _name,
+        string memory _symbol,
+        uint256 _maxSlippage,
+        bytes32 salt
+    ) external returns (IBox) {
+        IBox _box = new Box{salt: salt}(
+            address(_asset),
+            _owner,
+            _curator,
+            _name,
+            _symbol,
+            _maxSlippage,
+            7 days,
+            14 days,
+            7 days
         );
 
         return _box;

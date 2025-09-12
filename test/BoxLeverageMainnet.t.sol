@@ -17,6 +17,7 @@ import {FundingAave, IPool} from "../src/FundingAave.sol";
 import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {IMorpho, MarketParams, Id} from "@morpho-blue/interfaces/IMorpho.sol";
 import {IBox} from "../src/interfaces/IBox.sol";
+import "../src/libraries/Constants.sol";
 
 /// @notice Minimal Aave v3 Addresses Provider to obtain the Pool
 interface IPoolAddressesProvider {
@@ -63,7 +64,7 @@ contract BoxLeverageMainnetTest is Test {
 
     function testCrossProtocolBorrowing() public {
         // Deploy Box for USDC
-        Box box = new Box(address(usdc), owner, curator, "Cross Protocol Box", "XPROT_BOX", 0.01 ether, 7 days, 10 days);
+        Box box = new Box(address(usdc), owner, curator, "Cross Protocol Box", "XPROT_BOX", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
         // Configure Box
         vm.startPrank(curator);

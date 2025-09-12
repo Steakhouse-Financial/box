@@ -84,7 +84,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         uint256 maxSlippage = 0.01 ether; // 1%
         uint256 slippageEpochDuration = 7 days;
         uint256 shutdownSlippageDuration = 10 days;
-        box = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
+        box = new Box(address(usdc), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration, MAX_SHUTDOWN_WARMUP);
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);
@@ -108,7 +108,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         maxSlippage = 0.01 ether; // 1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
-        boxEth = new Box(address(weth), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration);
+        boxEth = new Box(address(weth), owner, curator, name, symbol, maxSlippage, slippageEpochDuration, shutdownSlippageDuration, MAX_SHUTDOWN_WARMUP);
 
         // Allow box 2 to invest in PT-USR-25SEP
         vm.startPrank(curator);

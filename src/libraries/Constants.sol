@@ -9,7 +9,7 @@ uint256 constant TIMELOCK_CAP = 2 weeks;
 // Maximum allowed slippage percentage (10%)
 uint256 constant MAX_SLIPPAGE_LIMIT = 0.1 ether;
 // Delay from start of a shutdown to possible liquidations
-uint256 constant SHUTDOWN_WARMUP = 2 weeks;
+uint256 constant MAX_SHUTDOWN_WARMUP = 4 weeks;
 // Precision for oracle prices
 uint256 constant ORACLE_PRECISION = 1e36;
 // Maximum number of tokens allowed in a box
