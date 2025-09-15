@@ -514,6 +514,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param newGuardian Address of new guardian
      */
     function setGuardian(address newGuardian) external {
+        require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
         timelocked();
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
 
@@ -705,7 +706,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param oracle New oracle
      */
     function changeTokenOracle(IERC20 token, IOracle oracle) external {
-        timelocked();
+        if(isWinddown()) {
+            require(msg.sender == guardian, ErrorsLib.OnlyGuardian());
+        } else {
+            timelocked();
+        }
         require(address(oracle) != address(0), ErrorsLib.InvalidAddress());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
 

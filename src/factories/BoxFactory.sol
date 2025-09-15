@@ -7,7 +7,15 @@ import {Box} from "./../Box.sol";
 import {IBox} from "./../interfaces/IBox.sol";
 import {IBoxFactory} from "./../interfaces/IBoxFactory.sol";
 
-contract BoxFactory is IBoxFactory {
+contract BoxFactory is IBoxFactory {    
+    /* EVENTS */
+    event CreateBox(address indexed box, IERC20 indexed asset, address owner, address curator,
+        string name, string symbol, uint256 maxSlippage, uint256 slippageEpochDuration,
+        uint256 shutdownSlippageDuration, uint256 shutdownWarmup, bytes32 salt);
+
+    /* STORAGE */
+    mapping(address => bool) public isBox;
+
     /* FUNCTIONS */
 
     /// @dev Returns the address of the deployed Box
@@ -34,32 +42,11 @@ contract BoxFactory is IBoxFactory {
             _shutdownSlippageDuration,
             _shutdownWarmup
         );
+        
+        isBox[address(_box)] = true;
 
-        return _box;
-    }
-
-    /// @dev Create a Box with default values
-    /// @dev Returns the address of the deployed Box
-    function createBox(
-        IERC20 _asset,
-        address _owner,
-        address _curator,
-        string memory _name,
-        string memory _symbol,
-        uint256 _maxSlippage,
-        bytes32 salt
-    ) external returns (IBox) {
-        IBox _box = new Box{salt: salt}(
-            address(_asset),
-            _owner,
-            _curator,
-            _name,
-            _symbol,
-            _maxSlippage,
-            7 days,
-            14 days,
-            7 days
-        );
+        emit CreateBox(address(_box), _asset, _owner, _curator, _name, _symbol,
+            _maxSlippage, _slippageEpochDuration, _shutdownSlippageDuration, _shutdownWarmup, salt);
 
         return _box;
     }

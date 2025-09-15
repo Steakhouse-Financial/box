@@ -171,7 +171,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         testAddresses[2] = guardian;
         testAddresses[3] = user;
 
-        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(address(morpho));
 
         for (uint256 i = 0; i < testAddresses.length; i++) {
             vm.startPrank(testAddresses[i]);
@@ -394,7 +394,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         assertEq(fundingModule.collateralBalance(ptusr25sep), ptBalance, "Collateral is correct");
 
         console2.log("\n4. Setting up flashloan provider");
-        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(address(morpho));
 
         vm.stopPrank();
         vm.prank(curator);
@@ -495,7 +495,7 @@ contract BoxLeverageMorphoBaseTest is Test {
 
         // Prepare flashloan facility
         console2.log("\n4. Setting up flashloan provider");
-        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(address(morpho));
         vm.stopPrank();
         vm.prank(curator);
         boxEth.setIsAllocator(address(flashloanProvider), true);
@@ -609,7 +609,7 @@ contract BoxLeverageMorphoBaseTest is Test {
         boxEth.pledge(fundingModuleEth, facilityDataEth2, wsteth, initialWstEthBalance);
         console2.log("- Pledged:", initialWstEthBalance / 1e18, "wstETH as collateral");
 
-        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(address(morpho));
         vm.stopPrank();
         vm.prank(curator);
         boxEth.setIsAllocator(address(flashloanProvider), true);

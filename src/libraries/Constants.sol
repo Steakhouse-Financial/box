@@ -6,8 +6,8 @@ pragma solidity >=0.8.0;
 uint256 constant PRECISION = 1 ether;
 // Maximum timelock duration (2 weeks)
 uint256 constant TIMELOCK_CAP = 2 weeks;
-// Maximum allowed slippage percentage (10%)
-uint256 constant MAX_SLIPPAGE_LIMIT = 0.1 ether;
+// Maximum allowed slippage percentage (1%)
+uint256 constant MAX_SLIPPAGE_LIMIT = 0.01 ether;
 // Delay from start of a shutdown to possible liquidations
 uint256 constant MAX_SHUTDOWN_WARMUP = 4 weeks;
 // Precision for oracle prices

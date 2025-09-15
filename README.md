@@ -39,16 +39,16 @@ The `owner`is a critical role that should be strongly protected.
 Each Box has one `curator`, it can:  
 - Add/remove an **allocator**  
 - Add/remove a **feeder** (timelocked)
-- Set the **guardian**  (timelocked) 
+- Set the **guardian**  (timelocked, not during wind-down)
 - Trigger a `shutdown` process
 - Add new tokens and their oracles (timelocked)
 - Remove a token
-- Change an existing token’s oracle (timelocked)
+- Change an existing token’s oracle (timelocked, not during wind-down)
 - Add funding modules and facilities (timelocked)
 - Add collateral and debt tokens for funding mdoules (timelocked)
 - Remove funding modules, facilities, debt and collateral tokens
 - Set max slippage (timelocked)
-- Increase timelocks 
+- Increase timelocks
 - Decrease timelocks (timelocked)
 - `revoke`a timelocked action (cancel it before execution)  
 
@@ -72,7 +72,8 @@ Notice that a Box holder don't need to be a `feeder` to redeem and transfer a Bo
 ### Guardian
 - `revoke`a timelocked action from the curator (cancel it before execution)  
 - Trigger a `shutdown` process
-- `recover` from a shutdown back to normal mode (only before winddown begins)  
+- `recover` from a shutdown back to normal mode (only before `winddown` begins)  
+- Change an existing token’s oracle  (only during `winddown`)
 
 ### Anyone (during `winddown`)
 - `repay` debt
@@ -116,7 +117,7 @@ A Box moves through three possible states:
 2. **Shutdown mode**  
    - Triggered by the guardian (or curator).  
    - New deposits are blocked.  
-   - The guardian may restore normal mode *only before winddown begins*.  
+   - The guardian may restore normal mode *only before wind-down begins*.  
 
 3. **Winddown mode**  
    - Permissionless recovery process.  

@@ -31,8 +31,8 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
 
     IMorpho public immutable MORPHO;
 
-    constructor(IMorpho morpho) {
-        MORPHO = morpho;
+    constructor(address morpho) {
+        MORPHO = IMorpho(morpho);
     }
 
     function _swap(IBox box, ISwapper swapper, bytes memory swapData, IERC20 fromToken, IERC20 toToken, uint256 amount) internal {
@@ -46,7 +46,6 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
     }
 
     function onMorphoFlashLoan(uint256 assets, bytes calldata data) external {
-        // TODO require morpho only msg.Sender
         require(msg.sender == address(MORPHO), ErrorsLib.OnlyMorpho());
 
         bytes4 operation = abi.decode(bytes(data), (bytes4));

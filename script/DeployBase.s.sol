@@ -28,6 +28,7 @@ import {BoxAdapterFactory} from "../src/factories/BoxAdapterFactory.sol";
 import {BoxAdapterCachedFactory} from "../src/factories/BoxAdapterCachedFactory.sol";
 import {FundingMorphoFactory} from "../src/factories/FundingMorphoFactory.sol";
 import {FundingAaveFactory} from "../src/factories/FundingAaveFactory.sol";
+import {FlashLoanMorpho} from "../src/periphery/FlashLoanMorpho.sol";
 import "@vault-v2/src/libraries/ConstantsLib.sol";
 
 ///@dev This script deploys the necessary contracts for the Peaty product on Base.
@@ -37,10 +38,11 @@ contract DeployBaseScript is Script {
     using VaultV2Lib for VaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
 
-    VaultV2Factory vaultV2Factory = VaultV2Factory(0xB01De9173687292F06eDDC54812df1A62b6222E3);
-    MorphoVaultV1AdapterFactory mv1AdapterFactory = MorphoVaultV1AdapterFactory(0x11c2Adb26F29334d1dD157CF0531A2Af6815cE2A);
-    MorphoMarketV1AdapterFactory mm1AdapterFactory = MorphoMarketV1AdapterFactory(0x4C2166DA96e9751698B27C6c2066E0a7d46d539d);
-    BoxFactory boxFactory = BoxFactory(0x2f8Db77fBd818D8688a32D648c525F415abC260F);
+    VaultV2Factory vaultV2Factory = VaultV2Factory(0x45311968F0274808B8549053EfCD9a6A713fB469);
+    MorphoVaultV1AdapterFactory mv1AdapterFactory = MorphoVaultV1AdapterFactory(0x1745F0Bf26b184fEb4f7239D00a26707e200c618);
+    MorphoMarketV1AdapterFactory mm1AdapterFactory = MorphoMarketV1AdapterFactory(0xf4eaC6AA3eE24ffDa96fb6d5F95aB4C646bcdD20);
+
+    BoxFactory boxFactory = BoxFactory(0x913DeB4ca8a03Aa60c681EE5462630b728Ec2836);
     BoxAdapterFactory boxAdapterFactory = BoxAdapterFactory(0x808F9fcf09921a21aa5Cd71D87BE50c0F05A5203);
     BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x09EA5EafbA623D9012124E05068ab884008f32BD);
     FundingMorphoFactory fundingMorphoFactory = FundingMorphoFactory(address(0));
@@ -64,12 +66,10 @@ contract DeployBaseScript is Script {
     IOracle ptusr25sepOracle = IOracle(0x6AdeD60f115bD6244ff4be46f84149bA758D9085);
 
     IERC20 ptusde11dec = IERC20(0x194b8FeD256C02eF1036Ed812Cae0c659ee6F7FD);
+    IOracle ptusde11decOracle = IOracle(0x15af6e452Fe5C4B78c45f9DE02842a52E600A1cA);    
 
     ///@dev This script deploys the necessary contracts for the Peaty product on Base.
     function run() public {
-        vaultV2Factory = deployVaultV2Factory();
-        mv1AdapterFactory = deployMorphoVaultV1AdapterFactory();
-        mm1AdapterFactory = deployMorphoMarketV1AdapterFactory();
         boxFactory = deployBoxFactory();
         boxAdapterFactory = deployBoxAdapterFactory();
         boxAdapterCachedFactory = deployBoxAdapterCachedFactory();
@@ -99,34 +99,10 @@ contract DeployBaseScript is Script {
         return boxAdapterCachedFactory_;
     }
 
-    function deployMorphoVaultV1AdapterFactory() public returns (MorphoVaultV1AdapterFactory) {
+    function deployFlashLoanMorpho() public {
         vm.startBroadcast();
-        MorphoVaultV1AdapterFactory mv1AdapterFactory_ = new MorphoVaultV1AdapterFactory();
-        console.log("MorphoVaultV1AdapterFactory deployed at:", address(mv1AdapterFactory_));
-        vm.stopBroadcast();
-        return mv1AdapterFactory_;
-    }
-
-    function deployMorphoMarketV1AdapterFactory() public returns (MorphoMarketV1AdapterFactory) {
-        vm.startBroadcast();
-        MorphoMarketV1AdapterFactory mm1AdapterFactory_ = new MorphoMarketV1AdapterFactory();
-        console.log("MorphoMarketV1AdapterFactory deployed at:", address(mm1AdapterFactory_));
-        vm.stopBroadcast();
-        return mm1AdapterFactory_;
-    }
-
-    function deployVaultV2Factory() public returns (VaultV2Factory) {
-        vm.startBroadcast();
-        VaultV2Factory vaultV2Factory_ = new VaultV2Factory();
-        console.log("VaultV2Factory deployed at:", address(vaultV2Factory_));
-        vm.stopBroadcast();
-        return vaultV2Factory_;
-    }
-
-    function deployOperationsLib() public {
-        vm.startBroadcast();
-        address lib = deployCode("src/lib/OperationsLib.sol:OperationsLib");
-        console.log("OperationsLib deployed at:", lib);
+        FlashLoanMorpho flm = new FlashLoanMorpho(address(morpho));
+        console.log("FlashLoanMorpho deployed at:", address(flm));
         vm.stopBroadcast();
     }
 
@@ -135,12 +111,16 @@ contract DeployBaseScript is Script {
         vault.addCollateralInstant(
             address(mm1Adapter),
             abi.encode("this", address(mm1Adapter)),
-            1_000_000_000 * 10 ** 6, // 100_000_000 USDC absolute cap
+            1_000_000_000 * 10 ** 6, // 1_000_000_000 USDC absolute cap
             1 ether // 100% relative cap
         );
         for (uint256 i = 0; i < length; i++) {
             Id id = Id.wrap(MetaId.unwrap(vaultv1.withdrawQueue(i)));
             MarketParams memory marketParams = morpho.idToMarketParams(id);
+            // We skip Idle markets
+            if (marketParams.collateralToken != address(0)) {
+                continue;
+            }
             vault.addCollateralInstant(
                 address(mm1Adapter),
                 abi.encode("collateralToken", marketParams.collateralToken),
@@ -159,7 +139,143 @@ contract DeployBaseScript is Script {
     function deployPeaty() public returns (IVaultV2) {
         vm.startBroadcast();
 
-        bytes32 salt = "9";
+        bytes32 salt = "12";
+
+        VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
+        console.log("Peaty deployed at:", address(vault));
+
+        vault.setCurator(address(tx.origin));
+
+        vault.addAllocatorInstant(address(tx.origin));
+        vault.addAllocatorInstant(address(allocator1));
+        vault.addAllocatorInstant(address(allocator2));
+
+        vault.setName("Peaty USDC");
+        vault.setSymbol("ptUSDC");
+
+        vault.setMaxRate(MAX_MAX_RATE);
+
+        // Setting the vault to use bbqUSDC as the asset
+        MorphoMarketV1Adapter bbqusdcAdapter = MorphoMarketV1Adapter(
+            mm1AdapterFactory.createMorphoMarketV1Adapter(address(vault), address(morpho))
+        );
+
+        addMarketsToAdapterFromVault(vault, bbqusdcAdapter, bbqusdc);
+
+        // Creating Box 1 which will invest in stUSD
+        string memory name = "Box Angle";
+        string memory symbol = "BOX_ANGLE";
+        uint256 maxSlippage = 0.0001 ether; // 0.01%
+        uint256 slippageEpochDuration = 7 days;
+        uint256 shutdownSlippageDuration = 10 days;
+        uint256 shutdownWarmup = 7 days;
+        IBox box1 = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box Angle deployed at:", address(box1));
+
+        // Creating the ERC4626 adapter between the vault and box1
+        IBoxAdapter adapter1 = boxAdapterFactory.createBoxAdapter(address(vault), box1);
+
+        // Allow box 1 to invest in stUSD
+        box1.addTokenInstant(stusd, stusdOracle);
+        box1.setIsAllocator(address(allocator1), true);
+        box1.setIsAllocator(address(allocator2), true);
+        box1.addFeederInstant(address(adapter1));
+        box1.setCurator(address(curator));
+        box1.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter1), adapter1.adapterData(), 10_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+
+        // Creating Box 2 which will invest in PT-USR-25SEP
+        name = "Box Ethena";
+        symbol = "BOX_ETHENA";
+        maxSlippage = 0.001 ether; // 0.1%
+        slippageEpochDuration = 7 days;
+        shutdownSlippageDuration = 10 days;
+        shutdownWarmup = 7 days;
+        IBox box2 = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box Ethena deployed at:", address(box2));
+        // Creating the ERC4626 adapter between the vault and box2
+        IBoxAdapter adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
+
+        // Allow box 2 to invest in PT-USR-25SEP
+        box2.addTokenInstant(ptusde11dec, ptusde11decOracle);
+
+        box2.setIsAllocator(address(allocator1), true);
+        box2.setIsAllocator(address(allocator2), true);
+        box2.addFeederInstant(address(adapter2));
+        box2.setCurator(address(curator));
+        box2.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 100_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
+
+
+        // Creating Box 2 which will invest in PT-USR-25SEP
+        name = "Box Resolv";
+        symbol = "BOX_RESOLV";
+        maxSlippage = 0.001 ether; // 0.1%
+        slippageEpochDuration = 7 days;
+        shutdownSlippageDuration = 10 days;
+        shutdownWarmup = 7 days;
+        box2 = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box Resolv deployed at:", address(box2));
+        // Creating the ERC4626 adapter between the vault and box2
+        adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
+
+        // Allow box 2 to invest in PT-USR-25SEP
+        box2.addTokenInstant(ptusr25sep, ptusr25sepOracle);
+
+        box2.setIsAllocator(address(allocator1), true);
+        box2.setIsAllocator(address(allocator2), true);
+        box2.addFeederInstant(address(adapter2));
+        box2.setCurator(address(curator));
+        box2.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 100_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
+
+        vault.removeAllocatorInstant(address(tx.origin));
+        vault.setCurator(address(curator));
+        vault.setOwner(address(owner));
+
+        vm.stopBroadcast();
+        return vault;
+    }
+
+    function deployPeatyTurbo() public returns (IVaultV2) {
+        vm.startBroadcast();
+
+        bytes32 salt = "12";
 
         VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
         console.log("Peaty deployed at:", address(vault));
@@ -216,9 +332,9 @@ contract DeployBaseScript is Script {
         vault.addCollateralInstant(address(adapter1), adapter1.adapterData(), 10_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
 
         // Creating Box 2 which will invest in PT-USR-25SEP
-        name = "Box Resolv";
-        symbol = "BOX_RESOLV";
-        maxSlippage = 0.01 ether; // 1%
+        name = "Box Ethena";
+        symbol = "BOX_ETHENA";
+        maxSlippage = 0.001 ether; // 0.1%
         slippageEpochDuration = 7 days;
         shutdownSlippageDuration = 10 days;
         shutdownWarmup = 7 days;
@@ -234,22 +350,71 @@ contract DeployBaseScript is Script {
             shutdownWarmup,
             salt
         );
-        console.log("Box Resolv deployed at:", address(box2));
+        console.log("Box Ethena deployed at:", address(box2));
         // Creating the ERC4626 adapter between the vault and box2
         IBoxAdapter adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
 
         // Allow box 2 to invest in PT-USR-25SEP
-        box2.addTokenInstant(ptusr25sep, ptusr25sepOracle);
+        box2.addTokenInstant(ptusde11dec, ptusde11decOracle);
 
         FundingMorpho fundingMorpho = new FundingMorpho(address(box2), address(morpho), 99e16);
         MarketParamsBlue memory fundingMarketParams = MarketParamsBlue({
+            loanToken: address(usdc),
+            collateralToken: address(ptusde11dec),
+            oracle: address(ptusde11decOracle),
+            irm: 0x46415998764C29aB2a25CbeA6254146D50D22687,
+            lltv: 915000000000000000
+        });
+        bytes memory facilityData = fundingMorpho.encodeFacilityData(fundingMarketParams);
+        box2.addFundingInstant(fundingMorpho);
+        box2.addFundingCollateralInstant(fundingMorpho, ptusde11dec);
+        box2.addFundingDebtInstant(fundingMorpho, usdc);
+        box2.addFundingFacilityInstant(fundingMorpho, facilityData);
+
+        box2.setIsAllocator(address(allocator1), true);
+        box2.setIsAllocator(address(allocator2), true);
+        box2.addFeederInstant(address(adapter2));
+        box2.setCurator(address(curator));
+        box2.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
+
+
+        // Creating Box 2 which will invest in PT-USR-25SEP
+        name = "Box Resolv";
+        symbol = "BOX_RESOLV";
+        maxSlippage = 0.001 ether; // 0.1%
+        slippageEpochDuration = 7 days;
+        shutdownSlippageDuration = 10 days;
+        shutdownWarmup = 7 days;
+        box2 = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box Resolv deployed at:", address(box2));
+        // Creating the ERC4626 adapter between the vault and box2
+        adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
+
+        // Allow box 2 to invest in PT-USR-25SEP
+        box2.addTokenInstant(ptusr25sep, ptusr25sepOracle);
+
+        fundingMorpho = new FundingMorpho(address(box2), address(morpho), 99e16);
+        fundingMarketParams = MarketParamsBlue({
             loanToken: address(usdc),
             collateralToken: address(ptusr25sep),
             oracle: address(ptusr25sepOracle),
             irm: 0x46415998764C29aB2a25CbeA6254146D50D22687,
             lltv: 915000000000000000
         });
-        bytes memory facilityData = fundingMorpho.encodeFacilityData(fundingMarketParams);
+        facilityData = fundingMorpho.encodeFacilityData(fundingMarketParams);
         box2.addFundingInstant(fundingMorpho);
         box2.addFundingCollateralInstant(fundingMorpho, ptusr25sep);
         box2.addFundingDebtInstant(fundingMorpho, usdc);
@@ -263,7 +428,172 @@ contract DeployBaseScript is Script {
         vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
         vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
 
-        vault.setIsAllocator(address(tx.origin), false);
+        vault.removeAllocatorInstant(address(tx.origin));
+        vault.setCurator(address(curator));
+        vault.setOwner(address(owner));
+
+        vm.stopBroadcast();
+        return vault;
+    }
+
+
+    function deployPeatyCBBTC() public returns (IVaultV2) {
+        vm.startBroadcast();
+
+        bytes32 salt = "12";
+
+        VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
+        console.log("Peaty cbBTC deployed at:", address(vault));
+
+        vault.setCurator(address(tx.origin));
+
+        vault.addAllocatorInstant(address(tx.origin));
+        vault.addAllocatorInstant(address(allocator1));
+        vault.addAllocatorInstant(address(allocator2));
+
+        vault.setName("Peaty USDC Turbo");
+        vault.setSymbol("ptUSDCturbo");
+
+        vault.setMaxRate(MAX_MAX_RATE);
+
+        // Setting the vault to use bbqUSDC as the asset
+        MorphoMarketV1Adapter bbqusdcAdapter = MorphoMarketV1Adapter(
+            mm1AdapterFactory.createMorphoMarketV1Adapter(address(vault), address(morpho))
+        );
+
+        addMarketsToAdapterFromVault(vault, bbqusdcAdapter, bbqusdc);
+
+        // Creating Box 1 which will invest in stUSD
+        string memory name = "Box Angle";
+        string memory symbol = "BOX_ANGLE";
+        uint256 maxSlippage = 0.001 ether; // 0.1%
+        uint256 slippageEpochDuration = 7 days;
+        uint256 shutdownSlippageDuration = 10 days;
+        uint256 shutdownWarmup = 7 days;
+        IBox box1 = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box Angle deployed at:", address(box1));
+
+        // Creating the ERC4626 adapter between the vault and box1
+        IBoxAdapter adapter1 = boxAdapterFactory.createBoxAdapter(address(vault), box1);
+
+        // Allow box 1 to invest in stUSD
+        box1.addTokenInstant(stusd, stusdOracle);
+        box1.setIsAllocator(address(allocator1), true);
+        box1.setIsAllocator(address(allocator2), true);
+        box1.addFeederInstant(address(adapter1));
+        box1.setCurator(address(curator));
+        box1.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter1), adapter1.adapterData(), 10_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
+
+        // Creating Box 2 which will invest in PT-USR-25SEP
+        name = "Box Ethena";
+        symbol = "BOX_ETHENA";
+        maxSlippage = 0.001 ether; // 0.1%
+        slippageEpochDuration = 7 days;
+        shutdownSlippageDuration = 10 days;
+        shutdownWarmup = 7 days;
+        IBox box2 = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box Ethena deployed at:", address(box2));
+        // Creating the ERC4626 adapter between the vault and box2
+        IBoxAdapter adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
+
+        // Allow box 2 to invest in PT-USR-25SEP
+        box2.addTokenInstant(ptusde11dec, ptusde11decOracle);
+
+        FundingMorpho fundingMorpho = new FundingMorpho(address(box2), address(morpho), 99e16);
+        MarketParamsBlue memory fundingMarketParams = MarketParamsBlue({
+            loanToken: address(usdc),
+            collateralToken: address(ptusde11dec),
+            oracle: address(ptusde11decOracle),
+            irm: 0x46415998764C29aB2a25CbeA6254146D50D22687,
+            lltv: 915000000000000000
+        });
+        bytes memory facilityData = fundingMorpho.encodeFacilityData(fundingMarketParams);
+        box2.addFundingInstant(fundingMorpho);
+        box2.addFundingCollateralInstant(fundingMorpho, ptusde11dec);
+        box2.addFundingDebtInstant(fundingMorpho, usdc);
+        box2.addFundingFacilityInstant(fundingMorpho, facilityData);
+
+        box2.setIsAllocator(address(allocator1), true);
+        box2.setIsAllocator(address(allocator2), true);
+        box2.addFeederInstant(address(adapter2));
+        box2.setCurator(address(curator));
+        box2.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
+
+
+        // Creating Box 2 which will invest in PT-USR-25SEP
+        name = "Box Resolv";
+        symbol = "BOX_RESOLV";
+        maxSlippage = 0.001 ether; // 0.1%
+        slippageEpochDuration = 7 days;
+        shutdownSlippageDuration = 10 days;
+        shutdownWarmup = 7 days;
+        box2 = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box Resolv deployed at:", address(box2));
+        // Creating the ERC4626 adapter between the vault and box2
+        adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
+
+        // Allow box 2 to invest in PT-USR-25SEP
+        box2.addTokenInstant(ptusr25sep, ptusr25sepOracle);
+
+        fundingMorpho = new FundingMorpho(address(box2), address(morpho), 99e16);
+        fundingMarketParams = MarketParamsBlue({
+            loanToken: address(usdc),
+            collateralToken: address(ptusr25sep),
+            oracle: address(ptusr25sepOracle),
+            irm: 0x46415998764C29aB2a25CbeA6254146D50D22687,
+            lltv: 915000000000000000
+        });
+        facilityData = fundingMorpho.encodeFacilityData(fundingMarketParams);
+        box2.addFundingInstant(fundingMorpho);
+        box2.addFundingCollateralInstant(fundingMorpho, ptusr25sep);
+        box2.addFundingDebtInstant(fundingMorpho, usdc);
+        box2.addFundingFacilityInstant(fundingMorpho, facilityData);
+
+        box2.setIsAllocator(address(allocator1), true);
+        box2.setIsAllocator(address(allocator2), true);
+        box2.addFeederInstant(address(adapter2));
+        box2.setCurator(address(curator));
+        box2.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
+
+        vault.removeAllocatorInstant(address(tx.origin));
         vault.setCurator(address(curator));
         vault.setOwner(address(owner));
 

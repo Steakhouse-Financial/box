@@ -21,6 +21,7 @@ import {Morpho} from "@morpho-blue/Morpho.sol";
 import {IrmMock} from "@morpho-blue/mocks/IrmMock.sol";
 import {OracleMock} from "@morpho-blue/mocks/OracleMock.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {EventsLib} from "../src/libraries/EventsLib.sol";
 
 contract MockOracle is IOracle {
     uint256 public price = 1e36; // 1:1 price
@@ -38,7 +39,7 @@ contract MockOracle is IOracle {
 }
 
 contract MockSwapper is ISwapper {
-    uint256 public slippagePercent = 0; // 0% slippage by default
+    uint256 public slippagePercent = 0; // 0% slippage by default in 18 decimals
     bool public shouldRevert = false;
 
     function setSlippage(uint256 _slippagePercent) external {
@@ -58,7 +59,7 @@ contract MockSwapper is ISwapper {
             int256(uint256(IERC20Metadata(address(input)).decimals()));
 
         // Apply slippage
-        uint256 amountOut = (amountIn * (100 - slippagePercent)) / 100;
+        uint256 amountOut = (amountIn * (10**18 - slippagePercent)) / 10**18;
 
         if (decimalsShift > 0) {
             amountOut = amountOut * (10 ** uint256(decimalsShift));
@@ -88,7 +89,7 @@ contract PriceAwareSwapper is ISwapper {
 
         // Pay out assets according to oracle price, minus slippage
         uint256 expectedOut = (amountIn * oracle.price()) / ORACLE_PRECISION;
-        uint256 amountOut = (expectedOut * (100 - slippagePercent)) / 100;
+        uint256 amountOut = (expectedOut * (10**18 - slippagePercent)) / 10**18;
         output.transfer(msg.sender, amountOut);
     }
 }
@@ -843,8 +844,8 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        // Set swapper to have 0.5% slippage
-        swapper.setSlippage(1); // 1% slippage
+        // Set swapper to have 1% slippage
+        swapper.setSlippage(0.01 ether); // 1% slippage
 
         // This should work as 1% is within the 1% max slippage
         vm.prank(allocator);
@@ -1107,8 +1108,8 @@ contract BoxTest is Test {
         box.deposit(1000e18, feeder);
         vm.stopPrank();
 
-        // Set swapper to have 0.5% slippage
-        swapper.setSlippage(1); // 1% slippage
+        // Set swapper to have 1% slippage
+        swapper.setSlippage(0.01 ether); // 1% slippage
 
         // Multiple allocations should accumulate slippage
         vm.startPrank(allocator);
@@ -1128,7 +1129,7 @@ contract BoxTest is Test {
         vm.stopPrank();
 
         // Set swapper to have 1% slippage
-        swapper.setSlippage(1); // 1% slippage
+        swapper.setSlippage(0.01 ether); // 1% slippage
 
         vm.startPrank(allocator);
         // Multiple larger allocations that accumulate slippage faster
@@ -1535,6 +1536,43 @@ contract BoxTest is Test {
         assertEq(token1.balanceOf(address(box)), 100e18);
     }
 
+    function testWinddownAccess() public {
+        // Before wind-down, guardian can't change oracles
+
+        vm.startPrank(guardian);
+
+        vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
+        box.changeTokenOracle(token1, oracle3);
+
+        box.shutdown();
+
+        vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
+        box.changeTokenOracle(token1, oracle3);
+
+        // After wind-down, anyone can allocate/deallocate/reallocate
+        vm.warp(block.timestamp + box.shutdownWarmup());
+        assertEq(box.isWinddown(), true);
+
+
+        vm.expectEmit(true, true, true, true);
+        emit EventsLib.TokenOracleChanged(token1, oracle3);
+        box.changeTokenOracle(token1, oracle3);
+
+        vm.stopPrank();
+
+        // Check that the curator lost control of change of oracle
+        vm.startPrank(curator);
+
+        vm.expectRevert(ErrorsLib.OnlyGuardian.selector);
+        box.changeTokenOracle(token1, oracle3);
+
+        vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
+        box.setGuardian(curator);
+
+        vm.stopPrank();
+
+    }
+
     /////////////////////////////
     /// TIMELOCK GOVERNANCE TESTS
     /////////////////////////////
@@ -1543,7 +1581,7 @@ contract BoxTest is Test {
         vm.startPrank(curator);
 
         // Test setting max slippage with new timelock pattern
-        uint256 newSlippage = 0.02 ether; // 2%
+        uint256 newSlippage = 0.001234 ether; // 0.1234%
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, newSlippage);
         box.submit(slippageData);
 
@@ -1693,8 +1731,8 @@ contract BoxTest is Test {
         assertTrue(box.isFeeder(newFeeder));
     }
 
-    function testSlippageSubmitAccept() public {
-        uint256 newSlippage = 0.02 ether; // 2%
+    function testSlippageSubmitAccept(uint256 newSlippage) public {
+        vm.assume(newSlippage < MAX_SLIPPAGE_LIMIT);
 
         vm.startPrank(curator);
         bytes memory slippageData = abi.encodeWithSelector(box.setMaxSlippage.selector, newSlippage);
@@ -2265,7 +2303,7 @@ contract BoxTest is Test {
 
         // Set high slippage swapper
         MockSwapper highSlippageSwapper = new MockSwapper();
-        highSlippageSwapper.setSlippage(5); // 5% slippage
+        highSlippageSwapper.setSlippage(0.005 ether); // 0.5% slippage
         token1.mint(address(highSlippageSwapper), 1000e18);
         asset.mint(address(highSlippageSwapper), 1000e18);
 
@@ -2278,11 +2316,11 @@ contract BoxTest is Test {
         box.deallocate(token1, 25e18, highSlippageSwapper, "");
 
         // Warp halfway through shutdown slippage duration (5 days out of 10)
-        vm.warp(block.timestamp + 5 days);
+        vm.warp(block.timestamp + box.shutdownSlippageDuration() / 2);
 
-        // Now slippage tolerance should be ~5%, so this should work
+        // Now slippage tolerance should be ~0.5%, so this should work
         vm.expectEmit(true, true, true, true);
-        emit Deallocation(token1, 25e18, 23.75e18, 50000000000000000, highSlippageSwapper, ""); // 5% slippage
+        emit Deallocation(token1, 25e18, 24.875e18, 5000000000000000, highSlippageSwapper, ""); // 0.5% slippage
 
         vm.prank(nonAuthorized);
         box.deallocate(token1, 25e18, highSlippageSwapper, "");
@@ -2297,7 +2335,7 @@ contract BoxTest is Test {
         vm.stopPrank();
 
         // Test exact slippage boundary (1% max slippage)
-        swapper.setSlippage(1); // Exactly 1% slippage
+        swapper.setSlippage(0.01 ether); // Exactly 1% slippage
 
         // With 1% slippage on 100 assets, we get 99 tokens
         // Expected: 100, Actual: 99, Slippage: 1/100 = 1%
@@ -2320,7 +2358,7 @@ contract BoxTest is Test {
         box.allocate(token1, 100e18, swapper, "");
 
         // Reset swapper slippage for deallocation
-        swapper.setSlippage(1); // 1% slippage
+        swapper.setSlippage(0.01 ether); // Exactly 1% slippage
 
         // With 1% slippage on 50 tokens, we get 49.5 assets
         // Expected: 50, Actual: 49.5, Slippage: 0.5/50 = 1%
@@ -2349,7 +2387,7 @@ contract BoxTest is Test {
 
         // Use a price-aware swapper that pays according to oracle price with 1% slippage
         PriceAwareSwapper pSwapper = new PriceAwareSwapper(oracle1);
-        pSwapper.setSlippage(1); // 1% slippage
+        pSwapper.setSlippage(0.01 ether); // Exactly 1% slippage
 
         // Provide liquidity to the swapper
         asset.mint(address(pSwapper), 10000e18);
@@ -2385,7 +2423,7 @@ contract BoxTest is Test {
 
         // Price-aware swapper paying per oracle with 1% slippage
         PriceAwareSwapper pSwapper = new PriceAwareSwapper(oracle1);
-        pSwapper.setSlippage(1); // 1% slippage
+        pSwapper.setSlippage(0.01 ether); // Exactly 1% slippage
         asset.mint(address(pSwapper), 10000e18);
 
         // Sell a small amount of tokens so true slippage is small vs total assets
@@ -2422,7 +2460,7 @@ contract BoxTest is Test {
 
         // Set swapper with 0.5% slippage
         swapper.setSlippage(0); // Reset to 0 first
-        backupSwapper.setSlippage(1); // Use backup swapper with 1% slippage
+        backupSwapper.setSlippage(0.01 ether); // Use backup swapper with 1% slippage
 
         // Same price oracles, with 1% slippage on swap
         // From 50 token1 we expect 50 token2, but get 49.5 due to slippage
