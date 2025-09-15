@@ -1649,15 +1649,6 @@ contract BoxTest is Test {
         assertEq(box.timelock(selector), 1 days);
         assertEq(timelockDuration, timelockDurationExplicit);
 
-        console2.log("=== WTF ARITHMETIC BUG ===");
-        console2.log("currentTime:", currentTime);
-        console2.log("timelockDuration (1 days):", timelockDuration);
-        console2.log("timelockDurationExplicit (1 days):", timelockDurationExplicit);
-        console2.log("currentTime + timelockDuration = ", currentTime + timelockDuration);
-        console2.log("currentTime + timelockDurationExplicit =", currentTime + timelockDurationExplicit);
-        console2.log("Expected result: 86402 + 86400 = 172802");
-        console2.log("=====================================");
-
         box.submit(slippageData);
         assertEq(box.executableAt(slippageData), currentTime + timelockDuration);
         vm.stopPrank();
@@ -1683,6 +1674,78 @@ contract BoxTest is Test {
         vm.expectRevert(ErrorsLib.OnlyCuratorOrGuardian.selector);
         vm.prank(nonAuthorized);
         box.revoke(slippageData);
+    }
+
+    function testTimelockManipulation() public {
+        vm.startPrank(curator);
+
+        assert(box.timelock(box.setGuardian.selector) == 1 days);
+
+        // Can't decrease from 1 day to 2 days
+        bytes memory data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setGuardian.selector, 2 days);
+        box.submit(data);
+
+        // Check that the timelock of 1 days on setGuardian has not passed
+        vm.expectRevert(ErrorsLib.TimelockNotExpired.selector);
+        box.decreaseTimelock(box.setGuardian.selector, 2 days);
+
+        // Let's go to the end of the timelock
+        vm.warp(1 days + 1);
+
+        // Then the issue is that we can't decrease from 1 day to 2 days
+        vm.expectRevert(ErrorsLib.TimelockIncrease.selector);
+        box.decreaseTimelock(box.setGuardian.selector, 2 days);
+
+        vm.expectEmit(true, true, true, true);
+        emit EventsLib.TimelockRevoked(box.decreaseTimelock.selector, data, address(curator));
+        box.revoke(data);
+
+        // Can't increase from 1 day to 0 days (no timelock needed)
+        vm.expectRevert(ErrorsLib.TimelockDecrease.selector);
+        box.increaseTimelock(box.setGuardian.selector, 0 days);
+
+        data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setGuardian.selector, 0 days);
+        box.submit(data);
+
+        assert(box.timelock(box.setGuardian.selector) == 1 days);
+
+        // Check that the timelock of 1 days on setGuardian has not passed
+        vm.expectRevert(ErrorsLib.TimelockNotExpired.selector);
+        box.decreaseTimelock(box.setGuardian.selector, 0 days);
+
+        vm.warp(2 days + 1); // + 1 day
+
+        vm.expectEmit(true, true, true, true);
+        emit EventsLib.TimelockDecreased(box.setGuardian.selector, 0 days, address(curator));
+        box.decreaseTimelock(box.setGuardian.selector, 0 days);
+        assert(box.timelock(box.setGuardian.selector) == 0 days);
+
+        vm.expectEmit(true, true, true, true);
+        emit EventsLib.TimelockIncreased(box.setGuardian.selector, 1 days, address(curator));
+        box.increaseTimelock(box.setGuardian.selector, 1 days);
+        assert(box.timelock(box.setGuardian.selector) == 1 days);
+
+        box.abdicateTimelock(box.setGuardian.selector);
+        assert(box.timelock(box.setGuardian.selector) == TIMELOCK_DISABLED);
+
+        vm.stopPrank();
+    }
+
+    function testTimelockNotCurator() public {
+        vm.startPrank(nonAuthorized);
+
+        // Can't decrease from 1 day to 2 days
+        bytes memory data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setGuardian.selector, 0 days);
+        vm.expectRevert(ErrorsLib.OnlyCurator.selector);
+        box.submit(data);
+
+        vm.expectRevert(ErrorsLib.OnlyCurator.selector);
+        box.increaseTimelock(box.setGuardian.selector, 5 days);
+
+        vm.expectRevert(ErrorsLib.OnlyCurator.selector);
+        box.abdicateTimelock(box.setGuardian.selector);
+
+        vm.stopPrank();
     }
 
     function testCuratorSubmitAccept() public {

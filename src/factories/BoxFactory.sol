@@ -8,10 +8,6 @@ import {IBox} from "./../interfaces/IBox.sol";
 import {IBoxFactory} from "./../interfaces/IBoxFactory.sol";
 
 contract BoxFactory is IBoxFactory {    
-    /* EVENTS */
-    event CreateBox(address indexed box, IERC20 indexed asset, address owner, address curator,
-        string name, string symbol, uint256 maxSlippage, uint256 slippageEpochDuration,
-        uint256 shutdownSlippageDuration, uint256 shutdownWarmup, bytes32 salt);
 
     /* STORAGE */
     mapping(address => bool) public isBox;
@@ -42,11 +38,8 @@ contract BoxFactory is IBoxFactory {
             _shutdownSlippageDuration,
             _shutdownWarmup
         );
-        
-        isBox[address(_box)] = true;
 
-        emit CreateBox(address(_box), _asset, _owner, _curator, _name, _symbol,
-            _maxSlippage, _slippageEpochDuration, _shutdownSlippageDuration, _shutdownWarmup, salt);
+        isBox[address(_box)] = true;
 
         return _box;
     }

@@ -33,7 +33,6 @@ interface IBox is IERC4626 {
     function maxSlippage() external view returns (uint256);
     function accumulatedSlippage() external view returns (uint256);
     function slippageEpochStart() external view returns (uint256);
-    function timelock(bytes4 selector) external view returns (uint256);
     function executableAt(bytes calldata data) external view returns (uint256);
 
     // ========== INVESTMENT MANAGEMENT ==========
@@ -55,9 +54,11 @@ interface IBox is IERC4626 {
 
     // ========== TIMELOCK GOVERNANCE ==========
     function submit(bytes calldata data) external;
+    function timelock(bytes4 selector) external view returns (uint256);
     function revoke(bytes calldata data) external;
     function increaseTimelock(bytes4 selector, uint256 newDuration) external;
     function decreaseTimelock(bytes4 selector, uint256 newDuration) external;
+    function abdicateTimelock(bytes4 selector) external;
 
     // ========== TIMELOCKED FUNCTIONS ==========
     function setIsFeeder(address account, bool newIsFeeder) external;

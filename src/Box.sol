@@ -88,15 +88,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     bool private _isInFlash;
     uint256 private _cachedNavForFlash;
 
-    // ========== MODIFIERS ==========
-
-    function timelocked() internal {
-        if (executableAt[msg.data] == 0) revert ErrorsLib.DataNotTimelocked();
-        if (block.timestamp < executableAt[msg.data]) revert ErrorsLib.TimelockNotExpired();
-        executableAt[msg.data] = 0;
-        emit EventsLib.TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
-    }
-
     // ========== CONSTRUCTOR ==========
 
     /**
@@ -321,7 +312,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) public nonReentrant {
         bool winddown = isWinddown();
-        require((isAllocator[msg.sender] && !winddown) || (winddown && debtBalance(token) > 0), ErrorsLib.OnlyAllocatorsOrWinddown());
+        require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) > 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
 
@@ -373,7 +364,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
         bool winddown = isWinddown();
-        require((isAllocator[msg.sender] && !winddown) || (winddown && debtBalance(token) == 0), ErrorsLib.OnlyAllocatorsOrWinddown());
+        require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) == 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
 
@@ -570,6 +561,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /**
      * @notice Submits a transaction for timelock
      * @param data Encoded function call
+     * @dev If decreaseTimelock is called, the selector in the data is used to determine the timelock duration
      */
     function submit(bytes calldata data) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
@@ -577,10 +569,20 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(data.length >= 4, ErrorsLib.InvalidAmount());
 
         bytes4 selector = bytes4(data);
-        uint256 delay = timelock[selector];
+        uint256 delay =
+            selector == IBox.decreaseTimelock.selector ? timelock[bytes4(data[4:8])] : timelock[selector];
         executableAt[data] = block.timestamp + delay;
 
         emit EventsLib.TimelockSubmitted(selector, data, executableAt[data], msg.sender);
+    }
+
+    function timelocked() internal {
+        require(executableAt[msg.data] > 0, ErrorsLib.DataNotTimelocked());
+        require(block.timestamp >= executableAt[msg.data], ErrorsLib.TimelockNotExpired());
+
+        executableAt[msg.data] = 0;
+        
+        emit EventsLib.TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
     }
 
     /**
@@ -589,6 +591,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function revoke(bytes calldata data) external {
         require(msg.sender == curator || msg.sender == guardian, ErrorsLib.OnlyCuratorOrGuardian());
+        require(executableAt[data] > 0, ErrorsLib.DataNotTimelocked());
 
         executableAt[data] = 0;
 
@@ -624,6 +627,19 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         timelock[selector] = newDuration;
 
         emit EventsLib.TimelockDecreased(selector, newDuration, msg.sender);
+    }
+    
+    /**
+     * @notice Make a timelock selector no longer exectutable by putting it in the far future
+     * @param selector Function selector
+     * @dev You can't recover from this operation, be careful
+     */
+    function abdicateTimelock(bytes4 selector) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+
+        timelock[selector] = TIMELOCK_DISABLED;
+
+        emit EventsLib.TimelockIncreased(selector, TIMELOCK_DISABLED, msg.sender);
     }
 
     // ========== TIMELOCKED FUNCTIONS ==========
@@ -778,18 +794,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         return shutdownTime != type(uint256).max && block.timestamp >= shutdownTime + shutdownWarmup;
     }
 
-    /**
-     * @notice Returns the total debt balance across all funding modules for a given debt token
-     * @param debtToken The debt token to check
-     * @return totalDebt The total debt balance
-     */
-    function debtBalance(IERC20 debtToken) public view returns (uint256 totalDebt) {
-        uint256 length = fundings.length;
-        for (uint256 i; i < length; i++) {
-            IFunding funding = fundings[i];
-            totalDebt += funding.debtBalance(debtToken);
-        }
-    }
 
     // ========== INTERNAL FUNCTIONS ==========
 
@@ -883,6 +887,19 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             }
         }
         return false;
+    }
+    
+    /**
+     * @notice Returns the total debt balance across all funding modules for a given debt token
+     * @param debtToken The debt token to check
+     * @return totalDebt The total debt balance
+     */
+    function _debtBalance(IERC20 debtToken) internal view returns (uint256 totalDebt) {
+        uint256 length = fundings.length;
+        for (uint256 i; i < length; i++) {
+            IFunding funding = fundings[i];
+            totalDebt += funding.debtBalance(debtToken);
+        }
     }
 
     // ========== FUNDING VIEW FUNCTIONS ==========
