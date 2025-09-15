@@ -10,6 +10,7 @@ library ErrorsLib {
     error AlreadyWhitelisted();
     error NotWhitelisted();
     error NotClean();
+    error NotAllowed();
 
     // Access control errors
     error OnlyOwner();
@@ -35,7 +36,6 @@ library ErrorsLib {
     error InsufficientShares();
     error InsufficientAllowance();
     error InsufficientLiquidity();
-    error CannotUnboxZeroShares();
     error DataAlreadyTimelocked();
 
     // Token errors

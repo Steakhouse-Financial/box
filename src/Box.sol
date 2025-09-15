@@ -707,6 +707,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function changeTokenOracle(IERC20 token, IOracle oracle) external {
         if(isWinddown()) {
+            require(block.timestamp >= shutdownTime + shutdownWarmup + shutdownSlippageDuration, ErrorsLib.NotAllowed());
             require(msg.sender == guardian, ErrorsLib.OnlyGuardian());
         } else {
             timelocked();

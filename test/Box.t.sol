@@ -1537,8 +1537,6 @@ contract BoxTest is Test {
     }
 
     function testWinddownAccess() public {
-        // Before wind-down, guardian can't change oracles
-
         vm.startPrank(guardian);
 
         vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
@@ -1549,10 +1547,29 @@ contract BoxTest is Test {
         vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
         box.changeTokenOracle(token1, oracle3);
 
-        // After wind-down, anyone can allocate/deallocate/reallocate
         vm.warp(block.timestamp + box.shutdownWarmup());
         assertEq(box.isWinddown(), true);
 
+        vm.expectRevert(ErrorsLib.NotAllowed.selector);
+        box.changeTokenOracle(token1, oracle3);
+
+        vm.stopPrank();
+
+        // Check that the curator lost control of change of oracle
+        vm.startPrank(curator);
+
+        vm.expectRevert(ErrorsLib.NotAllowed.selector);
+        box.changeTokenOracle(token1, oracle3);
+
+        vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
+        box.setGuardian(curator);
+
+        vm.stopPrank();
+
+        vm.startPrank(guardian);
+
+        // Guardian can change oracle only after the slippage duration
+        vm.warp(block.timestamp + box.shutdownSlippageDuration());
 
         vm.expectEmit(true, true, true, true);
         emit EventsLib.TokenOracleChanged(token1, oracle3);
@@ -1560,7 +1577,7 @@ contract BoxTest is Test {
 
         vm.stopPrank();
 
-        // Check that the curator lost control of change of oracle
+        // Curator still guardian after wind-down + slippage duration
         vm.startPrank(curator);
 
         vm.expectRevert(ErrorsLib.OnlyGuardian.selector);
