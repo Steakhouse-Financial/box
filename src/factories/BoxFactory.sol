@@ -7,8 +7,7 @@ import {Box} from "./../Box.sol";
 import {IBox} from "./../interfaces/IBox.sol";
 import {IBoxFactory} from "./../interfaces/IBoxFactory.sol";
 
-contract BoxFactory is IBoxFactory {    
-
+contract BoxFactory is IBoxFactory {
     /* STORAGE */
     mapping(address => bool) public isBox;
 

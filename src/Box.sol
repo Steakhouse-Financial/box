@@ -569,8 +569,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(data.length >= 4, ErrorsLib.InvalidAmount());
 
         bytes4 selector = bytes4(data);
-        uint256 delay =
-            selector == IBox.decreaseTimelock.selector ? timelock[bytes4(data[4:8])] : timelock[selector];
+        uint256 delay = selector == IBox.decreaseTimelock.selector ? timelock[bytes4(data[4:8])] : timelock[selector];
         executableAt[data] = block.timestamp + delay;
 
         emit EventsLib.TimelockSubmitted(selector, data, executableAt[data], msg.sender);
@@ -581,7 +580,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(block.timestamp >= executableAt[msg.data], ErrorsLib.TimelockNotExpired());
 
         executableAt[msg.data] = 0;
-        
+
         emit EventsLib.TimelockExecuted(bytes4(msg.data), msg.data, msg.sender);
     }
 
@@ -628,7 +627,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         emit EventsLib.TimelockDecreased(selector, newDuration, msg.sender);
     }
-    
+
     /**
      * @notice Make a timelock selector no longer exectutable by putting it in the far future
      * @param selector Function selector
@@ -722,7 +721,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param oracle New oracle
      */
     function changeTokenOracle(IERC20 token, IOracle oracle) external {
-        if(isWinddown()) {
+        if (isWinddown()) {
             require(block.timestamp >= shutdownTime + shutdownWarmup + shutdownSlippageDuration, ErrorsLib.NotAllowed());
             require(msg.sender == guardian, ErrorsLib.OnlyGuardian());
         } else {
@@ -793,7 +792,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function isWinddown() public view returns (bool) {
         return shutdownTime != type(uint256).max && block.timestamp >= shutdownTime + shutdownWarmup;
     }
-
 
     // ========== INTERNAL FUNCTIONS ==========
 
@@ -888,7 +886,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         }
         return false;
     }
-    
+
     /**
      * @notice Returns the total debt balance across all funding modules for a given debt token
      * @param debtToken The debt token to check

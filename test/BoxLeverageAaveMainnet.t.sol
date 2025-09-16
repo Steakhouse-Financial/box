@@ -235,7 +235,17 @@ contract BoxLeverageAaveMainnetTest is Test {
 
     function testTwoAdaptersDifferentEModes() public {
         // Deploy Box for USDC
-        Box box = new Box(address(usdc), owner, curator, "Box Multi Collateral", "BOX_MC", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
+        Box box = new Box(
+            address(usdc),
+            owner,
+            curator,
+            "Box Multi Collateral",
+            "BOX_MC",
+            0.01 ether,
+            7 days,
+            10 days,
+            MAX_SHUTDOWN_WARMUP
+        );
 
         // sUSDe - using e-mode 2 for borrowing stablecoins
         IERC20 sUsde = IERC20(0x9D39A5DE30e57443BfF2A8307A4256c8797A3497);
