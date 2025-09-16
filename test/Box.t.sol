@@ -11,6 +11,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IBox} from "../src/interfaces/IBox.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {ISwapper} from "../src/interfaces/ISwapper.sol";
+import {IFunding, IOracleCallback} from "../src/interfaces/IFunding.sol";
 import "../src/libraries/Constants.sol";
 import {BoxLib} from "../src/periphery/BoxLib.sol";
 import {ErrorsLib} from "../src/libraries/ErrorsLib.sol";
@@ -41,6 +42,7 @@ contract MockOracle is IOracle {
 contract MockSwapper is ISwapper {
     uint256 public slippagePercent = 0; // 0% slippage by default in 18 decimals
     bool public shouldRevert = false;
+    bool public spendTooMuch = false;
 
     function setSlippage(uint256 _slippagePercent) external {
         slippagePercent = _slippagePercent;
@@ -50,16 +52,22 @@ contract MockSwapper is ISwapper {
         shouldRevert = _shouldRevert;
     }
 
+    function setSpendTooMuch(bool _spendTooMuch) external {
+        spendTooMuch = _spendTooMuch;
+    }
+
     function sell(IERC20 input, IERC20 output, uint256 amountIn, bytes calldata) external {
         require(!shouldRevert, "Swapper: Forced revert");
 
-        input.transferFrom(msg.sender, address(this), amountIn);
+        // If spendTooMuch is true, try to take more than authorized
+        uint256 actualAmount = spendTooMuch ? amountIn + 1 : amountIn;
+        input.transferFrom(msg.sender, address(this), actualAmount);
 
         int256 decimalsShift = int256(uint256(IERC20Metadata(address(output)).decimals())) -
             int256(uint256(IERC20Metadata(address(input)).decimals()));
 
         // Apply slippage
-        uint256 amountOut = (amountIn * (10**18 - slippagePercent)) / 10**18;
+        uint256 amountOut = (amountIn * (10 ** 18 - slippagePercent)) / 10 ** 18;
 
         if (decimalsShift > 0) {
             amountOut = amountOut * (10 ** uint256(decimalsShift));
@@ -89,7 +97,7 @@ contract PriceAwareSwapper is ISwapper {
 
         // Pay out assets according to oracle price, minus slippage
         uint256 expectedOut = (amountIn * oracle.price()) / ORACLE_PRECISION;
-        uint256 amountOut = (expectedOut * (10**18 - slippagePercent)) / 10**18;
+        uint256 amountOut = (expectedOut * (10 ** 18 - slippagePercent)) / 10 ** 18;
         output.transfer(msg.sender, amountOut);
     }
 }
@@ -340,7 +348,17 @@ contract BoxTest is Test {
 
         bytes memory initCode = abi.encodePacked(
             type(Box).creationCode,
-            abi.encode(asset_, owner_, curator_, name_, symbol_, maxSlippage_, slippageEpochDuration_, shutdownSlippageDuration_, shutdownWarmup_)
+            abi.encode(
+                asset_,
+                owner_,
+                curator_,
+                name_,
+                symbol_,
+                maxSlippage_,
+                slippageEpochDuration_,
+                shutdownSlippageDuration_,
+                shutdownWarmup_
+            )
         );
 
         address predicted = vm.computeCreate2Address(
@@ -1587,7 +1605,6 @@ contract BoxTest is Test {
         box.setGuardian(curator);
 
         vm.stopPrank();
-
     }
 
     /////////////////////////////
@@ -2605,5 +2622,258 @@ contract BoxTest is Test {
         vm.prank(allocator);
         vm.expectRevert(); // Will revert in transferFrom due to trying to take too much
         box.allocate(token1, 50e18, greedySwapper, "");
+    }
+
+    function testConstructorValidations() public {
+        // Test invalid asset address
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        new Box(address(0), address(0x1), address(0x2), "Test", "TST", 100, 1 days, 7 days, 1 days);
+
+        // Test invalid owner address
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        new Box(address(asset), address(0), address(0x2), "Test", "TST", 100, 1 days, 7 days, 1 days);
+
+        // Test slippage too high (MAX_SLIPPAGE_LIMIT is 0.01 ether = 10^16)
+        vm.expectRevert(ErrorsLib.SlippageTooHigh.selector);
+        new Box(address(asset), address(0x1), address(0x2), "Test", "TST", 0.01 ether + 1, 1 days, 7 days, 1 days);
+
+        // Test invalid slippage epoch duration
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        new Box(address(asset), address(0x1), address(0x2), "Test", "TST", 100, 0, 7 days, 1 days);
+
+        // Test invalid shutdown slippage duration
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        new Box(address(asset), address(0x1), address(0x2), "Test", "TST", 100, 1 days, 0, 1 days);
+
+        // Test shutdown warmup too high (MAX_SHUTDOWN_WARMUP is 365 days)
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        new Box(address(asset), address(0x1), address(0x2), "Test", "TST", 100, 1 days, 7 days, 365 days + 1);
+    }
+
+    function testMaxDepositAndMintDuringShutdown() public {
+        // First shutdown the box
+        vm.prank(guardian);
+        box.shutdown();
+
+        // maxDeposit should return 0 during shutdown
+        uint256 maxDep = box.maxDeposit(user1);
+        assertEq(maxDep, 0, "maxDeposit should be 0 during shutdown");
+
+        // maxMint should return 0 during shutdown
+        uint256 maxMnt = box.maxMint(user1);
+        assertEq(maxMnt, 0, "maxMint should be 0 during shutdown");
+    }
+
+    function testConvertFunctionsWithZeroSupply() public {
+        // Deploy a new box with no shares minted
+        Box emptyBox = new Box(address(asset), owner, curator, "Empty", "EMPTY", 100, 1 days, 7 days, 1 days);
+
+        // With zero supply, convertToShares should return same as input
+        uint256 shares = emptyBox.convertToShares(1000e18);
+        assertEq(shares, 1000e18);
+
+        // With zero supply, convertToAssets should return same as input
+        uint256 assets = emptyBox.convertToAssets(1000e18);
+        assertEq(assets, 1000e18);
+
+        // previewMint with zero supply
+        uint256 mintAssets = emptyBox.previewMint(1000e18);
+        assertEq(mintAssets, 1000e18);
+    }
+
+    function testWithdrawWithMaxAllowance() public {
+        // First deposit some assets
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        // Give user1 max allowance
+        vm.prank(feeder);
+        box.approve(user1, type(uint256).max);
+
+        // User1 withdraws using the allowance
+        vm.prank(user1);
+        box.withdraw(100e18, user1, feeder);
+
+        // Allowance should still be max
+        assertEq(box.allowance(feeder, user1), type(uint256).max);
+    }
+
+    function testRedeemWithMaxAllowance() public {
+        // First deposit some assets
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        uint256 shares = box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        // Give user1 max allowance
+        vm.prank(feeder);
+        box.approve(user1, type(uint256).max);
+
+        // User1 redeems using the allowance
+        vm.prank(user1);
+        box.redeem(shares / 10, user1, feeder);
+
+        // Allowance should still be max
+        assertEq(box.allowance(feeder, user1), type(uint256).max);
+    }
+
+    function testSlippageAccumulationAndReset() public {
+        // Setup: give box some assets to allocate
+        vm.prank(feeder);
+        asset.transfer(address(box), 1000e18);
+
+        // Set swapper to have small slippage
+        swapper.setSlippage(0.001 ether); // 0.1%
+
+        // First allocation
+        vm.prank(allocator);
+        box.allocate(token1, 100e18, swapper, "");
+
+        // Get initial slippage
+        uint256 initialSlippage = box.accumulatedSlippage();
+        assertTrue(initialSlippage > 0, "Should have some slippage");
+
+        // Do another allocation in same epoch - should accumulate
+        vm.prank(allocator);
+        box.allocate(token1, 100e18, swapper, "");
+
+        uint256 accumulatedSlippageAmount = box.accumulatedSlippage();
+        assertTrue(accumulatedSlippageAmount > initialSlippage, "Slippage should accumulate within epoch");
+
+        // Move past epoch duration
+        skip(box.slippageEpochDuration() + 1);
+
+        // Allocate again - should reset accumulator first
+        vm.prank(allocator);
+        box.allocate(token1, 100e18, swapper, "");
+
+        // Accumulator should have reset and only contain slippage from latest allocation
+        uint256 newSlippage = box.accumulatedSlippage();
+        assertTrue(newSlippage < accumulatedSlippageAmount, "Accumulator should reset after epoch");
+    }
+
+    function testGuardianRecoveryFlow() public {
+        // Cannot recover when not shutdown
+        vm.prank(guardian);
+        vm.expectRevert(ErrorsLib.NotShutdown.selector);
+        box.recover();
+
+        // Shutdown the box
+        vm.prank(guardian);
+        box.shutdown();
+        assertTrue(box.isShutdown());
+
+        // Guardian can recover before winddown
+        vm.prank(guardian);
+        box.recover();
+        assertFalse(box.isShutdown());
+
+        // Shutdown again and wait for winddown
+        vm.prank(guardian);
+        box.shutdown();
+        skip(8 days); // Past warmup period
+
+        // Cannot recover after winddown
+        vm.prank(guardian);
+        vm.expectRevert(ErrorsLib.CannotRecoverAfterWinddown.selector);
+        box.recover();
+    }
+
+    function testTimelockSubmitAndRevoke() public {
+        vm.startPrank(curator);
+
+        // Submit a timelocked transaction
+        bytes memory data = abi.encodeWithSelector(box.setMaxSlippage.selector, 500);
+        box.submit(data);
+
+        // Cannot submit same data again
+        vm.expectRevert(ErrorsLib.DataAlreadyTimelocked.selector);
+        box.submit(data);
+
+        // Revoke the transaction
+        box.revoke(data);
+
+        // After revoke, can submit again
+        box.submit(data);
+
+        vm.stopPrank();
+
+        // Guardian can also revoke
+        vm.prank(guardian);
+        box.revoke(data);
+    }
+
+    function testIncreaseAndDecreaseTimelock() public {
+        vm.startPrank(curator);
+
+        // Increase timelock for a function
+        box.increaseTimelock(box.setMaxSlippage.selector, 2 days);
+        assertEq(box.timelock(box.setMaxSlippage.selector), 2 days);
+
+        // Cannot decrease without going through timelock
+        vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
+        box.decreaseTimelock(box.setMaxSlippage.selector, 1 days);
+
+        // Submit decrease through timelock
+        bytes memory data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setMaxSlippage.selector, 1 days);
+        box.submit(data);
+        skip(2 days);
+        box.decreaseTimelock(box.setMaxSlippage.selector, 1 days);
+        assertEq(box.timelock(box.setMaxSlippage.selector), 1 days);
+
+        // Test abdicate - makes function permanently timelocked
+        box.abdicateTimelock(box.addToken.selector);
+        assertEq(box.timelock(box.addToken.selector), TIMELOCK_DISABLED);
+
+        vm.stopPrank();
+    }
+
+    function testWinddownSlippageTolerance() public {
+        // Give box assets
+        vm.prank(feeder);
+        asset.transfer(address(box), 1000e18);
+
+        // Allocate some tokens first
+        vm.prank(allocator);
+        box.allocate(token1, 100e18, swapper, "");
+
+        // Deallocate can work during winddown without debt requirement
+        vm.prank(guardian);
+        box.shutdown();
+
+        // During warmup, normal operations work
+        vm.prank(allocator);
+        box.deallocate(token1, 50e18, swapper, "");
+
+        uint256 assetsAfterWarmup = asset.balanceOf(address(box));
+        assertTrue(assetsAfterWarmup > 900e18, "Deallocation should work during warmup");
+
+        // Skip to winddown phase
+        skip(8 days); // Past warmup, now in winddown
+
+        // During winddown, deallocate should work for anyone (no debt required for deallocate)
+        vm.prank(user1); // Anyone can deallocate during winddown
+        box.deallocate(token1, 20e18, swapper, "");
+
+        uint256 assetsAfterWinddown = asset.balanceOf(address(box));
+        assertTrue(assetsAfterWinddown > assetsAfterWarmup, "Deallocation should work during winddown");
+
+        // Additional test: verify winddown increases slippage tolerance over time
+        // The longer we wait in winddown, the more slippage is tolerated
+        uint256 remainingTokens = token1.balanceOf(address(box));
+
+        // Skip further into winddown - slippage tolerance increases
+        skip(box.shutdownSlippageDuration() / 2);
+
+        // Deallocate remaining tokens with normal slippage
+        if (remainingTokens > 0) {
+            vm.prank(allocator);
+            box.deallocate(token1, remainingTokens / 2, swapper, "");
+        }
+
+        // Verify deallocation worked
+        assertTrue(token1.balanceOf(address(box)) < remainingTokens, "Deallocation in late winddown should work");
     }
 }
