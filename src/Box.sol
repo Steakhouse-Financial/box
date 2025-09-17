@@ -1047,6 +1047,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocators());
         require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
         require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
+        require(!_isInFlash, ErrorsLib.AlreadyInFlash());
 
         // Cache NAV before starting flash operation for slippage calculations
         _cachedNavForFlash = _nav();

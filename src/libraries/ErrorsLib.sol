@@ -77,4 +77,7 @@ library ErrorsLib {
     // Funding module errors
     error ExcessiveLTV();
     error NoNavDuringFlash();
+
+    // Flash callback errors
+    error AlreadyInFlash();
 }
