@@ -14,12 +14,6 @@ evm_version = "prague"
 gas_reports = ["*"]
 libraries = []
 
-[profile.deploy]
-# Inherits all settings from default except libraries
-libraries = [
-    "./src/lib/OperationsLib.sol:OperationsLib:0x1eB0801eCd6B7b4e56AF75E51eA6AaEE116dB081"
-]  # Empty = tests deploy their own OperationsLib
-
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}" }
 base = { key = "${ETHERSCAN_API_KEY}" }
