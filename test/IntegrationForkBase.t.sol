@@ -29,6 +29,7 @@ import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {FundingAave, IPool} from "../src/FundingAave.sol";
 import {MarketParams, IMorpho} from "@morpho-blue/interfaces/IMorpho.sol";
 import {FlashLoanMorpho} from "../src/periphery/FlashLoanMorpho.sol";
+import {IFunding} from "../src/interfaces/IFunding.sol";
 import {MorphoVaultV1AdapterLib} from "../src/periphery/MorphoVaultV1AdapterLib.sol";
 import "../src/libraries/Constants.sol";
 
@@ -730,27 +731,28 @@ contract IntegrationForkBaseTest is Test {
         assertEq(vault.totalAssets(), USDC_1000, "Vault value is back to 1000 USDC an");
     }
 
-    /*
     function testBoxLeverageMorpho() public {
         uint256 USDC_1000 = 1000 * 10**6;
-        BorrowMorpho borrow = new BorrowMorpho();
+        FundingMorpho fundingModule2 = new FundingMorpho(address(box2), address(morpho), 99e16);
         MarketParams memory market = MarketParams(address(usdc), address(ptusr25sep), address(ptusr25sepOracle), irm, 915000000000000000);
+        bytes memory facilityData2 = fundingModule2.encodeFacilityData(market);
 
         vm.startPrank(curator);
 
         // And this contract to be a feeder
-        box2.addFeeder(address(this));
+        box2.addFeederInstant(address(this));
 
-        // And the funding facility
-        bytes memory borrowData = borrow.morphoMarketToData(morpho, market);
-        box2.addFunding(borrow, borrowData);
+        // Add the funding module and facility
+        box2.addFundingInstant(fundingModule2);
+        box2.addFundingCollateralInstant(fundingModule2, ptusr25sep);
+        box2.addFundingDebtInstant(fundingModule2, usdc);
+        box2.addFundingFacilityInstant(fundingModule2, facilityData2);
         vm.stopPrank();
 
-        bytes32 borrowId = box2.fundingId(borrow, borrowData);
-
         assertEq(box2.fundingsLength(), 1, "There is one source of funding");
-        assertEq(address(box2.fundingMap(borrowId).loanToken), address(usdc), "Loan token is USDC");
-        assertEq(address(box2.fundingMap(borrowId).collateralToken), address(ptusr25sep), "Collateral token is ptusr25sep");
+        IFunding funding = box2.fundings(0);
+        assertEq(address(funding.debtTokens(0)), address(usdc), "Loan token is USDC");
+        assertEq(address(funding.collateralTokens(0)), address(ptusr25sep), "Collateral token is ptusr25sep");
 
         // Get some USDC
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
@@ -767,24 +769,24 @@ contract IntegrationForkBaseTest is Test {
         assertEq(usdc.balanceOf(address(box2)), 0, "No more USDC in the Box");
         assertEq(ptBalance, 1010280676747326095928, "ptusr25sep in the Box");
 
-        box2.supplyCollateral(borrow, borrowData, ptBalance);
+        box2.pledge(fundingModule2, facilityData2, ptusr25sep, ptBalance);
 
         assertEq(ptusr25sep.balanceOf(address(box2)), 0, "No more ptusr25sep in the Box");
-        assertEq(borrow.collateral(borrowData, address(box2)), ptBalance, "Collateral is correct");
+        assertEq(fundingModule2.collateralBalance(facilityData2, ptusr25sep), ptBalance, "Collateral is correct");
 
-        box2.borrow(borrow, borrowData, 500 * 10**6);
+        box2.borrow(fundingModule2, facilityData2, usdc, 500 * 10**6);
 
         assertEq(usdc.balanceOf(address(box2)), 500  * 10**6, "500 USDC in the Box");
 
-        // Get some USDC to convert rounding
+        // Get some USDC to cover rounding
         vm.stopPrank();
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
         usdc.transfer(address(box2), 1);
         vm.startPrank(allocator);
 
-        box2.repay(borrow, borrowData, type(uint256).max);
+        box2.repay(fundingModule2, facilityData2, usdc, type(uint256).max);
 
-        box2.withdrawCollateral(borrow, borrowData, ptBalance);
+        box2.depledge(fundingModule2, facilityData2, ptusr25sep, ptBalance);
         assertEq(ptusr25sep.balanceOf(address(box2)), 1010280676747326095928, "ptusr25sep are back in the Box");
 
         vm.stopPrank();
@@ -792,25 +794,27 @@ contract IntegrationForkBaseTest is Test {
 
     function testBoxWind() public {
         uint256 USDC_1000 = 1000 * 10**6;
-        BorrowMorpho borrow = new BorrowMorpho();
+        FundingMorpho fundingModule2 = new FundingMorpho(address(box2), address(morpho), 99e16);
         MarketParams memory market = MarketParams(address(usdc), address(ptusr25sep), address(ptusr25sepOracle), irm, 915000000000000000);
+        bytes memory facilityData2 = fundingModule2.encodeFacilityData(market);
 
         vm.startPrank(curator);
 
         // And this contract to be a feeder
-        box2.addFeeder(address(this));
+        box2.addFeederInstant(address(this));
         box2.setIsAllocator(address(box2), true);
 
-        // And the funding facility
-        bytes memory borrowData = borrow.morphoMarketToData(morpho, market);
-        box2.addFunding(borrow, borrowData);
+        // Add the funding module and facility
+        box2.addFundingInstant(fundingModule2);
+        box2.addFundingCollateralInstant(fundingModule2, ptusr25sep);
+        box2.addFundingDebtInstant(fundingModule2, usdc);
+        box2.addFundingFacilityInstant(fundingModule2, facilityData2);
         vm.stopPrank();
 
-        bytes32 borrowId = box2.fundingId(borrow, borrowData);
-
         assertEq(box2.fundingsLength(), 1, "There is one source of funding");
-        assertEq(address(box2.fundingMap(borrowId).loanToken), address(usdc), "Loan token is USDC");
-        assertEq(address(box2.fundingMap(borrowId).collateralToken), address(ptusr25sep), "Collateral token is ptusr25sep");
+        IFunding funding = box2.fundings(0);
+        assertEq(address(funding.debtTokens(0)), address(usdc), "Loan token is USDC");
+        assertEq(address(funding.collateralTokens(0)), address(ptusr25sep), "Collateral token is ptusr25sep");
 
         // Get some USDC
         vm.prank(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb); // Morpho Blue
@@ -827,25 +831,22 @@ contract IntegrationForkBaseTest is Test {
         assertEq(usdc.balanceOf(address(box2)), 0, "No more USDC in the Box");
         assertEq(ptBalance, 1010280676747326095928, "ptusr25sep in the Box");
 
-        box2.supplyCollateral(borrow, borrowData, ptBalance);
+        box2.pledge(fundingModule2, facilityData2, ptusr25sep, ptBalance);
 
         assertEq(ptusr25sep.balanceOf(address(box2)), 0, "No more ptusr25sep in the Box");
-        assertEq(borrow.collateral(borrowData, address(box2)), ptBalance, "Collateral is correct");
+        assertEq(fundingModule2.collateralBalance(facilityData2, ptusr25sep), ptBalance, "Collateral is correct");
 
-        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(morpho);
+        FlashLoanMorpho flashloanProvider = new FlashLoanMorpho(address(morpho));
         vm.stopPrank();
         vm.prank(curator);
         box2.setIsAllocator(address(flashloanProvider), true);
         vm.startPrank(allocator);
 
-        flashloanProvider.wind(box2, borrow, borrowData, swapper, "", ptusr25sep, usdc, 500 * 10**6);
+        flashloanProvider.leverage(box2, fundingModule2, facilityData2, swapper, "", ptusr25sep, usdc, 500 * 10**6);
 
-        assertEq(borrow.debt(borrowData, address(box2)), 500 * 10**6 + 1, "Debt is correct");
-        assertEq(borrow.collateral(borrowData, address(box2)), 1515398374089157807752, "Collateral after wind is correct");
-
-
+        assertEq(fundingModule2.debtBalance(facilityData2, usdc), 500 * 10**6 + 1, "Debt is correct");
+        assertEq(fundingModule2.collateralBalance(facilityData2, ptusr25sep), 1515398374089157807752, "Collateral after leverage is correct");
 
         vm.stopPrank();
     }
-*/
 }
