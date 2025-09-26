@@ -732,7 +732,7 @@ contract IntegrationForkBaseTest is Test {
     }
 
     function testBoxLeverageMorpho() public {
-        uint256 USDC_1000 = 1000 * 10**6;
+        uint256 USDC_1000 = 1000 * 10 ** 6;
         FundingMorpho fundingModule2 = new FundingMorpho(address(box2), address(morpho), 99e16);
         MarketParams memory market = MarketParams(address(usdc), address(ptusr25sep), address(ptusr25sepOracle), irm, 915000000000000000);
         bytes memory facilityData2 = fundingModule2.encodeFacilityData(market);
@@ -774,9 +774,9 @@ contract IntegrationForkBaseTest is Test {
         assertEq(ptusr25sep.balanceOf(address(box2)), 0, "No more ptusr25sep in the Box");
         assertEq(fundingModule2.collateralBalance(facilityData2, ptusr25sep), ptBalance, "Collateral is correct");
 
-        box2.borrow(fundingModule2, facilityData2, usdc, 500 * 10**6);
+        box2.borrow(fundingModule2, facilityData2, usdc, 500 * 10 ** 6);
 
-        assertEq(usdc.balanceOf(address(box2)), 500  * 10**6, "500 USDC in the Box");
+        assertEq(usdc.balanceOf(address(box2)), 500 * 10 ** 6, "500 USDC in the Box");
 
         // Get some USDC to cover rounding
         vm.stopPrank();
@@ -793,7 +793,7 @@ contract IntegrationForkBaseTest is Test {
     }
 
     function testBoxWind() public {
-        uint256 USDC_1000 = 1000 * 10**6;
+        uint256 USDC_1000 = 1000 * 10 ** 6;
         FundingMorpho fundingModule2 = new FundingMorpho(address(box2), address(morpho), 99e16);
         MarketParams memory market = MarketParams(address(usdc), address(ptusr25sep), address(ptusr25sepOracle), irm, 915000000000000000);
         bytes memory facilityData2 = fundingModule2.encodeFacilityData(market);
@@ -842,10 +842,14 @@ contract IntegrationForkBaseTest is Test {
         box2.setIsAllocator(address(flashloanProvider), true);
         vm.startPrank(allocator);
 
-        flashloanProvider.leverage(box2, fundingModule2, facilityData2, swapper, "", ptusr25sep, usdc, 500 * 10**6);
+        flashloanProvider.leverage(box2, fundingModule2, facilityData2, swapper, "", ptusr25sep, usdc, 500 * 10 ** 6);
 
-        assertEq(fundingModule2.debtBalance(facilityData2, usdc), 500 * 10**6 + 1, "Debt is correct");
-        assertEq(fundingModule2.collateralBalance(facilityData2, ptusr25sep), 1515398374089157807752, "Collateral after leverage is correct");
+        assertEq(fundingModule2.debtBalance(facilityData2, usdc), 500 * 10 ** 6 + 1, "Debt is correct");
+        assertEq(
+            fundingModule2.collateralBalance(facilityData2, ptusr25sep),
+            1515398374089157807752,
+            "Collateral after leverage is correct"
+        );
 
         vm.stopPrank();
     }

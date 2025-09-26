@@ -66,7 +66,7 @@ contract DeployBaseScript is Script {
     IOracle ptusr25sepOracle = IOracle(0x6AdeD60f115bD6244ff4be46f84149bA758D9085);
 
     IERC20 ptusde11dec = IERC20(0x194b8FeD256C02eF1036Ed812Cae0c659ee6F7FD);
-    IOracle ptusde11decOracle = IOracle(0x15af6e452Fe5C4B78c45f9DE02842a52E600A1cA);    
+    IOracle ptusde11decOracle = IOracle(0x15af6e452Fe5C4B78c45f9DE02842a52E600A1cA);
 
     ///@dev This script deploys the necessary contracts for the Peaty product on Base.
     function run() public {
@@ -229,7 +229,6 @@ contract DeployBaseScript is Script {
         vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 100_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
         vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
 
-
         // Creating Box 2 which will invest in PT-USR-25SEP
         name = "Box Resolv";
         symbol = "BOX_RESOLV";
@@ -379,7 +378,6 @@ contract DeployBaseScript is Script {
         vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
         vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
 
-
         // Creating Box 2 which will invest in PT-USR-25SEP
         name = "Box Resolv";
         symbol = "BOX_RESOLV";
@@ -436,7 +434,7 @@ contract DeployBaseScript is Script {
         return vault;
     }
 
-/*
+    /*
     function deployPeatyCBBTC() public returns (IVaultV2) {
         vm.startBroadcast();
 

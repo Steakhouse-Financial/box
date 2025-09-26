@@ -7,6 +7,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IBox} from "./interfaces/IBox.sol";
 import {IBoxFlashCallback} from "./interfaces/IBox.sol";
@@ -31,6 +32,8 @@ import {EventsLib} from "./libraries/EventsLib.sol";
 contract Box is IBox, ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Math for uint256;
+    using SafeCast for uint256;
+    using SafeCast for int256;
 
     // ========== IMMUTABLE STATE ==========
 
@@ -337,8 +340,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Validate slippage
         uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oracle.price());
         uint256 minTokens = expectedTokens.mulDiv(PRECISION - slippageTolerance, PRECISION);
-        int256 slippage = int256(expectedTokens) - int256(tokensReceived);
-        int256 slippagePct = expectedTokens == 0 ? int256(0) : (slippage * int256(PRECISION)) / int256(expectedTokens);
+        int256 slippage = expectedTokens.toInt256() - tokensReceived.toInt256();
+        int256 slippagePct = expectedTokens == 0 ? int256(0) : (slippage * PRECISION.toInt256()) / expectedTokens.toInt256();
 
         require(tokensReceived >= minTokens, ErrorsLib.AllocationTooExpensive());
 
@@ -347,7 +350,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Track slippage, not during wind-down mode
         if (!winddown && slippage > 0) {
-            uint256 slippageValue = uint256(slippage).mulDiv(oracle.price(), ORACLE_PRECISION);
+            uint256 slippageValue = slippage.toUint256().mulDiv(oracle.price(), ORACLE_PRECISION);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
@@ -392,15 +395,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Validate slippage
         uint256 expectedAssets = tokensAmount.mulDiv(oracle.price(), ORACLE_PRECISION);
         uint256 minAssets = expectedAssets.mulDiv(PRECISION - slippageTolerance, PRECISION);
-        int256 slippage = int256(expectedAssets) - int256(assetsReceived);
-        int256 slippagePct = expectedAssets == 0 ? int256(0) : (slippage * int256(PRECISION)) / int256(expectedAssets);
+        int256 slippage = expectedAssets.toInt256() - assetsReceived.toInt256();
+        int256 slippagePct = expectedAssets == 0 ? int256(0) : (slippage * PRECISION.toInt256()) / expectedAssets.toInt256();
 
         require(assetsReceived >= minAssets, ErrorsLib.TokenSaleNotGeneratingEnoughAssets());
 
         // Track slippage (only in normal operation)
         if (!winddown && slippage > 0) {
             // slippage is already in asset units
-            uint256 slippageValue = uint256(slippage);
+            uint256 slippageValue = slippage.toUint256();
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
@@ -442,14 +445,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 fromValue = tokensAmount.mulDiv(fromOracle.price(), ORACLE_PRECISION);
         uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOracle.price());
         uint256 minToTokens = expectedToTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
-        int256 slippage = int256(expectedToTokens) - int256(toReceived);
-        int256 slippagePct = expectedToTokens == 0 ? int256(0) : (slippage * int256(PRECISION)) / int256(expectedToTokens);
+        int256 slippage = expectedToTokens.toInt256() - toReceived.toInt256();
+        int256 slippagePct = expectedToTokens == 0 ? int256(0) : (slippage * PRECISION.toInt256()) / expectedToTokens.toInt256();
 
         require(toReceived >= minToTokens, ErrorsLib.ReallocationSlippageTooHigh());
 
         // Track slippage, we don't have to exclude wind-down mode as this cannot be called then
         if (slippage > 0) {
-            uint256 slippageValue = uint256(slippage).mulDiv(toOracle.price(), ORACLE_PRECISION);
+            uint256 slippageValue = slippage.toUint256().mulDiv(toOracle.price(), ORACLE_PRECISION);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
@@ -568,7 +571,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(executableAt[data] == 0, ErrorsLib.DataAlreadyTimelocked());
         require(data.length >= 4, ErrorsLib.InvalidAmount());
 
+        // forge-lint: disable-next-line(unsafe-typecast)
         bytes4 selector = bytes4(data);
+        // forge-lint: disable-next-line(unsafe-typecast)
         uint256 delay = selector == IBox.decreaseTimelock.selector ? timelock[bytes4(data[4:8])] : timelock[selector];
         executableAt[data] = block.timestamp + delay;
 
@@ -594,6 +599,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         executableAt[data] = 0;
 
+        // forge-lint: disable-next-line(unsafe-typecast)
         emit EventsLib.TimelockRevoked(bytes4(data), data, msg.sender);
     }
 

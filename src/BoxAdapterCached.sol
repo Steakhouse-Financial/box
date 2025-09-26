@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IVaultV2} from "./../lib/vault-v2/src/interfaces/IVaultV2.sol";
 import {MathLib} from "./../lib/vault-v2/src/libraries/MathLib.sol";
 import {SafeERC20Lib} from "./../lib/vault-v2/src/libraries/SafeERC20Lib.sol";
@@ -12,6 +13,7 @@ import {IBoxAdapter} from "./interfaces/IBoxAdapter.sol";
 
 contract BoxAdapterCached is IBoxAdapter {
     using MathLib for uint256;
+    using SafeCast for uint256;
 
     /* EVENTS */
     event UpdateTotalAsset(uint256 oldTotalAssets, uint256 totalAssets);
@@ -68,8 +70,8 @@ contract BoxAdapterCached is IBoxAdapter {
         // Safe casts because Box bounds the total supply of the underlying token, and allocation is less than the
         // max total assets of the box.
         _updateTotalAssets();
-        int256 newAllocation = int256(totalAssets);
-        int256 oldAllocation = int256(allocation());
+        int256 newAllocation = totalAssets.toInt256();
+        int256 oldAllocation = allocation().toInt256();
 
         return (ids(), newAllocation - oldAllocation);
     }
@@ -84,8 +86,8 @@ contract BoxAdapterCached is IBoxAdapter {
         // Safe casts because Box bounds the total supply of the underlying token, and allocation is less than the
         // max total assets of the vault.
         _updateTotalAssets();
-        int256 newAllocation = int256(totalAssets);
-        int256 oldAllocation = int256(allocation());
+        int256 newAllocation = totalAssets.toInt256();
+        int256 oldAllocation = allocation().toInt256();
 
         return (ids(), newAllocation - oldAllocation);
     }
