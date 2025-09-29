@@ -142,8 +142,40 @@ contract MaliciousSwapper is ISwapper {
     }
 }
 
+
+contract MaliciousFundingSwapper is ISwapper {
+    IBox public box;
+    IFunding public funding;
+    uint256 public scenario = BORROW;
+    uint256 public constant BORROW = 0;
+    uint256 public constant DEPLEDGE = 1;
+
+    function setBox(IBox _box) external {
+        box = _box;
+    }
+
+    function setFunding(IFunding _funding) external {
+        funding = _funding;
+    }
+
+    function setScenario(uint256 _scenario) external {
+        scenario = _scenario;
+    }
+
+    function sell(IERC20 input, IERC20 output, uint256 amountIn, bytes calldata) external {
+        input.transferFrom(msg.sender, address(this), amountIn);
+
+        if (scenario == 0) {
+            box.borrow(funding, "", output, amountIn);
+        } else if (scenario == 1) {
+            box.depledge(funding, "", output, amountIn);
+        }
+    }
+}
+
 // Mock funding module for testing debt scenarios
 contract MockFunding is IFunding {
+    using SafeERC20 for IERC20;
     mapping(IERC20 => uint256) public debtBalances;
 
     function setDebtBalance(IERC20 token, uint256 amount) external {
@@ -204,8 +236,12 @@ contract MockFunding is IFunding {
     function addDebtToken(IERC20) external {}
     function removeDebtToken(IERC20) external {}
     function pledge(bytes calldata, IERC20, uint256) external {}
-    function depledge(bytes calldata, IERC20, uint256) external {}
-    function borrow(bytes calldata, IERC20, uint256) external {}
+    function depledge(bytes calldata, IERC20 token, uint256 amount) external {
+        token.safeTransfer(msg.sender, amount);
+    }
+    function borrow(bytes calldata, IERC20 token, uint256 amount) external {
+        token.safeTransfer(msg.sender, amount);
+    }
     function repay(bytes calldata, IERC20, uint256) external {}
 }
 
@@ -1371,7 +1407,14 @@ contract BoxTest is Test {
         box.removeToken(token4);
 
         box.removeFundingCollateral(fundingMorpho, token4);
+        vm.stopPrank();
 
+        // Only curator can remove token
+        vm.prank(address(allocator));
+        vm.expectRevert(ErrorsLib.OnlyCurator.selector);
+        box.removeToken(token4);
+
+        vm.startPrank(curator);
         box.removeToken(token4);
 
         // Create a 90% lltv market and seed it
@@ -2974,7 +3017,6 @@ contract BoxTest is Test {
         vm.stopPrank();
 
         // Add the funding module to the box
-        bytes memory data = "";
         vm.startPrank(curator);
         box.submit(abi.encodeWithSelector(box.addFunding.selector, mockFunding));
         vm.warp(block.timestamp + 1);
@@ -3038,5 +3080,41 @@ contract BoxTest is Test {
         vm.prank(nonAuthorized);
         vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         box.allocate(token1, 50e18, swapper, "");
+    }
+
+    // A malicious swapper could use a borrow or depledge and steal the funds
+    function testFundingSwapAttack() public {
+        // Setup: deposit assets and add token to whitelist
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        // Add the funding module to the box
+        bytes memory data = "";
+        vm.startPrank(curator);
+        box.submit(abi.encodeWithSelector(box.addFunding.selector, mockFunding));
+        vm.warp(block.timestamp + 1);
+        box.addFunding(mockFunding);
+
+        MaliciousFundingSwapper fundingSwapper = new MaliciousFundingSwapper();
+        token1.mint(address(mockFunding), 1000e18);
+
+        box.setIsAllocator(address(fundingSwapper), true);
+        vm.stopPrank();
+
+        vm.startPrank(allocator);
+        fundingSwapper.setBox(box);
+        fundingSwapper.setFunding(mockFunding);
+        fundingSwapper.setScenario(fundingSwapper.BORROW());
+
+        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
+        box.allocate(token1, 500e18, fundingSwapper, data);
+
+        fundingSwapper.setScenario(fundingSwapper.DEPLEDGE());
+
+        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
+        box.allocate(token1, 500e18, fundingSwapper, data);
+        vm.stopPrank();
     }
 }

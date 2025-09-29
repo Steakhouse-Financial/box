@@ -50,6 +50,7 @@ contract FlashLoanAave is IFlashLoanReceiver, IBoxFlashCallback {
 
     IPoolAddressesProviderAave public immutable override ADDRESSES_PROVIDER;
     IPool public immutable override POOL;
+    address internal _box = address(0);
 
     constructor(IPoolAddressesProviderAave addressesProvider) {
         ADDRESSES_PROVIDER = addressesProvider;
@@ -117,6 +118,7 @@ contract FlashLoanAave is IFlashLoanReceiver, IBoxFlashCallback {
     }
 
     function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external {
+        require(msg.sender == _box, ErrorsLib.OnlyBox());
         bytes4 operation = abi.decode(data, (bytes4));
 
         IBox box = IBox(msg.sender);
@@ -230,6 +232,7 @@ contract FlashLoanAave is IFlashLoanReceiver, IBoxFlashCallback {
         uint256 loanAmount
     ) external {
         require(box.isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
+        _box = address(box);
 
         bytes4 operation = FlashLoanAave.leverage.selector;
         bytes memory params = abi.encode(
@@ -253,6 +256,7 @@ contract FlashLoanAave is IFlashLoanReceiver, IBoxFlashCallback {
         modes[0] = 0; // 0 = no open debt, flash loan must be paid back
 
         POOL.flashLoan(address(this), assets, amounts, modes, address(this), params, 0);
+        _box = address(0);
     }
 
     function deleverage(
@@ -267,6 +271,7 @@ contract FlashLoanAave is IFlashLoanReceiver, IBoxFlashCallback {
         uint256 loanAmount
     ) external {
         require(box.isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
+        _box = address(box);
 
         if (loanAmount == type(uint256).max) {
             loanAmount = fundingModule.debtBalance(loanToken);
@@ -295,6 +300,7 @@ contract FlashLoanAave is IFlashLoanReceiver, IBoxFlashCallback {
         modes[0] = 0;
 
         POOL.flashLoan(address(this), assets, amounts, modes, address(this), params, 0);
+        _box = address(0);
     }
 
     function refinance(
@@ -309,6 +315,7 @@ contract FlashLoanAave is IFlashLoanReceiver, IBoxFlashCallback {
         uint256 loanAmount
     ) external {
         require(box.isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
+        _box = address(box);
 
         if (loanAmount == type(uint256).max) {
             loanAmount = fromFundingModule.debtBalance(loanToken);
@@ -340,5 +347,6 @@ contract FlashLoanAave is IFlashLoanReceiver, IBoxFlashCallback {
         modes[0] = 0;
 
         POOL.flashLoan(address(this), assets, amounts, modes, address(this), params, 0);
+        _box = address(0);
     }
 }

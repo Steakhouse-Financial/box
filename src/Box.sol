@@ -1140,7 +1140,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param collateralAmount Amount to pledge
      * @dev Transfers tokens to module and updates collateral position
      */
-    function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
+    function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external nonReentrant {
         require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
@@ -1158,7 +1158,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param collateralAmount Amount to withdraw (max uint256 = all)
      * @dev Returns tokens to vault, must maintain required collateral ratios
      */
-    function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
+    function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external nonReentrant {
         require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
@@ -1181,7 +1181,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param borrowAmount Amount to borrow
      * @dev Requires sufficient collateral, borrowed tokens sent to vault
      */
-    function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
+    function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external nonReentrant {
         require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
@@ -1198,7 +1198,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param repayAmount Amount to repay (max uint256 = full debt)
      * @dev Transfers tokens from vault to module, reduces debt position
      */
-    function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external {
+    function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external nonReentrant {
         require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 

@@ -30,6 +30,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
     using MathLib for uint256;
 
     IMorpho public immutable MORPHO;
+    address internal _box = address(0);
 
     constructor(address morpho) {
         MORPHO = IMorpho(morpho);
@@ -83,6 +84,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
     }
 
     function onBoxFlash(IERC20, uint256, bytes calldata data) external {
+        require(msg.sender == _box, ErrorsLib.OnlyBox());
         bytes4 operation = abi.decode(bytes(data), (bytes4));
 
         IBox box = IBox(msg.sender);
@@ -188,6 +190,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
         uint256 loanAmount
     ) external {
         require(box.isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
+        _box = address(box);
 
         bytes4 operation = FlashLoanMorpho.leverage.selector;
         bytes memory data = abi.encode(
@@ -203,6 +206,8 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
         );
 
         MORPHO.flashLoan(address(loanToken), loanAmount, data);
+
+        _box = address(0);
     }
 
     function deleverage(
@@ -217,6 +222,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
         uint256 loanAmount
     ) external {
         require(box.isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
+        _box = address(box);
 
         if (loanAmount == type(uint256).max) {
             loanAmount = fundingModule.debtBalance(loanToken);
@@ -237,6 +243,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
         );
 
         MORPHO.flashLoan(address(loanToken), loanAmount, data);
+        _box = address(0);
     }
 
     function refinance(
@@ -251,6 +258,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
         uint256 loanAmount
     ) external {
         require(box.isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
+        _box = address(box);
 
         if (loanAmount == type(uint256).max) {
             loanAmount = fromFundingModule.debtBalance(loanToken);
@@ -274,5 +282,6 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
         );
 
         MORPHO.flashLoan(address(loanToken), loanAmount, data);
+        _box = address(0);
     }
 }
