@@ -489,7 +489,9 @@ contract BoxTest is Test {
             address(boxFactory) // deploying address
         );
 
-        box = boxFactory.createBox(
+        vm.expectEmit(true, true, true, true);
+        emit IBoxFactory.BoxCreated(IBox(predicted), IERC20(asset_), owner_, curator_, name_, symbol_, maxSlippage_, slippageEpochDuration_, shutdownSlippageDuration_, shutdownWarmup_);
+        IBox box = boxFactory.createBox(
             IERC20(asset_),
             owner_,
             curator_,
@@ -2572,7 +2574,9 @@ contract BoxTest is Test {
         emit Allocation(token1, 100e18, 100e18, 99e18, 0.01e18, swapper, ""); // 1% slippage
 
         vm.prank(allocator);
-        box.allocate(token1, 100e18, swapper, "");
+        (uint256 expected, uint256 received) = box.allocate(token1, 100e18, swapper, "");
+        assertEq(expected, 100e18);
+        assertEq(received, 99e18);
 
         assertEq(token1.balanceOf(address(box)), 99e18);
     }
@@ -2595,7 +2599,9 @@ contract BoxTest is Test {
         emit Deallocation(token1, 50e18, 50e18, 49.5e18, 0.01e18, swapper, ""); // 1% slippage
 
         vm.prank(allocator);
-        box.deallocate(token1, 50e18, swapper, "");
+        (uint256 expected, uint256 received) = box.deallocate(token1, 50e18, swapper, "");
+        assertEq(expected, 50e18);
+        assertEq(received, 49.5e18);
 
         assertEq(asset.balanceOf(address(box)), 949.5e18); // 900 + 49.5
     }
@@ -2697,7 +2703,9 @@ contract BoxTest is Test {
         emit Reallocation(token1, token2, 50e18, 50e18, 49.5e18, 10000000000000000, backupSwapper, ""); // 1% slippage
 
         vm.prank(allocator);
-        box.reallocate(token1, token2, 50e18, backupSwapper, "");
+        (uint256 expected, uint256 received) = box.reallocate(token1, token2, 50e18, backupSwapper, "");
+        assertEq(expected, 50e18);
+        assertEq(received, 49.5e18);
 
         assertEq(token1.balanceOf(address(box)), 50e18); // 100 - 50
         assertEq(token2.balanceOf(address(box)), 49.5e18);

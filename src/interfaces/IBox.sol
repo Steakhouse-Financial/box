@@ -37,9 +37,18 @@ interface IBox is IERC4626 {
 
     // ========== INVESTMENT MANAGEMENT ==========
     function skim(IERC20 token) external;
-    function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) external;
-    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external;
-    function reallocate(IERC20 from, IERC20 to, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external;
+    function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) external returns (uint256 expected, uint256 received);
+    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external returns (uint256 expected, uint256 received);
+    function reallocate(IERC20 from, IERC20 to, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external returns (uint256 expected, uint256 received);
+
+    // ========== SIMPLE FUNDING OPERATIONS ==========
+    function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
+    function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
+    function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external;
+    function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external;
+
+    // ========== COMPLEX FUNDING OPERATIONS WITH FLASHLOAN AND SWAPPER ==========
+    function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external;
 
     // ========== EMERGENCY ==========
     function shutdown() external;
@@ -88,14 +97,4 @@ interface IBox is IERC4626 {
     function fundings(uint256 index) external view returns (IFunding);
     function fundingsLength() external view returns (uint256);
     function isFunding(IFunding fundingModule) external view returns (bool);
-
-    // ========== SIMPLE FUNDING OPERATIONS ==========
-    function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
-    function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
-    function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external;
-    function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external;
-
-    // ========== COMPLEX FUNDING OPERATIONS WITH FLASHLOAN AND SWAPPER ==========
-
-    function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external;
 }

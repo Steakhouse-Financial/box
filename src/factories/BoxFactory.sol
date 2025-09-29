@@ -40,6 +40,8 @@ contract BoxFactory is IBoxFactory {
 
         isBox[address(_box)] = true;
 
+        emit BoxCreated(_box, _asset, _owner, _curator, _name, _symbol, _maxSlippage, _slippageEpochDuration, _shutdownSlippageDuration, _shutdownWarmup);
+
         return _box;
     }
 }

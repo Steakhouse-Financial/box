@@ -318,7 +318,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit Withdraw(msg.sender, receiver, owner_, assets, shares);
     }
 
-    // ========== INVESTMENT MANAGEMENT ==========
+    // ========== SWAP FUNCTIONS ==========
 
     /**
      * @notice Transfers accidentally sent tokens to the skim recipient
@@ -344,10 +344,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param assetsAmount Maximum amount of base asset to spend
      * @param swapper Contract that will execute the swap
      * @param data Custom data for the swapper implementation
+     * @return expected Expected amount of target token based on oracle price
+     * @return received Actual amount of target token received from the allocation
      * @dev Enforces slippage protection based on oracle prices
      * @dev During wind-down, slippage tolerance increases over time
      */
-    function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) public nonReentrant {
+    function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) public nonReentrant returns (uint256 expected, uint256 received) {
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) > 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
@@ -380,6 +382,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         }
 
         emit EventsLib.Allocation(token, assetsSpent, expectedTokens, tokensReceived, slippagePct, swapper, data);
+
+        return (expectedTokens, tokensReceived);
     }
 
     /**
@@ -388,10 +392,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param tokensAmount Maximum amount of tokens to sell
      * @param swapper Contract that will execute the swap
      * @param data Custom data for the swapper implementation
+     * @return expected Expected amount of base asset based on oracle price
+     * @return received Actual amount of base asset received from the deallocation
      * @dev Enforces slippage protection based on oracle prices
      * @dev During wind-down, anyone can deallocate tokens with no outstanding debt
      */
-    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
+    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant returns (uint256 expected, uint256 received) {
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) == 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
@@ -418,6 +424,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         }
 
         emit EventsLib.Deallocation(token, tokensSpent, expectedAssets, assetsReceived, slippagePct, swapper, data);
+
+        return (expectedAssets, assetsReceived);
     }
 
     /**
@@ -427,9 +435,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param tokensAmount Maximum amount of source token to sell
      * @param swapper Contract that will execute the swap
      * @param data Custom data for the swapper implementation
+     * @return expected Expected amount of target token based on oracle prices
+     * @return received Actual amount of target token received from the reallocation
      * @dev More gas efficient than separate deallocate + allocate
      */
-    function reallocate(IERC20 from, IERC20 to, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
+    function reallocate(IERC20 from, IERC20 to, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant returns (uint256 expected, uint256 received) {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
         require(isToken(from) && isToken(to), ErrorsLib.TokenNotWhitelisted());
@@ -457,6 +467,125 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         }
 
         emit EventsLib.Reallocation(from, to, fromSpent, expectedToTokens, toReceived, slippagePct, swapper, data);
+
+        return (expectedToTokens, toReceived);
+    }
+
+    // ========== FUNDING FUNCTIONS ==========
+
+    /**
+     * @notice Posts collateral to a lending facility
+     * @param fundingModule Module managing the facility
+     * @param facilityData Encoded facility identifier
+     * @param collateralToken Token to pledge as collateral
+     * @param collateralAmount Amount to pledge
+     * @dev Transfers tokens to module and updates collateral position
+     */
+    function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external nonReentrant {
+        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        collateralToken.safeTransfer(address(fundingModule), collateralAmount);
+        fundingModule.pledge(facilityData, collateralToken, collateralAmount);
+
+        emit EventsLib.Pledge(fundingModule, facilityData, collateralToken, collateralAmount);
+    }
+
+    /**
+     * @notice Withdraws collateral from a lending facility
+     * @param fundingModule Module managing the facility
+     * @param facilityData Encoded facility identifier
+     * @param collateralToken Token to withdraw
+     * @param collateralAmount Amount to withdraw (max uint256 = all)
+     * @dev Returns tokens to vault, must maintain required collateral ratios
+     */
+    function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external nonReentrant {
+        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        uint256 pledgeAmount = fundingModule.collateralBalance(facilityData, collateralToken);
+
+        if (collateralAmount == type(uint256).max) {
+            collateralAmount = pledgeAmount;
+        }
+
+        fundingModule.depledge(facilityData, collateralToken, collateralAmount);
+
+        emit EventsLib.Depledge(fundingModule, facilityData, collateralToken, collateralAmount);
+    }
+
+    /**
+     * @notice Takes out a loan from a lending facility
+     * @param fundingModule Module managing the facility
+     * @param facilityData Encoded facility identifier
+     * @param debtToken Token to borrow
+     * @param borrowAmount Amount to borrow
+     * @dev Requires sufficient collateral, borrowed tokens sent to vault
+     */
+    function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external nonReentrant {
+        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        fundingModule.borrow(facilityData, debtToken, borrowAmount);
+
+        emit EventsLib.Borrow(fundingModule, facilityData, debtToken, borrowAmount);
+    }
+
+    /**
+     * @notice Repays borrowed tokens to a lending facility
+     * @param fundingModule Module managing the facility
+     * @param facilityData Encoded facility identifier
+     * @param debtToken Token to repay
+     * @param repayAmount Amount to repay (max uint256 = full debt)
+     * @dev Transfers tokens from vault to module, reduces debt position
+     */
+    function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external nonReentrant {
+        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
+
+        if (repayAmount == type(uint256).max) {
+            repayAmount = debtAmount;
+        }
+
+        debtToken.safeTransfer(address(fundingModule), repayAmount);
+        fundingModule.repay(facilityData, debtToken, repayAmount);
+
+        emit EventsLib.Repay(fundingModule, facilityData, debtToken, repayAmount);
+    }
+
+    /**
+     * @notice Provides temporary liquidity for complex operations
+     * @param flashToken Token to flash loan
+     * @param flashAmount Amount to provide temporarily
+     * @param data Custom data passed to the callback
+     * @dev Caller must implement IBoxFlashCallback and return tokens within same transaction
+     * @dev NAV is cached during flash to prevent manipulation
+     */
+    function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
+        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocators());
+        require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
+        require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
+        // Prevent re-entrancy. Can't use nonReentrant modifier because of conflict with allocate/deallocate/reallocate
+        require(!_isInFlash, ErrorsLib.AlreadyInFlash());
+
+        // Cache NAV before starting flash operation for slippage calculations
+        _cachedNavForFlash = _nav();
+        _isInFlash = true;
+
+        // Transfer flash amount FROM caller TO this contract
+        flashToken.safeTransferFrom(msg.sender, address(this), flashAmount);
+
+        // Call the callback function on the caller
+        IBoxFlashCallback(msg.sender).onBoxFlash(flashToken, flashAmount, data);
+
+        // Repay the flash loan by transferring back TO caller
+        flashToken.safeTransfer(msg.sender, flashAmount);
+
+        _isInFlash = false;
+
+        emit EventsLib.Flash(msg.sender, flashToken, flashAmount);
     }
 
     // ========== ADMIN FUNCTIONS ==========
@@ -760,6 +889,142 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.TokenOracleChanged(token, oracle);
     }
 
+    /**
+     * @notice Adds a new funding module for borrowing/lending
+     * @param fundingModule Module contract to whitelist
+     * @dev Module must be empty with no facilities, collateral, or debt
+     */
+    function addFunding(IFunding fundingModule) external {
+        timelocked();
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(!fundingMap[fundingModule], ErrorsLib.AlreadyWhitelisted());
+        require(address(fundingModule) != address(0), ErrorsLib.InvalidAddress());
+        require(fundingModule.facilitiesLength() == 0, ErrorsLib.NotClean());
+        require(fundingModule.collateralTokensLength() == 0, ErrorsLib.NotClean());
+        require(fundingModule.debtTokensLength() == 0, ErrorsLib.NotClean());
+
+        fundingMap[fundingModule] = true;
+        fundings.push(fundingModule);
+
+        emit EventsLib.FundingModuleAdded(fundingModule);
+    }
+
+    /**
+     * @notice Registers a lending facility within a funding module
+     * @param fundingModule Module to add facility to
+     * @param facilityData Encoded facility parameters
+     * @dev Requires timelock, facility specifics depend on module implementation
+     */
+    function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
+        timelocked();
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        fundingModule.addFacility(facilityData);
+
+        emit EventsLib.FundingFacilityAdded(fundingModule, facilityData);
+    }
+
+    /**
+     * @notice Enables a token as collateral in a funding module
+     * @param fundingModule Module to configure
+     * @param collateralToken Token to use as collateral
+     * @dev Token must be whitelisted in the vault first
+     */
+    function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
+        timelocked();
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        require(isTokenOrAsset(collateralToken), ErrorsLib.TokenNotWhitelisted());
+
+        fundingModule.addCollateralToken(collateralToken);
+
+        emit EventsLib.FundingCollateralAdded(fundingModule, collateralToken);
+    }
+
+    /**
+     * @notice Enables a token for borrowing in a funding module
+     * @param fundingModule Module to configure
+     * @param debtToken Token that can be borrowed
+     * @dev Token must be whitelisted in the vault first
+     */
+    function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
+        timelocked();
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        require(isTokenOrAsset(debtToken), ErrorsLib.TokenNotWhitelisted());
+
+        fundingModule.addDebtToken(debtToken);
+
+        emit EventsLib.FundingDebtAdded(fundingModule, debtToken);
+    }
+
+    /**
+     * @notice Removes a funding module from the vault
+     * @param fundingModule Module to remove
+     * @dev Module must be empty with no active facilities, collateral, or debt
+     */
+    function removeFunding(IFunding fundingModule) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        require(fundingModule.facilitiesLength() == 0, ErrorsLib.CannotRemove());
+        require(fundingModule.collateralTokensLength() == 0, ErrorsLib.CannotRemove());
+        require(fundingModule.debtTokensLength() == 0, ErrorsLib.CannotRemove());
+
+        fundingMap[fundingModule] = false;
+        uint256 index = _findFundingIndex(fundingModule);
+        fundings[index] = fundings[fundings.length - 1];
+        fundings.pop();
+
+        emit EventsLib.FundingModuleRemoved(fundingModule);
+    }
+
+    /**
+     * @notice Deregisters a lending facility from a funding module
+     * @param fundingModule Module containing the facility
+     * @param facilityData Encoded facility identifier
+     * @dev Facility must have no outstanding positions
+     */
+    function removeFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        fundingModule.removeFacility(facilityData);
+
+        emit EventsLib.FundingFacilityRemoved(fundingModule, facilityData);
+    }
+
+    /**
+     * @notice Disables a token as collateral in a funding module
+     * @param fundingModule Module to update
+     * @param collateralToken Token to remove from collateral list
+     * @dev Token must not be actively used as collateral
+     */
+    function removeFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        fundingModule.removeCollateralToken(collateralToken);
+
+        emit EventsLib.FundingCollateralRemoved(fundingModule, collateralToken);
+    }
+
+    /**
+     * @notice Disables borrowing of a token in a funding module
+     * @param fundingModule Module to update
+     * @param debtToken Token to remove from debt list
+     * @dev No outstanding debt must exist for this token
+     */
+    function removeFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        fundingModule.removeDebtToken(debtToken);
+
+        emit EventsLib.FundingDebtRemoved(fundingModule, debtToken);
+    }
+
     // ========== VIEW FUNCTIONS ==========
     /**
      * @notice Checks if a token is whitelisted for investment
@@ -992,258 +1257,5 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             IFunding funding = fundings[i];
             totalDebt += funding.debtBalance(debtToken);
         }
-    }
-
-    // ========== FUNDING VIEW FUNCTIONS ==========
-
-    /**
-     * @notice Adds a new funding module for borrowing/lending
-     * @param fundingModule Module contract to whitelist
-     * @dev Module must be empty with no facilities, collateral, or debt
-     */
-    function addFunding(IFunding fundingModule) external {
-        timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(!fundingMap[fundingModule], ErrorsLib.AlreadyWhitelisted());
-        require(address(fundingModule) != address(0), ErrorsLib.InvalidAddress());
-        require(fundingModule.facilitiesLength() == 0, ErrorsLib.NotClean());
-        require(fundingModule.collateralTokensLength() == 0, ErrorsLib.NotClean());
-        require(fundingModule.debtTokensLength() == 0, ErrorsLib.NotClean());
-
-        fundingMap[fundingModule] = true;
-        fundings.push(fundingModule);
-
-        emit EventsLib.FundingModuleAdded(fundingModule);
-    }
-
-    /**
-     * @notice Registers a lending facility within a funding module
-     * @param fundingModule Module to add facility to
-     * @param facilityData Encoded facility parameters
-     * @dev Requires timelock, facility specifics depend on module implementation
-     */
-    function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
-        timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-
-        fundingModule.addFacility(facilityData);
-
-        emit EventsLib.FundingFacilityAdded(fundingModule, facilityData);
-    }
-
-    /**
-     * @notice Enables a token as collateral in a funding module
-     * @param fundingModule Module to configure
-     * @param collateralToken Token to use as collateral
-     * @dev Token must be whitelisted in the vault first
-     */
-    function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
-        timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-        require(isTokenOrAsset(collateralToken), ErrorsLib.TokenNotWhitelisted());
-
-        fundingModule.addCollateralToken(collateralToken);
-
-        emit EventsLib.FundingCollateralAdded(fundingModule, collateralToken);
-    }
-
-    /**
-     * @notice Enables a token for borrowing in a funding module
-     * @param fundingModule Module to configure
-     * @param debtToken Token that can be borrowed
-     * @dev Token must be whitelisted in the vault first
-     */
-    function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
-        timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-        require(isTokenOrAsset(debtToken), ErrorsLib.TokenNotWhitelisted());
-
-        fundingModule.addDebtToken(debtToken);
-
-        emit EventsLib.FundingDebtAdded(fundingModule, debtToken);
-    }
-
-    /**
-     * @notice Removes a funding module from the vault
-     * @param fundingModule Module to remove
-     * @dev Module must be empty with no active facilities, collateral, or debt
-     */
-    function removeFunding(IFunding fundingModule) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-
-        require(fundingModule.facilitiesLength() == 0, ErrorsLib.CannotRemove());
-        require(fundingModule.collateralTokensLength() == 0, ErrorsLib.CannotRemove());
-        require(fundingModule.debtTokensLength() == 0, ErrorsLib.CannotRemove());
-
-        fundingMap[fundingModule] = false;
-        uint256 index = _findFundingIndex(fundingModule);
-        fundings[index] = fundings[fundings.length - 1];
-        fundings.pop();
-
-        emit EventsLib.FundingModuleRemoved(fundingModule);
-    }
-
-    /**
-     * @notice Deregisters a lending facility from a funding module
-     * @param fundingModule Module containing the facility
-     * @param facilityData Encoded facility identifier
-     * @dev Facility must have no outstanding positions
-     */
-    function removeFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-
-        fundingModule.removeFacility(facilityData);
-
-        emit EventsLib.FundingFacilityRemoved(fundingModule, facilityData);
-    }
-
-    /**
-     * @notice Disables a token as collateral in a funding module
-     * @param fundingModule Module to update
-     * @param collateralToken Token to remove from collateral list
-     * @dev Token must not be actively used as collateral
-     */
-    function removeFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-
-        fundingModule.removeCollateralToken(collateralToken);
-
-        emit EventsLib.FundingCollateralRemoved(fundingModule, collateralToken);
-    }
-
-    /**
-     * @notice Disables borrowing of a token in a funding module
-     * @param fundingModule Module to update
-     * @param debtToken Token to remove from debt list
-     * @dev No outstanding debt must exist for this token
-     */
-    function removeFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-
-        fundingModule.removeDebtToken(debtToken);
-
-        emit EventsLib.FundingDebtRemoved(fundingModule, debtToken);
-    }
-
-    /**
-     * @notice Posts collateral to a lending facility
-     * @param fundingModule Module managing the facility
-     * @param facilityData Encoded facility identifier
-     * @param collateralToken Token to pledge as collateral
-     * @param collateralAmount Amount to pledge
-     * @dev Transfers tokens to module and updates collateral position
-     */
-    function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external nonReentrant {
-        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-
-        collateralToken.safeTransfer(address(fundingModule), collateralAmount);
-        fundingModule.pledge(facilityData, collateralToken, collateralAmount);
-
-        emit EventsLib.Pledge(fundingModule, facilityData, collateralToken, collateralAmount);
-    }
-
-    /**
-     * @notice Withdraws collateral from a lending facility
-     * @param fundingModule Module managing the facility
-     * @param facilityData Encoded facility identifier
-     * @param collateralToken Token to withdraw
-     * @param collateralAmount Amount to withdraw (max uint256 = all)
-     * @dev Returns tokens to vault, must maintain required collateral ratios
-     */
-    function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external nonReentrant {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-
-        uint256 pledgeAmount = fundingModule.collateralBalance(facilityData, collateralToken);
-
-        if (collateralAmount == type(uint256).max) {
-            collateralAmount = pledgeAmount;
-        }
-
-        fundingModule.depledge(facilityData, collateralToken, collateralAmount);
-
-        emit EventsLib.Depledge(fundingModule, facilityData, collateralToken, collateralAmount);
-    }
-
-    /**
-     * @notice Takes out a loan from a lending facility
-     * @param fundingModule Module managing the facility
-     * @param facilityData Encoded facility identifier
-     * @param debtToken Token to borrow
-     * @param borrowAmount Amount to borrow
-     * @dev Requires sufficient collateral, borrowed tokens sent to vault
-     */
-    function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external nonReentrant {
-        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-
-        fundingModule.borrow(facilityData, debtToken, borrowAmount);
-
-        emit EventsLib.Borrow(fundingModule, facilityData, debtToken, borrowAmount);
-    }
-
-    /**
-     * @notice Repays borrowed tokens to a lending facility
-     * @param fundingModule Module managing the facility
-     * @param facilityData Encoded facility identifier
-     * @param debtToken Token to repay
-     * @param repayAmount Amount to repay (max uint256 = full debt)
-     * @dev Transfers tokens from vault to module, reduces debt position
-     */
-    function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external nonReentrant {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-
-        uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
-
-        if (repayAmount == type(uint256).max) {
-            repayAmount = debtAmount;
-        }
-
-        debtToken.safeTransfer(address(fundingModule), repayAmount);
-        fundingModule.repay(facilityData, debtToken, repayAmount);
-
-        emit EventsLib.Repay(fundingModule, facilityData, debtToken, repayAmount);
-    }
-
-    /**
-     * @notice Provides temporary liquidity for complex operations
-     * @param flashToken Token to flash loan
-     * @param flashAmount Amount to provide temporarily
-     * @param data Custom data passed to the callback
-     * @dev Caller must implement IBoxFlashCallback and return tokens within same transaction
-     * @dev NAV is cached during flash to prevent manipulation
-     */
-    function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocators());
-        require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
-        require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
-        // Prevent re-entrancy. Can't use nonReentrant modifier because of conflict with allocate/deallocate/reallocate
-        require(!_isInFlash, ErrorsLib.AlreadyInFlash());
-
-        // Cache NAV before starting flash operation for slippage calculations
-        _cachedNavForFlash = _nav();
-        _isInFlash = true;
-
-        // Transfer flash amount FROM caller TO this contract
-        flashToken.safeTransferFrom(msg.sender, address(this), flashAmount);
-
-        // Call the callback function on the caller
-        IBoxFlashCallback(msg.sender).onBoxFlash(flashToken, flashAmount, data);
-
-        // Repay the flash loan by transferring back TO caller
-        flashToken.safeTransfer(msg.sender, flashAmount);
-
-        _isInFlash = false;
-
-        emit EventsLib.Flash(msg.sender, flashToken, flashAmount);
     }
 }
