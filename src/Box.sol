@@ -353,21 +353,21 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
 
-        IOracle oracle = oracles[token];
+        uint256 oraclePrice = oracles[token].price();
         uint256 slippageTolerance = winddown ? _winddownSlippageTolerance() : maxSlippage;
 
         if (winddown) {
-            require(
-                assetsAmount <= _debtBalance(token).mulDiv(oracle.price() * PRECISION, PRECISION + slippageTolerance),
-                ErrorsLib.InvalidAmount()
-            );
+            // Limit allocation to debt value adjusted for slippage tolerance
+            uint256 debtValue = _debtBalance(token).mulDiv(oraclePrice, ORACLE_PRECISION);
+            uint256 maxAllocation = debtValue.mulDiv(PRECISION, PRECISION - slippageTolerance);
+            require(assetsAmount <= maxAllocation, ErrorsLib.InvalidAmount());
         }
 
         // Execute swap
         (uint256 assetsSpent, uint256 tokensReceived) = _executeSwap(IERC20(asset), token, assetsAmount, swapper, data);
 
         // Calculate and validate slippage
-        uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oracle.price());
+        uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oraclePrice);
         uint256 minTokens = _calculateMinAmount(expectedTokens, slippageTolerance);
         require(tokensReceived >= minTokens, ErrorsLib.AllocationTooExpensive());
 
@@ -375,7 +375,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Track slippage if we are not in winddown and have positive slippage
         if (!winddown && tokensReceived < expectedTokens) {
-            uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oracle.price(), ORACLE_PRECISION);
+            uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
@@ -397,14 +397,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
 
-        IOracle oracle = oracles[token];
+        uint256 oraclePrice = oracles[token].price();
         uint256 slippageTolerance = winddown ? _winddownSlippageTolerance() : maxSlippage;
 
         // Execute swap
         (uint256 tokensSpent, uint256 assetsReceived) = _executeSwap(token, IERC20(asset), tokensAmount, swapper, data);
 
         // Calculate and validate slippage
-        uint256 expectedAssets = tokensAmount.mulDiv(oracle.price(), ORACLE_PRECISION);
+        uint256 expectedAssets = tokensAmount.mulDiv(oraclePrice, ORACLE_PRECISION);
         uint256 minAssets = _calculateMinAmount(expectedAssets, slippageTolerance);
         require(assetsReceived >= minAssets, ErrorsLib.TokenSaleNotGeneratingEnoughAssets());
 
@@ -435,15 +435,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isToken(from) && isToken(to), ErrorsLib.TokenNotWhitelisted());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
 
-        IOracle fromOracle = oracles[from];
-        IOracle toOracle = oracles[to];
+        uint256 fromOraclePrice = oracles[from].price();
+        uint256 toOraclePrice = oracles[to].price();
 
         // Execute swap
         (uint256 fromSpent, uint256 toReceived) = _executeSwap(from, to, tokensAmount, swapper, data);
 
         // Calculate expected amounts and validate slippage
-        uint256 fromValue = tokensAmount.mulDiv(fromOracle.price(), ORACLE_PRECISION);
-        uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOracle.price());
+        uint256 fromValue = tokensAmount.mulDiv(fromOraclePrice, ORACLE_PRECISION);
+        uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOraclePrice);
         uint256 minToTokens = _calculateMinAmount(expectedToTokens, maxSlippage);
         require(toReceived >= minToTokens, ErrorsLib.ReallocationSlippageTooHigh());
 
@@ -452,7 +452,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage if we have positive slippage
         // Note: No winddown check needed as reallocate cannot be called during winddown
         if (toReceived < expectedToTokens) {
-            uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOracle.price(), ORACLE_PRECISION);
+            uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 

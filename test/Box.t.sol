@@ -142,6 +142,73 @@ contract MaliciousSwapper is ISwapper {
     }
 }
 
+// Mock funding module for testing debt scenarios
+contract MockFunding is IFunding {
+    mapping(IERC20 => uint256) public debtBalances;
+
+    function setDebtBalance(IERC20 token, uint256 amount) external {
+        debtBalances[token] = amount;
+    }
+
+    function debtBalance(IERC20 token) external view returns (uint256) {
+        return debtBalances[token];
+    }
+
+    // Stub implementations for other required functions
+    function nav(IOracleCallback) external pure returns (uint256) {
+        return 0;
+    }
+    function ltv(bytes calldata) external pure returns (uint256) {
+        return 0;
+    }
+    function collateralBalance(bytes calldata, IERC20) external pure returns (uint256) {
+        return 0;
+    }
+    function collateralBalance(IERC20) external pure returns (uint256) {
+        return 0;
+    }
+    function debtBalance(bytes calldata, IERC20) external pure returns (uint256) {
+        return 0;
+    }
+    function isCollateralToken(IERC20) external pure returns (bool) {
+        return false;
+    }
+    function isDebtToken(IERC20) external pure returns (bool) {
+        return true;
+    }
+    function collateralTokensLength() external pure returns (uint256) {
+        return 0;
+    }
+    function debtTokensLength() external pure returns (uint256) {
+        return 0;
+    }
+    function facilitiesLength() external pure returns (uint256) {
+        return 0;
+    }
+    function facilities(uint256) external pure returns (bytes memory) {
+        return "";
+    }
+    function isFacility(bytes calldata) external pure returns (bool) {
+        return false;
+    }
+    function collateralTokens(uint256) external pure returns (IERC20) {
+        return IERC20(address(0));
+    }
+    function debtTokens(uint256) external pure returns (IERC20) {
+        return IERC20(address(0));
+    }
+    function addFacility(bytes calldata) external {}
+    function removeFacility(bytes calldata) external {}
+    function addCollateralToken(IERC20) external {}
+    function removeCollateralToken(IERC20) external {}
+    function addDebtToken(IERC20) external {}
+    function removeDebtToken(IERC20) external {}
+    function pledge(bytes calldata, IERC20, uint256) external {}
+    function depledge(bytes calldata, IERC20, uint256) external {}
+    function borrow(bytes calldata, IERC20, uint256) external {}
+    function repay(bytes calldata, IERC20, uint256) external {}
+}
+
 contract BoxTest is Test {
     using BoxLib for IBox;
     using SafeERC20 for IERC20;
@@ -161,6 +228,7 @@ contract BoxTest is Test {
     MockSwapper public backupSwapper;
     MockSwapper public badSwapper;
     MaliciousSwapper public maliciousSwapper;
+    MockFunding public mockFunding;
 
     address public owner = address(0x1);
     address public allocator = address(0x2);
@@ -213,6 +281,7 @@ contract BoxTest is Test {
         backupSwapper = new MockSwapper();
         badSwapper = new MockSwapper();
         maliciousSwapper = new MaliciousSwapper();
+        mockFunding = new MockFunding();
 
         // Mint tokens for testing
         asset.mint(address(this), 10000e18);
@@ -2875,5 +2944,79 @@ contract BoxTest is Test {
 
         // Verify deallocation worked
         assertTrue(token1.balanceOf(address(box)) < remainingTokens, "Deallocation in late winddown should work");
+    }
+
+    function testWinddownAllocationLimitWithDebt() public {
+        // Setup: deposit assets and add token to whitelist
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        // Add the funding module to the box
+        bytes memory data = "";
+        vm.startPrank(curator);
+        box.submit(abi.encodeWithSelector(box.addFunding.selector, mockFunding));
+        vm.warp(block.timestamp + 1);
+        box.addFunding(mockFunding);
+        vm.stopPrank();
+
+        // Set up debt of 100 token1 (worth 100 assets at 1:1 price)
+        mockFunding.setDebtBalance(token1, 100e18);
+
+        // Trigger shutdown and move to winddown
+        vm.prank(guardian);
+        box.shutdown();
+        vm.warp(block.timestamp + box.shutdownWarmup() + 1);
+        assertTrue(box.isWinddown(), "Should be in winddown");
+
+        // At this point, with 100 token1 debt and 1:1 price, we should be able to allocate up to ~100 assets worth
+        // The exact limit depends on slippage tolerance which increases over time during winddown
+
+        // Get current slippage tolerance
+        uint256 currentTime = block.timestamp;
+        uint256 winddownStart = box.shutdownTime() + box.shutdownWarmup();
+        uint256 timeElapsed = currentTime - winddownStart;
+        uint256 slippageTolerance = (timeElapsed * MAX_SLIPPAGE_LIMIT) / box.shutdownSlippageDuration();
+
+        // Calculate maximum allowed allocation
+        // The formula converts debt tokens to assets value, then adjusts for slippage
+        // debtBalance = 100e18 tokens
+        // oraclePrice = 1e36 (price scaled by ORACLE_PRECISION = 1e36)
+        // debtValue in assets = debtBalance * oraclePrice / ORACLE_PRECISION = 100e18 * 1e36 / 1e36 = 100e18
+        // maxAllocation = debtValue * PRECISION / (PRECISION - slippageTolerance)
+        uint256 debtValue = 100e18; // 100 tokens worth 100 assets at 1:1 price
+        uint256 maxAllocation = (debtValue * PRECISION) / (PRECISION - slippageTolerance);
+
+        // Try to allocate more than allowed - should fail
+        vm.prank(nonAuthorized);
+        vm.expectRevert(ErrorsLib.InvalidAmount.selector);
+        box.allocate(token1, maxAllocation + 1, swapper, "");
+
+        // Allocate exactly at the limit - should succeed
+        vm.prank(nonAuthorized);
+        box.allocate(token1, maxAllocation, swapper, "");
+
+        // Verify allocation happened
+        assertTrue(token1.balanceOf(address(box)) > 0, "Should have allocated tokens");
+    }
+
+    function testWinddownAllocationWithoutDebtShouldFail() public {
+        // Setup: deposit assets and add token to whitelist
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        // Trigger shutdown and move to winddown
+        vm.prank(guardian);
+        box.shutdown();
+        vm.warp(block.timestamp + box.shutdownWarmup() + 1);
+        assertTrue(box.isWinddown(), "Should be in winddown");
+
+        // With no debt, allocation should not be allowed during winddown
+        vm.prank(nonAuthorized);
+        vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
+        box.allocate(token1, 50e18, swapper, "");
     }
 }
