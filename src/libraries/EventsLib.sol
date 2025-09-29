@@ -28,13 +28,30 @@ library EventsLib {
     event FeederUpdated(address indexed account, bool isFeeder);
 
     // ========== INVESTMENT MANAGEMENT ==========
-    event Allocation(IERC20 indexed token, uint256 assets, uint256 tokens, int256 slippagePct, ISwapper indexed swapper, bytes data);
-    event Deallocation(IERC20 indexed token, uint256 tokens, uint256 assets, int256 slippagePct, ISwapper indexed swapper, bytes data);
+    event Allocation(
+        IERC20 indexed token,
+        uint256 assets,
+        uint256 expectedTokens,
+        uint256 actualTokens,
+        int256 slippagePct,
+        ISwapper indexed swapper,
+        bytes data
+    );
+    event Deallocation(
+        IERC20 indexed token,
+        uint256 tokens,
+        uint256 expectedAssets,
+        uint256 actualAssets,
+        int256 slippagePct,
+        ISwapper indexed swapper,
+        bytes data
+    );
     event Reallocation(
         IERC20 indexed fromToken,
         IERC20 indexed toToken,
         uint256 tokensFrom,
-        uint256 tokensTo,
+        uint256 expectedTokensTo,
+        uint256 actualTokensTo,
         int256 slippagePct,
         ISwapper indexed swapper,
         bytes data

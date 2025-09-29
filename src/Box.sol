@@ -379,7 +379,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
-        emit EventsLib.Allocation(token, assetsSpent, tokensReceived, slippagePct, swapper, data);
+        emit EventsLib.Allocation(token, assetsSpent, expectedTokens, tokensReceived, slippagePct, swapper, data);
     }
 
     /**
@@ -417,7 +417,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
-        emit EventsLib.Deallocation(token, tokensSpent, assetsReceived, slippagePct, swapper, data);
+        emit EventsLib.Deallocation(token, tokensSpent, expectedAssets, assetsReceived, slippagePct, swapper, data);
     }
 
     /**
@@ -456,7 +456,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
-        emit EventsLib.Reallocation(from, to, fromSpent, toReceived, slippagePct, swapper, data);
+        emit EventsLib.Reallocation(from, to, fromSpent, expectedToTokens, toReceived, slippagePct, swapper, data);
     }
 
     // ========== ADMIN FUNCTIONS ==========
