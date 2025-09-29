@@ -354,37 +354,28 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
 
         IOracle oracle = oracles[token];
+        uint256 slippageTolerance = winddown ? _winddownSlippageTolerance() : maxSlippage;
 
-        uint256 slippageTolerance = maxSlippage;
         if (winddown) {
-            slippageTolerance = _winddownSlippageTolerance();
+            require(
+                assetsAmount <= _debtBalance(token).mulDiv(oracle.price() * PRECISION, PRECISION + slippageTolerance),
+                ErrorsLib.InvalidAmount()
+            );
         }
 
-        uint256 tokensBefore = token.balanceOf(address(this));
-        uint256 assetsBefore = IERC20(asset).balanceOf(address(this));
+        // Execute swap
+        (uint256 assetsSpent, uint256 tokensReceived) = _executeSwap(IERC20(asset), token, assetsAmount, swapper, data);
 
-        IERC20(asset).forceApprove(address(swapper), assetsAmount);
-        swapper.sell(IERC20(asset), token, assetsAmount, data);
-
-        uint256 tokensReceived = token.balanceOf(address(this)) - tokensBefore;
-        uint256 assetsSpent = assetsBefore - IERC20(asset).balanceOf(address(this));
-
-        require(assetsSpent <= assetsAmount, ErrorsLib.SwapperDidSpendTooMuch());
-
-        // Validate slippage
+        // Calculate and validate slippage
         uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oracle.price());
-        uint256 minTokens = expectedTokens.mulDiv(PRECISION - slippageTolerance, PRECISION);
-        int256 slippage = expectedTokens.toInt256() - tokensReceived.toInt256();
-        int256 slippagePct = expectedTokens == 0 ? int256(0) : (slippage * PRECISION.toInt256()) / expectedTokens.toInt256();
-
+        uint256 minTokens = _calculateMinAmount(expectedTokens, slippageTolerance);
         require(tokensReceived >= minTokens, ErrorsLib.AllocationTooExpensive());
 
-        // Revoke allowance to prevent residual approvals
-        IERC20(asset).forceApprove(address(swapper), 0);
+        int256 slippagePct = _calculateSlippagePct(expectedTokens, tokensReceived);
 
-        // Track slippage, not during wind-down mode
-        if (!winddown && slippage > 0) {
-            uint256 slippageValue = slippage.toUint256().mulDiv(oracle.price(), ORACLE_PRECISION);
+        // Track slippage if we are not in winddown and have positive slippage
+        if (!winddown && tokensReceived < expectedTokens) {
+            uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oracle.price(), ORACLE_PRECISION);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
@@ -407,38 +398,22 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
 
         IOracle oracle = oracles[token];
+        uint256 slippageTolerance = winddown ? _winddownSlippageTolerance() : maxSlippage;
 
-        uint256 slippageTolerance = maxSlippage;
-        if (winddown) {
-            slippageTolerance = _winddownSlippageTolerance();
-        }
+        // Execute swap
+        (uint256 tokensSpent, uint256 assetsReceived) = _executeSwap(token, IERC20(asset), tokensAmount, swapper, data);
 
-        uint256 assetsBefore = IERC20(asset).balanceOf(address(this));
-        uint256 tokensBefore = token.balanceOf(address(this));
-
-        token.forceApprove(address(swapper), tokensAmount);
-        swapper.sell(token, IERC20(asset), tokensAmount, data);
-
-        uint256 assetsReceived = IERC20(asset).balanceOf(address(this)) - assetsBefore;
-        uint256 tokensSpent = tokensBefore - token.balanceOf(address(this));
-
-        require(tokensSpent <= tokensAmount, ErrorsLib.SwapperDidSpendTooMuch());
-
-        // Revoke allowance to prevent residual approvals
-        token.forceApprove(address(swapper), 0);
-
-        // Validate slippage
+        // Calculate and validate slippage
         uint256 expectedAssets = tokensAmount.mulDiv(oracle.price(), ORACLE_PRECISION);
-        uint256 minAssets = expectedAssets.mulDiv(PRECISION - slippageTolerance, PRECISION);
-        int256 slippage = expectedAssets.toInt256() - assetsReceived.toInt256();
-        int256 slippagePct = expectedAssets == 0 ? int256(0) : (slippage * PRECISION.toInt256()) / expectedAssets.toInt256();
-
+        uint256 minAssets = _calculateMinAmount(expectedAssets, slippageTolerance);
         require(assetsReceived >= minAssets, ErrorsLib.TokenSaleNotGeneratingEnoughAssets());
 
-        // Track slippage (only in normal operation)
-        if (!winddown && slippage > 0) {
+        int256 slippagePct = _calculateSlippagePct(expectedAssets, assetsReceived);
+
+        // Track slippage if not in winddown and we have positive slippage
+        if (!winddown && assetsReceived < expectedAssets) {
             // slippage is already in asset units
-            uint256 slippageValue = slippage.toUint256();
+            uint256 slippageValue = expectedAssets - assetsReceived;
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
@@ -463,32 +438,21 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         IOracle fromOracle = oracles[from];
         IOracle toOracle = oracles[to];
 
-        uint256 toBefore = to.balanceOf(address(this));
-        uint256 fromBefore = from.balanceOf(address(this));
+        // Execute swap
+        (uint256 fromSpent, uint256 toReceived) = _executeSwap(from, to, tokensAmount, swapper, data);
 
-        from.forceApprove(address(swapper), tokensAmount);
-        swapper.sell(from, to, tokensAmount, data);
-
-        uint256 toReceived = to.balanceOf(address(this)) - toBefore;
-        uint256 fromSpent = fromBefore - from.balanceOf(address(this));
-
-        require(fromSpent <= tokensAmount, ErrorsLib.SwapperDidSpendTooMuch());
-
-        // Revoke allowance to prevent residual approvals
-        from.forceApprove(address(swapper), 0);
-
-        // Calculate expected amounts
+        // Calculate expected amounts and validate slippage
         uint256 fromValue = tokensAmount.mulDiv(fromOracle.price(), ORACLE_PRECISION);
         uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOracle.price());
-        uint256 minToTokens = expectedToTokens.mulDiv(PRECISION - maxSlippage, PRECISION);
-        int256 slippage = expectedToTokens.toInt256() - toReceived.toInt256();
-        int256 slippagePct = expectedToTokens == 0 ? int256(0) : (slippage * PRECISION.toInt256()) / expectedToTokens.toInt256();
-
+        uint256 minToTokens = _calculateMinAmount(expectedToTokens, maxSlippage);
         require(toReceived >= minToTokens, ErrorsLib.ReallocationSlippageTooHigh());
 
-        // Track slippage, we don't have to exclude wind-down mode as this cannot be called then
-        if (slippage > 0) {
-            uint256 slippageValue = slippage.toUint256().mulDiv(toOracle.price(), ORACLE_PRECISION);
+        int256 slippagePct = _calculateSlippagePct(expectedToTokens, toReceived);
+
+        // Track slippage if we have positive slippage
+        // Note: No winddown check needed as reallocate cannot be called during winddown
+        if (toReceived < expectedToTokens) {
+            uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOracle.price(), ORACLE_PRECISION);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
         }
 
@@ -753,6 +717,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Token balance must be zero and not used in any funding module
      */
     function removeToken(IERC20 token) external {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
         require(token.balanceOf(address(this)) == 0, ErrorsLib.TokenBalanceMustBeZero());
         require(!_isTokenUsedInFunding(token), ErrorsLib.CannotRemove());
@@ -863,6 +828,57 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function _navForSlippage() internal view returns (uint256) {
         return _isInFlash ? _cachedNavForFlash : _nav();
+    }
+
+    /**
+     * @dev Executes a swap through a swapper contract with approval management
+     * @param fromToken Token to sell
+     * @param toToken Token to buy
+     * @param maxAmount Maximum amount of fromToken to sell
+     * @param swapper Swapper contract to execute the trade
+     * @param data Custom data for the swapper
+     * @return spent Actual amount of fromToken spent
+     * @return received Amount of toToken received
+     */
+    function _executeSwap(
+        IERC20 fromToken,
+        IERC20 toToken,
+        uint256 maxAmount,
+        ISwapper swapper,
+        bytes calldata data
+    ) internal returns (uint256 spent, uint256 received) {
+        uint256 fromBefore = fromToken.balanceOf(address(this));
+        uint256 toBefore = toToken.balanceOf(address(this));
+
+        fromToken.forceApprove(address(swapper), maxAmount);
+        swapper.sell(fromToken, toToken, maxAmount, data);
+        fromToken.forceApprove(address(swapper), 0);
+
+        spent = fromBefore - fromToken.balanceOf(address(this));
+        received = toToken.balanceOf(address(this)) - toBefore;
+
+        require(spent <= maxAmount, ErrorsLib.SwapperDidSpendTooMuch());
+    }
+
+    /**
+     * @dev Calculates slippage percentage from expected vs actual amounts
+     * @param expectedAmount Expected amount based on oracle price
+     * @param actualAmount Actual amount received/spent
+     * @return slippagePct Slippage as a percentage scaled by PRECISION
+     */
+    function _calculateSlippagePct(uint256 expectedAmount, uint256 actualAmount) internal pure returns (int256 slippagePct) {
+        int256 slippage = expectedAmount.toInt256() - actualAmount.toInt256();
+        slippagePct = expectedAmount == 0 ? int256(0) : (slippage * PRECISION.toInt256()) / expectedAmount.toInt256();
+    }
+
+    /**
+     * @dev Calculates minimum acceptable amount based on slippage tolerance
+     * @param expectedAmount Expected amount based on oracle price
+     * @param tolerance Maximum allowed slippage scaled by PRECISION
+     * @return minAmount Minimum acceptable amount after slippage
+     */
+    function _calculateMinAmount(uint256 expectedAmount, uint256 tolerance) internal pure returns (uint256 minAmount) {
+        minAmount = expectedAmount.mulDiv(PRECISION - tolerance, PRECISION);
     }
 
     /**
