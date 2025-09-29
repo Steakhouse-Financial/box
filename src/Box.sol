@@ -28,6 +28,11 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @dev It is recommanded to create resiliency by using the BoxAdapterCached
  * @dev and/or by using a Vault V2 as a parent vault, which can have a reported price a but lower the NAV price and a setMaxRate()
  * @dev During flash operations there is no totalAssets() calculation possible to avoid NAV based attacks
+ * @dev There is no protection against ERC4626 inflation attacks, as deposits are controlled via the isFeeder role.
+ *.     Users shouldn't be able to deposited directly or indirectly to a Box.
+ * @dev The Box uses forApprove with 0 value, making it incompatible with BNB chain
+ * @dev Token removal can be stopped by sending dust amount of tokens. Can be fixed by deallocating then removing the token atomically
+ * @dev The slippage protection is Box total assets, a bad allocator can deposit all parent Vault V2 temporally to extract more value than expected
  */
 contract Box is IBox, ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -770,6 +775,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(newDuration <= TIMELOCK_CAP, ErrorsLib.InvalidTimelock());
         require(newDuration < timelock[selector], ErrorsLib.TimelockIncrease());
+        require(timelock[selector] != TIMELOCK_DISABLED, ErrorsLib.InvalidTimelock());
 
         timelock[selector] = newDuration;
 

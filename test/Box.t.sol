@@ -491,7 +491,7 @@ contract BoxTest is Test {
 
         vm.expectEmit(true, true, true, true);
         emit IBoxFactory.BoxCreated(IBox(predicted), IERC20(asset_), owner_, curator_, name_, symbol_, maxSlippage_, slippageEpochDuration_, shutdownSlippageDuration_, shutdownWarmup_);
-        IBox box = boxFactory.createBox(
+        box = boxFactory.createBox(
             IERC20(asset_),
             owner_,
             curator_,
@@ -1872,9 +1872,21 @@ contract BoxTest is Test {
         emit EventsLib.TimelockIncreased(box.setGuardian.selector, 1 days, address(curator));
         box.increaseTimelock(box.setGuardian.selector, 1 days);
         assert(box.timelock(box.setGuardian.selector) == 1 days);
+        
+        // We submit again to decrease to 0 days
+        box.submit(data);
+
+        assert(box.timelock(box.setGuardian.selector) == 1 days);
 
         box.abdicateTimelock(box.setGuardian.selector);
         assert(box.timelock(box.setGuardian.selector) == TIMELOCK_DISABLED);
+
+
+        vm.warp(10 days + 1); // Far later
+
+        // We check that we can't call the decrease timelock after having abdicated
+        vm.expectRevert(ErrorsLib.InvalidTimelock.selector);
+        box.decreaseTimelock(box.setGuardian.selector, 0 days);
 
         vm.stopPrank();
     }
