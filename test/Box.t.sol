@@ -254,13 +254,30 @@ contract BoxTest is Test {
 
     event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
     event Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
-    event Allocation(IERC20 indexed token, uint256 assets, uint256 tokens, int256 slippagePct, ISwapper indexed swapper, bytes data);
-    event Deallocation(IERC20 indexed token, uint256 tokens, uint256 assets, int256 slippagePct, ISwapper indexed swapper, bytes data);
+    event Allocation(
+        IERC20 indexed token,
+        uint256 assets,
+        uint256 expectedTokens,
+        uint256 actualTokens,
+        int256 slippagePct,
+        ISwapper indexed swapper,
+        bytes data
+    );
+    event Deallocation(
+        IERC20 indexed token,
+        uint256 tokens,
+        uint256 expectedAssets,
+        uint256 actualAssets,
+        int256 slippagePct,
+        ISwapper indexed swapper,
+        bytes data
+    );
     event Reallocation(
         IERC20 indexed fromToken,
         IERC20 indexed toToken,
         uint256 fromAmount,
-        uint256 toAmount,
+        uint256 expectedToAmount,
+        uint256 actualToAmount,
         int256 slippagePct,
         ISwapper indexed swapper,
         bytes data
@@ -834,7 +851,7 @@ contract BoxTest is Test {
         vm.stopPrank();
 
         vm.expectEmit(true, true, true, true);
-        emit Allocation(token1, 50e18, 50e18, 0, swapper, "");
+        emit Allocation(token1, 50e18, 50e18, 50e18, 0, swapper, "");
 
         // Allocate to token1
         vm.prank(allocator);
@@ -953,7 +970,7 @@ contract BoxTest is Test {
         box.allocate(token1, 50e18, swapper, "");
 
         vm.expectEmit(true, true, true, true);
-        emit Deallocation(token1, 25e18, 25e18, 0, swapper, "");
+        emit Deallocation(token1, 25e18, 25e18, 25e18, 0, swapper, "");
 
         // Deallocate
         vm.prank(allocator);
@@ -1021,7 +1038,7 @@ contract BoxTest is Test {
         box.allocate(token1, 50e18, swapper, "");
 
         vm.expectEmit(true, true, true, true);
-        emit Reallocation(token1, token2, 25e18, 25e18, 0, swapper, "");
+        emit Reallocation(token1, token2, 25e18, 25e18, 25e18, 0, swapper, "");
 
         // Reallocate from token1 to token2
         vm.prank(allocator);
@@ -2313,8 +2330,9 @@ contract BoxTest is Test {
         oracle1.setPrice(1.1e36); // 1 token = 1.1 assets, so we expect 45.45 tokens for 50 assets
 
         // Expect event with negative slippage percentage (positive performance)
+        // Expected: 45.45e18 tokens (50 / 1.1), Actual: 50e18 tokens
         vm.expectEmit(true, true, true, true);
-        emit Allocation(token1, 50e18, 50e18, -0.1e18, swapper, ""); // -10% slippage
+        emit Allocation(token1, 50e18, 45454545454545454545, 50e18, -0.1e18, swapper, ""); // -10% slippage
 
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
@@ -2336,8 +2354,9 @@ contract BoxTest is Test {
         oracle1.setPrice(0.9e36); // 1 token = 0.9 assets, so we expect 22.5 assets for 25 tokens
 
         // Expect event with negative slippage percentage (positive performance)
+        // Expected: 22.5e18 assets (25 * 0.9), Actual: 25e18 assets
         vm.expectEmit(true, true, true, true);
-        emit Deallocation(token1, 25e18, 25e18, -0.111111111111111111e18, swapper, ""); // ~-11% slippage
+        emit Deallocation(token1, 25e18, 22500000000000000000, 25e18, -0.111111111111111111e18, swapper, ""); // ~-11% slippage
 
         vm.prank(allocator);
         box.deallocate(token1, 25e18, swapper, "");
@@ -2360,8 +2379,9 @@ contract BoxTest is Test {
         oracle2.setPrice(1.1e36); // 1 token2 = 1.1 assets, so we expect ~22.73 token2 for 25 token1
 
         // Expect event with negative slippage percentage (positive performance)
+        // Expected: 22.727e18 token2 (25 * 1 / 1.1), Actual: 25e18 token2
         vm.expectEmit(true, true, true, true, address(box));
-        emit Reallocation(token1, token2, 25e18, 25e18, -0.1e18, swapper, ""); // -10% slippage
+        emit Reallocation(token1, token2, 25e18, 22727272727272727272, 25e18, -0.1e18, swapper, ""); // -10% slippage
 
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, swapper, "");
@@ -2381,7 +2401,7 @@ contract BoxTest is Test {
 
         // Expect event with 50 assets spent
         vm.expectEmit(true, true, true, true);
-        emit Allocation(token1, 50e18, 50e18, 0, swapper, "");
+        emit Allocation(token1, 50e18, 50e18, 50e18, 0, swapper, "");
 
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
@@ -2404,7 +2424,7 @@ contract BoxTest is Test {
 
         // Expect event with 25 tokens spent
         vm.expectEmit(true, true, true, true);
-        emit Deallocation(token1, 25e18, 25e18, 0, swapper, "");
+        emit Deallocation(token1, 25e18, 25e18, 25e18, 0, swapper, "");
 
         vm.prank(allocator);
         box.deallocate(token1, 25e18, swapper, "");
@@ -2427,7 +2447,7 @@ contract BoxTest is Test {
 
         // Expect event with 25 tokens spent and received
         vm.expectEmit(true, true, true, true, address(box));
-        emit Reallocation(token1, token2, 25e18, 25e18, 0, swapper, "");
+        emit Reallocation(token1, token2, 25e18, 25e18, 25e18, 0, swapper, "");
 
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, swapper, "");
@@ -2446,7 +2466,7 @@ contract BoxTest is Test {
 
         // Expect event with custom data
         vm.expectEmit(true, true, true, true);
-        emit Allocation(token1, 50e18, 50e18, 0, swapper, customData);
+        emit Allocation(token1, 50e18, 50e18, 50e18, 0, swapper, customData);
 
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, customData);
@@ -2486,7 +2506,7 @@ contract BoxTest is Test {
 
         // Now slippage tolerance should be ~0.5%, so this should work
         vm.expectEmit(true, true, true, true);
-        emit Deallocation(token1, 25e18, 24.875e18, 5000000000000000, highSlippageSwapper, ""); // 0.5% slippage
+        emit Deallocation(token1, 25e18, 25e18, 24.875e18, 5000000000000000, highSlippageSwapper, ""); // 0.5% slippage
 
         vm.prank(nonAuthorized);
         box.deallocate(token1, 25e18, highSlippageSwapper, "");
@@ -2506,7 +2526,7 @@ contract BoxTest is Test {
         // With 1% slippage on 100 assets, we get 99 tokens
         // Expected: 100, Actual: 99, Slippage: 1/100 = 1%
         vm.expectEmit(true, true, true, true);
-        emit Allocation(token1, 100e18, 99e18, 0.01e18, swapper, ""); // 1% slippage
+        emit Allocation(token1, 100e18, 100e18, 99e18, 0.01e18, swapper, ""); // 1% slippage
 
         vm.prank(allocator);
         box.allocate(token1, 100e18, swapper, "");
@@ -2529,7 +2549,7 @@ contract BoxTest is Test {
         // With 1% slippage on 50 tokens, we get 49.5 assets
         // Expected: 50, Actual: 49.5, Slippage: 0.5/50 = 1%
         vm.expectEmit(true, true, true, true);
-        emit Deallocation(token1, 50e18, 49.5e18, 0.01e18, swapper, ""); // 1% slippage
+        emit Deallocation(token1, 50e18, 50e18, 49.5e18, 0.01e18, swapper, ""); // 1% slippage
 
         vm.prank(allocator);
         box.deallocate(token1, 50e18, swapper, "");
@@ -2631,7 +2651,7 @@ contract BoxTest is Test {
         // Same price oracles, with 1% slippage on swap
         // From 50 token1 we expect 50 token2, but get 49.5 due to slippage
         vm.expectEmit(true, true, true, true, address(box));
-        emit Reallocation(token1, token2, 50e18, 49.5e18, 10000000000000000, backupSwapper, ""); // 1% slippage
+        emit Reallocation(token1, token2, 50e18, 50e18, 49.5e18, 10000000000000000, backupSwapper, ""); // 1% slippage
 
         vm.prank(allocator);
         box.reallocate(token1, token2, 50e18, backupSwapper, "");
@@ -2648,24 +2668,24 @@ contract BoxTest is Test {
 
         // First allocation
         vm.expectEmit(true, true, true, true);
-        emit Allocation(token1, 100e18, 100e18, 0, swapper, "");
+        emit Allocation(token1, 100e18, 100e18, 100e18, 0, swapper, "");
 
         vm.startPrank(allocator);
         box.allocate(token1, 100e18, swapper, "");
 
         // Second allocation to different token
         vm.expectEmit(true, true, true, true);
-        emit Allocation(token2, 150e18, 150e18, 0, swapper, "");
+        emit Allocation(token2, 150e18, 150e18, 150e18, 0, swapper, "");
         box.allocate(token2, 150e18, swapper, "");
 
         // Reallocate between tokens
         vm.expectEmit(true, true, true, true, address(box));
-        emit Reallocation(token1, token2, 50e18, 50e18, 0, swapper, "");
+        emit Reallocation(token1, token2, 50e18, 50e18, 50e18, 0, swapper, "");
         box.reallocate(token1, token2, 50e18, swapper, "");
 
         // Deallocate from token2
         vm.expectEmit(true, true, true, true);
-        emit Deallocation(token2, 100e18, 100e18, 0, swapper, "");
+        emit Deallocation(token2, 100e18, 100e18, 100e18, 0, swapper, "");
         box.deallocate(token2, 100e18, swapper, "");
         vm.stopPrank();
 

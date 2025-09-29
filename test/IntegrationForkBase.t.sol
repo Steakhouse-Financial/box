@@ -645,7 +645,15 @@ contract IntegrationForkBaseTest is Test {
         vm.expectEmit(true, true, true, true);
         emit EventsLib.SlippageAccumulated(430674700893582, 430674700893582);
         vm.expectEmit(true, true, true, true);
-        emit EventsLib.Allocation(IERC20(ptusr25sep), USDC_AMOUNT, 10098450142215613367131, 430489300239495, ISwapper(swapper), "");
+        emit EventsLib.Allocation(
+            IERC20(ptusr25sep),
+            USDC_AMOUNT,
+            10102799289212086350341,
+            10098450142215613367131,
+            430489300239495,
+            ISwapper(swapper),
+            ""
+        );
         box2.allocate(ptusr25sep, USDC_AMOUNT, swapper, "");
 
         assertEq(box2.totalAssets(), 9995695106, "Total asset after allocate doesn't match");
@@ -657,7 +665,8 @@ contract IntegrationForkBaseTest is Test {
         emit EventsLib.Deallocation(
             IERC20(ptusr25sep),
             ptusr25sep.balanceOf(address(box2)),
-            9991058547,
+            9995695106, // expected assets
+            9991058547, // actual assets
             463855584912435,
             ISwapper(swapper),
             ""
