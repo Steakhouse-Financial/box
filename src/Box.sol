@@ -54,41 +54,55 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Contract owner with administrative privileges
     address public owner;
 
-    /// @notice Curator who add new tokens
+    /// @notice Curator who manages tokens and funding modules
     address public curator;
 
-    /// @notice Guardian who can revoke sensitive actions
+    /// @notice Guardian who can trigger shutdowns and revoke timelocked actions
     address public guardian;
 
     /// @notice Timestamp when shutdown was triggered, no shutdown if type(uint256).max
     uint256 public shutdownTime;
 
-    /// @notice Recipient of skimmed tokens
+    /// @notice Recipient of skimmed tokens that aren't part of the vault's strategy
     address public skimRecipient;
 
-    // Role mappings
+    /// @notice Tracks which addresses can execute allocation strategies
     mapping(address => bool) public isAllocator;
+
+    /// @notice Tracks which addresses can deposit into the vault
     mapping(address => bool) public isFeeder;
 
-    // Tokens management
+    /// @notice List of whitelisted investment tokens
     IERC20[] public tokens;
+
+    /// @notice Maps each token to its price oracle
     mapping(IERC20 => IOracle) public oracles;
 
-    // Slippage tracking
+    /// @notice Maximum allowed slippage per operation and per epoch (scaled by PRECISION = 1e18)
     uint256 public maxSlippage;
+
+    /// @notice Accumulated slippage within current epoch (scaled by PRECISION = 1e18)
     uint256 public accumulatedSlippage;
+
+    /// @notice Timestamp when the current slippage tracking epoch started
     uint256 public slippageEpochStart;
 
-    // Timelock governance
+    /// @notice Delay duration for each function selector (in seconds)
     mapping(bytes4 => uint256) public timelock;
+
+    /// @notice Timestamp when specific calldata becomes executable
     mapping(bytes => uint256) public executableAt;
 
-    // Funding modules
+    /// @notice List of whitelisted funding modules for borrowing/lending
     IFunding[] public fundings;
+
+    /// @notice Quick lookup to check if a funding module is whitelisted
     mapping(IFunding => bool) internal fundingMap;
 
-    // Flash loan tracking
+    /// @notice Flag indicating if a flash operation is in progress
     bool private _isInFlash;
+
+    /// @notice Cached NAV value during flash operations to prevent manipulation
     uint256 private _cachedNavForFlash;
 
     // ========== CONSTRUCTOR ==========
@@ -152,34 +166,41 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== ERC4626 IMPLEMENTATION ==========
 
     /// @inheritdoc IERC4626
-    /// @dev No NAV calculation during flash loans
+    /// @notice Returns the total value of assets managed by the vault
+    /// @dev Reverts during flash loans to prevent NAV manipulation
     function totalAssets() public view returns (uint256) {
         return _nav();
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Calculates shares received for a given asset amount
     function convertToShares(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
         return supply == 0 ? assets : assets.mulDiv(supply, totalAssets());
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Calculates assets received for redeeming shares
     function convertToAssets(uint256 shares) public view returns (uint256) {
         uint256 supply = totalSupply();
         return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply);
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Maximum assets that can be deposited
     function maxDeposit(address) external view returns (uint256) {
         return (isShutdown()) ? 0 : type(uint256).max;
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Simulates share minting for a deposit
     function previewDeposit(uint256 assets) public view returns (uint256) {
         return convertToShares(assets);
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Deposits base asset and mints shares to receiver
+    /// @dev Only authorized feeders can deposit
     function deposit(uint256 assets, address receiver) public nonReentrant returns (uint256 shares) {
         require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
         require(!isShutdown(), ErrorsLib.CannotDuringShutdown());
@@ -194,17 +215,21 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Maximum shares that can be minted
     function maxMint(address) external view returns (uint256) {
         return (isShutdown()) ? 0 : type(uint256).max;
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Simulates assets needed to mint shares
     function previewMint(uint256 shares) public view returns (uint256) {
         uint256 supply = totalSupply();
         return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply, Math.Rounding.Ceil);
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Mints exact shares by depositing necessary base asset
+    /// @dev Only authorized feeders can mint
     function mint(uint256 shares, address receiver) external nonReentrant returns (uint256 assets) {
         require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
         require(!isShutdown(), ErrorsLib.CannotDuringShutdown());
@@ -219,17 +244,21 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Maximum assets owner can withdraw
     function maxWithdraw(address owner_) external view returns (uint256) {
         return convertToAssets(balanceOf(owner_));
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Simulates shares burned for withdrawing assets
     function previewWithdraw(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
         return supply == 0 ? assets : assets.mulDiv(supply, totalAssets(), Math.Rounding.Ceil);
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Withdraws base asset by burning owner's shares
+    /// @dev Requires sufficient shares and vault liquidity
     function withdraw(uint256 assets, address receiver, address owner_) public nonReentrant returns (uint256 shares) {
         if (receiver == address(0)) revert ErrorsLib.InvalidAddress();
 
@@ -253,16 +282,20 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Maximum shares owner can redeem
     function maxRedeem(address owner_) external view returns (uint256) {
         return balanceOf(owner_);
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Simulates assets received for redeeming shares
     function previewRedeem(uint256 shares) public view returns (uint256) {
         return convertToAssets(shares);
     }
 
     /// @inheritdoc IERC4626
+    /// @notice Redeems shares for underlying base asset
+    /// @dev Burns shares and transfers base asset to receiver
     function redeem(uint256 shares, address receiver, address owner_) external nonReentrant returns (uint256 assets) {
         if (receiver == address(0)) revert ErrorsLib.InvalidAddress();
 
@@ -288,9 +321,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== INVESTMENT MANAGEMENT ==========
 
     /**
-     * @notice Skims non-essential tokens from the contract
-     * @param token Token to skim
-     * @dev Token must not be the base currency or an investment token
+     * @notice Transfers accidentally sent tokens to the skim recipient
+     * @param token Token to skim from the contract
+     * @dev Cannot skim the base asset or whitelisted investment tokens
      */
     function skim(IERC20 token) external nonReentrant {
         require(msg.sender == skimRecipient, ErrorsLib.OnlySkimRecipient());
@@ -306,12 +339,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Allocates assets to buy tokens
-     * @param token Token to buy
-     * @param assetsAmount Amount of assets to spend (should be > 0)
-     * @param swapper Swapper contract to use (should not be address(0))
-     * @param data Additional data to pass to the swapper
-     * @dev Can be called by allocators or during shutdown after warmup if there is debt for `token`
+     * @notice Swaps base asset for investment tokens
+     * @param token Target token to acquire
+     * @param assetsAmount Maximum amount of base asset to spend
+     * @param swapper Contract that will execute the swap
+     * @param data Custom data for the swapper implementation
+     * @dev Enforces slippage protection based on oracle prices
+     * @dev During wind-down, slippage tolerance increases over time
      */
     function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) public nonReentrant {
         bool winddown = isWinddown();
@@ -358,12 +392,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Deallocates investment tokens to get assets
-     * @param token Investment token to sell
-     * @param tokensAmount Amount of tokens to sell
-     * @param swapper Swapper contract to use
-     * @param data Additional data to pass to the swapper
-     * @dev Can be called by allocators or anyone during wind-down, except if there is no debt for `token`
+     * @notice Swaps investment tokens back to base asset
+     * @param token Token to sell
+     * @param tokensAmount Maximum amount of tokens to sell
+     * @param swapper Contract that will execute the swap
+     * @param data Custom data for the swapper implementation
+     * @dev Enforces slippage protection based on oracle prices
+     * @dev During wind-down, anyone can deallocate tokens with no outstanding debt
      */
     function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
         bool winddown = isWinddown();
@@ -411,12 +446,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Reallocates from one investment token to another
-     * @param from Token to sell
-     * @param to Token to buy
-     * @param tokensAmount Amount of 'from' token to sell
-     * @param swapper Swapper contract to use
-     * @param data Additional data to pass to the swapper
+     * @notice Swaps between two investment tokens directly
+     * @param from Source token to sell
+     * @param to Target token to buy
+     * @param tokensAmount Maximum amount of source token to sell
+     * @param swapper Contract that will execute the swap
+     * @param data Custom data for the swapper implementation
+     * @dev More gas efficient than separate deallocate + allocate
      */
     function reallocate(IERC20 from, IERC20 to, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
@@ -462,8 +498,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== ADMIN FUNCTIONS ==========
 
     /**
-     * @notice Updates the skim recipient address
-     * @param newSkimRecipient Address of new skim recipient
+     * @notice Sets the address that receives skimmed tokens
+     * @param newSkimRecipient New recipient address for skimmed tokens
+     * @dev Only owner can call this function
      */
     function setSkimRecipient(address newSkimRecipient) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
@@ -477,8 +514,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Transfers ownership to a new address
-     * @param newOwner Address of new owner
+     * @notice Transfers ownership of the contract
+     * @param newOwner Address that will become the new owner
+     * @dev Immediately transfers all owner privileges
      */
     function transferOwnership(address newOwner) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
@@ -491,8 +529,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Updates the curator address
-     * @param newCurator Address of new curator
+     * @notice Sets a new curator for the vault
+     * @param newCurator Address that will manage tokens and funding
+     * @dev Only owner can update the curator
      */
     function setCurator(address newCurator) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
@@ -504,8 +543,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Updates the curator address (timelocked)
-     * @param newGuardian Address of new guardian
+     * @notice Sets a new guardian with emergency powers
+     * @param newGuardian Address that can trigger shutdowns and revoke actions
+     * @dev Requires timelock, only curator can execute
      */
     function setGuardian(address newGuardian) external {
         require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
@@ -519,9 +559,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Updates allocator status for an account
-     * @param account Address to update
-     * @param newIsAllocator New allocator status
+     * @notice Grants or revokes allocator privileges
+     * @param account Address to modify permissions for
+     * @param newIsAllocator True to grant allocator role, false to revoke
+     * @dev Allocators can execute investment strategies
      */
     function setIsAllocator(address account, bool newIsAllocator) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
@@ -533,8 +574,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Triggers shutdown
-     * @dev Only guardian and curators can trigger shutdown
+     * @notice Initiates emergency shutdown of the vault
+     * @dev Stops deposits and starts the wind-down process after warmup period
+     * @dev Guardian or curator can trigger shutdown
      */
     function shutdown() external {
         require(msg.sender == guardian || msg.sender == curator, ErrorsLib.OnlyGuardianOrCuratorCanShutdown());
@@ -546,8 +588,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Recover from shutdown
-     * @dev Only guardian can recover from shutdown, and only before wind-down period
+     * @notice Cancels shutdown and returns vault to normal operation
+     * @dev Only guardian can recover, must be before wind-down phase starts
      */
     function recover() external {
         require(msg.sender == guardian, ErrorsLib.OnlyGuardianCanRecover());
@@ -562,9 +604,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== TIMELOCK GOVERNANCE ==========
 
     /**
-     * @notice Submits a transaction for timelock
-     * @param data Encoded function call
-     * @dev If decreaseTimelock is called, the selector in the data is used to determine the timelock duration
+     * @notice Submits a function call to the timelock queue
+     * @param data Encoded function call to be executed after delay
+     * @dev Delay duration depends on the function selector
      */
     function submit(bytes calldata data) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
@@ -580,6 +622,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.TimelockSubmitted(selector, data, executableAt[data], msg.sender);
     }
 
+    /**
+     * @dev Validates and consumes a timelocked transaction
+     * @dev Checks if current calldata is timelocked and ready for execution
+     */
     function timelocked() internal {
         require(executableAt[msg.data] > 0, ErrorsLib.DataNotTimelocked());
         require(block.timestamp >= executableAt[msg.data], ErrorsLib.TimelockNotExpired());
@@ -590,8 +636,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Revokes a timelocked transaction
-     * @param data Encoded function call to revoke
+     * @notice Cancels a pending timelocked transaction
+     * @param data Encoded function call to cancel
+     * @dev Guardian or curator can revoke pending transactions
      */
     function revoke(bytes calldata data) external {
         require(msg.sender == curator || msg.sender == guardian, ErrorsLib.OnlyCuratorOrGuardian());
@@ -604,9 +651,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Increases timelock duration for a function, doesn't require a timelock
-     * @param selector Function selector
-     * @param newDuration New timelock duration
+     * @notice Extends the timelock delay for a function
+     * @param selector Function signature to modify
+     * @param newDuration New delay in seconds (must be longer than current)
+     * @dev No timelock required to increase delays
      */
     function increaseTimelock(bytes4 selector, uint256 newDuration) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
@@ -619,9 +667,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Decrease timelock duration for a function requires a timelock
-     * @param selector Function selector
-     * @param newDuration New timelock duration
+     * @notice Reduces the timelock delay for a function
+     * @param selector Function signature to modify
+     * @param newDuration New delay in seconds (must be shorter than current)
+     * @dev Requires timelock to prevent governance attacks
      */
     function decreaseTimelock(bytes4 selector, uint256 newDuration) external {
         timelocked();
@@ -635,9 +684,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Make a timelock selector no longer exectutable by putting it in the far future
-     * @param selector Function selector
-     * @dev You can't recover from this operation, be careful
+     * @notice Permanently disables a function by setting infinite timelock
+     * @param selector Function signature to disable
+     * @dev Irreversible - function becomes permanently inaccessible
      */
     function abdicateTimelock(bytes4 selector) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
@@ -650,9 +699,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== TIMELOCKED FUNCTIONS ==========
 
     /**
-     * @notice Updates feeder status for an account
-     * @param account Address to update
-     * @param newIsFeeder New feeder status
+     * @notice Grants or revokes deposit privileges
+     * @param account Address to modify permissions for
+     * @param newIsFeeder True to allow deposits, false to revoke
+     * @dev Requires timelock to add feeders
      */
     function setIsFeeder(address account, bool newIsFeeder) external {
         timelocked();
@@ -664,8 +714,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Updates maximum allowed slippage
-     * @param newMaxSlippage New maximum slippage percentage
+     * @notice Sets the maximum tolerated slippage for swaps
+     * @param newMaxSlippage New limit scaled by PRECISION (e.g., 0.01e18 = 1%)
+     * @dev Requires timelock, applies per-swap and per-epoch
      */
     function setMaxSlippage(uint256 newMaxSlippage) external {
         timelocked();
@@ -678,9 +729,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Adds a new token
-     * @param token Token to add
-     * @param oracle Price oracle for the token
+     * @notice Whitelists a new investment token
+     * @param token Token contract to add
+     * @param oracle Price feed for the token
+     * @dev Requires timelock, oracle must return prices in base asset terms
      */
     function addToken(IERC20 token, IOracle oracle) external {
         timelocked();
@@ -696,8 +748,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Removes an investment token
-     * @param token Token to remove
+     * @notice Removes a token from the whitelist
+     * @param token Token to delist
+     * @dev Token balance must be zero and not used in any funding module
      */
     function removeToken(IERC20 token) external {
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
@@ -722,9 +775,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Change the oracle of a token
-     * @param token Token that is already allowed
-     * @param oracle New oracle
+     * @notice Updates the price oracle for a whitelisted token
+     * @param token Token to update oracle for
+     * @param oracle New price feed contract
+     * @dev Requires timelock in normal operation, guardian can update during final wind-down
      */
     function changeTokenOracle(IERC20 token, IOracle oracle) external {
         if (isWinddown()) {
@@ -743,57 +797,59 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     // ========== VIEW FUNCTIONS ==========
     /**
-     * @notice Returns true if token is an investment token
-     * @return true if it is a whitelisted investment token
+     * @notice Checks if a token is whitelisted for investment
+     * @param token Token to check
+     * @return True if the token has an associated oracle
      */
     function isToken(IERC20 token) public view returns (bool) {
         return address(oracles[token]) != address(0);
     }
 
     /**
-     * @notice Returns true if token is an investment token
-     * @return true if it is a whitelisted investment token
+     * @notice Checks if a token is the base asset or a whitelisted token
+     * @param token Token to check
+     * @return True if it's the base asset or has an oracle
      */
     function isTokenOrAsset(IERC20 token) public view returns (bool) {
         return address(token) == asset || address(oracles[token]) != address(0);
     }
 
     /**
-     * @notice Returns number of investment tokens
-     * @return count Number of investment tokens
+     * @notice Gets the count of whitelisted tokens
+     * @return Number of tokens in the investment list
      */
     function tokensLength() external view returns (uint256) {
         return tokens.length;
     }
 
     /**
-     * @notice Returns true if funding module is whitelisted
-     * @param fundingModule Funding module to check
-     * @return true if funding module is whitelisted
+     * @notice Checks if a funding module is authorized
+     * @param fundingModule Module to verify
+     * @return True if the module can be used for borrowing/lending
      */
     function isFunding(IFunding fundingModule) public view returns (bool) {
         return fundingMap[fundingModule];
     }
 
     /**
-     * @notice Returns number of funding modules
-     * @return count Number of funding modules
+     * @notice Gets the count of active funding modules
+     * @return Number of modules available for borrowing/lending
      */
     function fundingsLength() external view override returns (uint256) {
         return fundings.length;
     }
 
     /**
-     * @notice Returns true if the box is in shutdown mode (shutdownTime != type(uint256).max)
-     * @return true if the box is in shutdown mode
+     * @notice Checks if the vault is in shutdown mode
+     * @return True if shutdown has been triggered
      */
     function isShutdown() public view returns (bool) {
         return shutdownTime != type(uint256).max;
     }
 
     /**
-     * @notice Returns true if Box is in wind-down mode (after warmup delay of shutdown)
-     * @return true if the Box is in wind-down mode
+     * @notice Checks if the vault has entered wind-down phase
+     * @return True if past the warmup period after shutdown
      */
     function isWinddown() public view returns (bool) {
         return shutdownTime != type(uint256).max && block.timestamp >= shutdownTime + shutdownWarmup;
@@ -802,14 +858,17 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== INTERNAL FUNCTIONS ==========
 
     /**
-     * @dev Returns NAV for slippage calculations - uses cached value during flash operations
+     * @dev Gets NAV for slippage tracking, using cached value during flash loans
+     * @return NAV value safe for slippage calculations
      */
     function _navForSlippage() internal view returns (uint256) {
         return _isInFlash ? _cachedNavForFlash : _nav();
     }
 
     /**
-     * @dev Increases accumulated slippage and checks against maximum
+     * @dev Tracks slippage within current epoch and enforces limits
+     * @param slippagePct Slippage to add scaled by PRECISION
+     * @dev Resets epoch if duration has passed
      */
     function _increaseSlippage(uint256 slippagePct) internal {
         // Reset epoch if expired
@@ -827,10 +886,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @dev Calculates the net asset value of all tokens and assets in the vault
-     * @return nav The net asset value of all assets
-     * @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
-     * @dev No NAV calculation during flash loans
+     * @dev Calculates total vault value across all positions
+     * @return nav Sum of base asset, token values, and funding positions
+     * @dev Reverts during flash operations to prevent manipulation
+     * @dev Negative funding NAV is floored to zero
      */
     function _nav() internal view returns (uint256 nav) {
         require(_isInFlash == false, ErrorsLib.NoNavDuringFlash());
@@ -863,7 +922,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @dev Assume wind-down mode, otherwise will revert
+     * @dev Calculates dynamic slippage tolerance during wind-down
+     * @return Slippage limit that increases linearly over shutdown duration
+     * @dev Returns up to 100% slippage after full duration
      */
     function _winddownSlippageTolerance() internal view returns (uint256) {
         uint256 timeElapsed = block.timestamp - shutdownWarmup - shutdownTime;
@@ -873,6 +934,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
                 : MAX_SLIPPAGE_LIMIT;
     }
 
+    /**
+     * @dev Locates a funding module's position in the array
+     * @param fundingData Module to find
+     * @return Index in the fundings array
+     * @dev Reverts if module is not whitelisted
+     */
     function _findFundingIndex(IFunding fundingData) internal view returns (uint256) {
         for (uint256 i = 0; i < fundings.length; i++) {
             if (fundings[i] == fundingData) {
@@ -882,6 +949,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         revert ErrorsLib.NotWhitelisted();
     }
 
+    /**
+     * @dev Checks if a token is used in any funding module
+     * @param token Token to check
+     * @return True if token is used as collateral or debt anywhere
+     */
     function _isTokenUsedInFunding(IERC20 token) internal view returns (bool) {
         uint256 length = fundings.length;
         for (uint256 i; i < length; i++) {
@@ -894,9 +966,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @notice Returns the total debt balance across all funding modules for a given debt token
-     * @param debtToken The debt token to check
-     * @return totalDebt The total debt balance
+     * @dev Sums outstanding debt for a token across all modules
+     * @param debtToken Token to check debt for
+     * @return totalDebt Combined debt balance from all facilities
      */
     function _debtBalance(IERC20 debtToken) internal view returns (uint256 totalDebt) {
         uint256 length = fundings.length;
@@ -908,7 +980,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     // ========== FUNDING VIEW FUNCTIONS ==========
 
-    /// @dev The fundingModule should be completely empty
+    /**
+     * @notice Adds a new funding module for borrowing/lending
+     * @param fundingModule Module contract to whitelist
+     * @dev Module must be empty with no facilities, collateral, or debt
+     */
     function addFunding(IFunding fundingModule) external {
         timelocked();
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
@@ -924,6 +1000,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.FundingModuleAdded(fundingModule);
     }
 
+    /**
+     * @notice Registers a lending facility within a funding module
+     * @param fundingModule Module to add facility to
+     * @param facilityData Encoded facility parameters
+     * @dev Requires timelock, facility specifics depend on module implementation
+     */
     function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
         timelocked();
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
@@ -934,6 +1016,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.FundingFacilityAdded(fundingModule, facilityData);
     }
 
+    /**
+     * @notice Enables a token as collateral in a funding module
+     * @param fundingModule Module to configure
+     * @param collateralToken Token to use as collateral
+     * @dev Token must be whitelisted in the vault first
+     */
     function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
         timelocked();
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
@@ -945,6 +1033,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.FundingCollateralAdded(fundingModule, collateralToken);
     }
 
+    /**
+     * @notice Enables a token for borrowing in a funding module
+     * @param fundingModule Module to configure
+     * @param debtToken Token that can be borrowed
+     * @dev Token must be whitelisted in the vault first
+     */
     function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
         timelocked();
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
@@ -956,6 +1050,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.FundingDebtAdded(fundingModule, debtToken);
     }
 
+    /**
+     * @notice Removes a funding module from the vault
+     * @param fundingModule Module to remove
+     * @dev Module must be empty with no active facilities, collateral, or debt
+     */
     function removeFunding(IFunding fundingModule) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
@@ -972,6 +1071,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.FundingModuleRemoved(fundingModule);
     }
 
+    /**
+     * @notice Deregisters a lending facility from a funding module
+     * @param fundingModule Module containing the facility
+     * @param facilityData Encoded facility identifier
+     * @dev Facility must have no outstanding positions
+     */
     function removeFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
@@ -981,6 +1086,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.FundingFacilityRemoved(fundingModule, facilityData);
     }
 
+    /**
+     * @notice Disables a token as collateral in a funding module
+     * @param fundingModule Module to update
+     * @param collateralToken Token to remove from collateral list
+     * @dev Token must not be actively used as collateral
+     */
     function removeFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
@@ -990,6 +1101,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.FundingCollateralRemoved(fundingModule, collateralToken);
     }
 
+    /**
+     * @notice Disables borrowing of a token in a funding module
+     * @param fundingModule Module to update
+     * @param debtToken Token to remove from debt list
+     * @dev No outstanding debt must exist for this token
+     */
     function removeFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
@@ -999,6 +1116,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.FundingDebtRemoved(fundingModule, debtToken);
     }
 
+    /**
+     * @notice Posts collateral to a lending facility
+     * @param fundingModule Module managing the facility
+     * @param facilityData Encoded facility identifier
+     * @param collateralToken Token to pledge as collateral
+     * @param collateralAmount Amount to pledge
+     * @dev Transfers tokens to module and updates collateral position
+     */
     function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
@@ -1009,6 +1134,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.Pledge(fundingModule, facilityData, collateralToken, collateralAmount);
     }
 
+    /**
+     * @notice Withdraws collateral from a lending facility
+     * @param fundingModule Module managing the facility
+     * @param facilityData Encoded facility identifier
+     * @param collateralToken Token to withdraw
+     * @param collateralAmount Amount to withdraw (max uint256 = all)
+     * @dev Returns tokens to vault, must maintain required collateral ratios
+     */
     function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
@@ -1024,6 +1157,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.Depledge(fundingModule, facilityData, collateralToken, collateralAmount);
     }
 
+    /**
+     * @notice Takes out a loan from a lending facility
+     * @param fundingModule Module managing the facility
+     * @param facilityData Encoded facility identifier
+     * @param debtToken Token to borrow
+     * @param borrowAmount Amount to borrow
+     * @dev Requires sufficient collateral, borrowed tokens sent to vault
+     */
     function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
         require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
@@ -1033,6 +1174,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.Borrow(fundingModule, facilityData, debtToken, borrowAmount);
     }
 
+    /**
+     * @notice Repays borrowed tokens to a lending facility
+     * @param fundingModule Module managing the facility
+     * @param facilityData Encoded facility identifier
+     * @param debtToken Token to repay
+     * @param repayAmount Amount to repay (max uint256 = full debt)
+     * @dev Transfers tokens from vault to module, reduces debt position
+     */
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external {
         require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
@@ -1049,6 +1198,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.Repay(fundingModule, facilityData, debtToken, repayAmount);
     }
 
+    /**
+     * @notice Provides temporary liquidity for complex operations
+     * @param flashToken Token to flash loan
+     * @param flashAmount Amount to provide temporarily
+     * @param data Custom data passed to the callback
+     * @dev Caller must implement IBoxFlashCallback and return tokens within same transaction
+     * @dev NAV is cached during flash to prevent manipulation
+     */
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
         require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocators());
         require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
