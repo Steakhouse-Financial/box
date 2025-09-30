@@ -41,6 +41,9 @@ jobs:
         id: build
 
       - name: Run Forge tests
+        env:
+          ETH_RPC_URL: ${{ secrets.ETH_RPC_URL }}
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
         run: |
           forge test -vvv
         id: test
