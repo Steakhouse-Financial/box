@@ -33,7 +33,7 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @dev The Box uses forApprove with 0 value, making it incompatible with BNB chain
  * @dev Token removal can be stopped by sending dust amount of tokens. Can be fixed by deallocating then removing the token atomically
  * @dev The epoch-based slippage protection is relative to Box total assets, but a bad allocator can deposit all parent Vault V2
- *      fund into one Box to temporarily inflate its total asset and extract more value than expected.
+ * @dev fund into one Box to temporarily inflate its total asset and extract more value than expected.
  */
 contract Box is IBox, ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
