@@ -27,10 +27,13 @@ jobs:
         run: |
           forge --version
 
-      - name: Run Forge fmt
-        run: |
-          forge fmt --check
-        id: fmt
+      # Forge fmt check is disabled because the project uses Prettier for formatting
+      # forge fmt and prettier have incompatible formatting rules that cannot be fully aligned
+      # Run 'yarn format' locally to format code according to project standards
+      # - name: Run Forge fmt
+      #   run: |
+      #     forge fmt --check
+      #   id: fmt
 
       - name: Run Forge build
         run: |

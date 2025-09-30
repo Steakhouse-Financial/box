@@ -1,0 +1,37 @@
+{
+  "name": "box",
+  "version": "1.0.0",
+  "description": "A box is an ERC4626-compatable contract that is allows to: - Hold an underlying asset (e.g. USDC) which is also used to `deposit`/`redeem`.  - `allocate`/`deallocate`/`reallocate` from the underlying asset to whitelisted tokens - Can use the tokens and/or the asset as collateral to get funding in tokens and/or asset using funding modules.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "solhint 'src/**/*.sol'",
+    "lint:fix": "solhint 'src/**/*.sol' --fix",
+    "format": "prettier --write 'src/**/*.sol' 'test/**/*.sol' 'script/**/*.sol'",
+    "format:check": "prettier --check 'src/**/*.sol' 'test/**/*.sol' 'script/**/*.sol'",
+    "format:lint": "yarn format && yarn lint"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Steakhouse-Financial/box.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Steakhouse-Financial/box/issues"
+  },
+  "homepage": "https://github.com/Steakhouse-Financial/box#readme",
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "prettier-plugin-solidity": "^2.1.0",
+    "solhint": "^6.0.1",
+    "solhint-plugin-prettier": "^0.1.0"
+  },
+  "dependencies": {}
+}

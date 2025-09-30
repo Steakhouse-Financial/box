@@ -2,5 +2,36 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+remappings = [
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@vault-v2=lib/vault-v2/",
+    "@morpho-blue/=lib/morpho-blue/src/"
+]
+optimizer = true
+optimizer_runs = 100
+via_ir = true
+evm_version = "prague"
+gas_reports = ["*"]
+libraries = []
+
+[etherscan]
+mainnet = { key = "${ETHERSCAN_API_KEY}" }
+base = { key = "${ETHERSCAN_API_KEY}" }
+
+[rpc_endpoints]
+base = "${BASE_RPC_URL}"
+eth = "${ETH_RPC_URL}"
+mainnet = "${ETH_RPC_URL}"
+local = "${LOCAL_RPC_URL}"
+
+[fmt]
+line_length = 140
+tab_width = 4
+bracket_spacing = false
+quote_style = "double"
+int_types = "long"
+wrap_comments = false
+multiline_func_header = "params_first"
+single_line_statement_blocks = "single"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
