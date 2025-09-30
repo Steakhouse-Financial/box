@@ -40,7 +40,7 @@ contract DeployEthereumScript is Script {
     using BoxLib for IBox;
     using VaultV2Lib for VaultV2;
     using MorphoVaultV1AdapterLib for MorphoVaultV1Adapter;
-    
+
     VaultV2Factory vaultV2Factory = VaultV2Factory(0xA1D94F746dEfa1928926b84fB2596c06926C0405);
     MorphoVaultV1AdapterFactory mv1AdapterFactory = MorphoVaultV1AdapterFactory(0xD1B8E2dee25c2b89DCD2f98448a7ce87d6F63394);
     MorphoMarketV1AdapterFactory mm1AdapterFactory = MorphoMarketV1AdapterFactory(0xb049465969ac6355127cDf9E88deE63d25204d5D);
@@ -93,12 +93,11 @@ contract DeployEthereumScript is Script {
     IERC20 ptcusdo20nov = IERC20(0xB10DA2F9147f9cf2B8826877Cd0c95c18A0f42dc);
     IOracle ptcusdo20novOracle = IOracle(0x0dF910a47452B995F545D66eb135f38D0FbB142E);
 
-
     IMorpho morpho = IMorpho(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
     IMetaMorpho bbqusdc = IMetaMorpho(0xBEeFFF209270748ddd194831b3fa287a5386f5bC);
 
     ISwapper swapper = ISwapper(0x732ca7E5b02f3E9Fe8D5CA7B17B1D1ea47A57A1B);
-    FlashLoanMorpho flashLoanMorpho = FlashLoanMorpho(address(0)); 
+    FlashLoanMorpho flashLoanMorpho = FlashLoanMorpho(address(0));
 
     ///@dev This script deploys the necessary contracts for the Peaty product on Base.
     function run() public {
@@ -111,15 +110,7 @@ contract DeployEthereumScript is Script {
         vm.startBroadcast();
         BoxFactory boxFactory_ = new BoxFactory();
         console.log("BoxFactory deployed at:", address(boxFactory_));
-        new Box(address(usdc), 
-            address(1),
-            address(1),
-            "test",
-            "test",
-            1,
-            1,
-            1,
-            1); // Just for basescan to have the source code
+        new Box(address(usdc), address(1), address(1), "test", "test", 1, 1, 1, 1); // Just for basescan to have the source code
         vm.stopBroadcast();
         return boxFactory_;
     }
@@ -177,7 +168,6 @@ contract DeployEthereumScript is Script {
         }
     }
 
-
     function deployPeaty() public returns (IVaultV2) {
         vm.startBroadcast();
 
@@ -196,7 +186,6 @@ contract DeployEthereumScript is Script {
         vault.setSymbol("ptUSDC");
 
         vault.setMaxRate(MAX_MAX_RATE);
-
 
         address adapterMV1 = mv1AdapterFactory.createMorphoVaultV1Adapter(address(vault), address(bbqusdc));
         console.log("MorphoVaultV1Adapter deployed at:", adapterMV1);
@@ -250,7 +239,6 @@ contract DeployEthereumScript is Script {
 
         IBox boxEthena = box;
         address boxEthenaAdapter = address(adapter);
-
 
         // Creating Box which will invest in Reservoir ecosystem
         name = "Box Reservoir";
@@ -367,7 +355,6 @@ contract DeployEthereumScript is Script {
         IBox boxUSDO = box;
         address boxUSDOAdapter = address(adapter);
 
-
         //========== Seeding some USDC to the vault for testing ==========
         usdc.approve(address(vault), 10 * 10 ** 6);
         vault.deposit(10 * 10 ** 6, address(vault));
@@ -390,17 +377,14 @@ contract DeployEthereumScript is Script {
         vault.allocate(boxUSDOAdapter, "", 2 * 10 ** 6);
         boxUSDO.allocate(ptcusdo20nov, 2 * 10 ** 6, swapper, "");
 
-
-
         //========== Preprod settings ==========
         vault.setCurator(address(curator));
         vault.setOwner(address(owner));
 
         // To fail the script
-       // boxEthena.abdicateTimelock(Box.setGuardian.selector);
+        // boxEthena.abdicateTimelock(Box.setGuardian.selector);
 
         vm.stopBroadcast();
         return vault;
     }
-
 }
