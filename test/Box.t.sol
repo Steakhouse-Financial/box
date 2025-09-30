@@ -142,7 +142,6 @@ contract MaliciousSwapper is ISwapper {
     }
 }
 
-
 contract MaliciousFundingSwapper is ISwapper {
     IBox public box;
     IFunding public funding;
@@ -490,7 +489,18 @@ contract BoxTest is Test {
         );
 
         vm.expectEmit(true, true, true, true);
-        emit IBoxFactory.BoxCreated(IBox(predicted), IERC20(asset_), owner_, curator_, name_, symbol_, maxSlippage_, slippageEpochDuration_, shutdownSlippageDuration_, shutdownWarmup_);
+        emit IBoxFactory.BoxCreated(
+            IBox(predicted),
+            IERC20(asset_),
+            owner_,
+            curator_,
+            name_,
+            symbol_,
+            maxSlippage_,
+            slippageEpochDuration_,
+            shutdownSlippageDuration_,
+            shutdownWarmup_
+        );
         box = boxFactory.createBox(
             IERC20(asset_),
             owner_,
@@ -1872,7 +1882,7 @@ contract BoxTest is Test {
         emit EventsLib.TimelockIncreased(box.setGuardian.selector, 1 days, address(curator));
         box.increaseTimelock(box.setGuardian.selector, 1 days);
         assert(box.timelock(box.setGuardian.selector) == 1 days);
-        
+
         // We submit again to decrease to 0 days
         box.submit(data);
 
@@ -1880,7 +1890,6 @@ contract BoxTest is Test {
 
         box.abdicateTimelock(box.setGuardian.selector);
         assert(box.timelock(box.setGuardian.selector) == TIMELOCK_DISABLED);
-
 
         vm.warp(10 days + 1); // Far later
 
