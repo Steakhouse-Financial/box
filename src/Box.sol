@@ -902,7 +902,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function addFunding(IFunding fundingModule) external {
         timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(!fundingMap[fundingModule], ErrorsLib.AlreadyWhitelisted());
         require(address(fundingModule) != address(0), ErrorsLib.InvalidAddress());
         require(fundingModule.facilitiesLength() == 0, ErrorsLib.NotClean());
@@ -923,7 +922,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
         timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
         fundingModule.addFacility(facilityData);
@@ -956,7 +954,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
         timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
         require(isTokenOrAsset(debtToken), ErrorsLib.TokenNotWhitelisted());
 
