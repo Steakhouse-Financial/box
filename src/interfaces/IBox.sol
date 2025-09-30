@@ -37,9 +37,25 @@ interface IBox is IERC4626 {
 
     // ========== INVESTMENT MANAGEMENT ==========
     function skim(IERC20 token) external;
-    function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) external returns (uint256 expected, uint256 received);
-    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external returns (uint256 expected, uint256 received);
-    function reallocate(IERC20 from, IERC20 to, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external returns (uint256 expected, uint256 received);
+    function allocate(
+        IERC20 token,
+        uint256 assetsAmount,
+        ISwapper swapper,
+        bytes calldata data
+    ) external returns (uint256 expected, uint256 received);
+    function deallocate(
+        IERC20 token,
+        uint256 tokensAmount,
+        ISwapper swapper,
+        bytes calldata data
+    ) external returns (uint256 expected, uint256 received);
+    function reallocate(
+        IERC20 from,
+        IERC20 to,
+        uint256 tokensAmount,
+        ISwapper swapper,
+        bytes calldata data
+    ) external returns (uint256 expected, uint256 received);
 
     // ========== SIMPLE FUNDING OPERATIONS ==========
     function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;

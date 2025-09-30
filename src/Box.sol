@@ -29,10 +29,11 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @dev and/or by using a Vault V2 as a parent vault, which can have a reported price a but lower the NAV price and a setMaxRate()
  * @dev During flash operations there is no totalAssets() calculation possible to avoid NAV based attacks
  * @dev There is no protection against ERC4626 inflation attacks, as deposits are controlled via the isFeeder role.
- *.     Users shouldn't be able to deposited directly or indirectly to a Box.
+ * @dev Users shouldn't be able to deposited directly or indirectly to a Box.
  * @dev The Box uses forApprove with 0 value, making it incompatible with BNB chain
  * @dev Token removal can be stopped by sending dust amount of tokens. Can be fixed by deallocating then removing the token atomically
- * @dev The slippage protection is Box total assets, a bad allocator can deposit all parent Vault V2 temporally to extract more value than expected
+ * @dev The slippage protection is Box total assets,
+ * @dev a bad allocator can deposit all parent Vault V2 temporally to extract more value than expected
  */
 contract Box is IBox, ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -354,7 +355,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Enforces slippage protection based on oracle prices
      * @dev During wind-down, slippage tolerance increases over time
      */
-    function allocate(IERC20 token, uint256 assetsAmount, ISwapper swapper, bytes calldata data) public nonReentrant returns (uint256 expected, uint256 received) {
+    function allocate(
+        IERC20 token,
+        uint256 assetsAmount,
+        ISwapper swapper,
+        bytes calldata data
+    ) public nonReentrant returns (uint256 expected, uint256 received) {
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) > 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
@@ -402,7 +408,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Enforces slippage protection based on oracle prices
      * @dev During wind-down, anyone can deallocate tokens with no outstanding debt
      */
-    function deallocate(IERC20 token, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant returns (uint256 expected, uint256 received) {
+    function deallocate(
+        IERC20 token,
+        uint256 tokensAmount,
+        ISwapper swapper,
+        bytes calldata data
+    ) external nonReentrant returns (uint256 expected, uint256 received) {
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) == 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
@@ -444,7 +455,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @return received Actual amount of target token received from the reallocation
      * @dev More gas efficient than separate deallocate + allocate
      */
-    function reallocate(IERC20 from, IERC20 to, uint256 tokensAmount, ISwapper swapper, bytes calldata data) external nonReentrant returns (uint256 expected, uint256 received) {
+    function reallocate(
+        IERC20 from,
+        IERC20 to,
+        uint256 tokensAmount,
+        ISwapper swapper,
+        bytes calldata data
+    ) external nonReentrant returns (uint256 expected, uint256 received) {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
         require(isToken(from) && isToken(to), ErrorsLib.TokenNotWhitelisted());
@@ -486,7 +503,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param collateralAmount Amount to pledge
      * @dev Transfers tokens to module and updates collateral position
      */
-    function pledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external nonReentrant {
+    function pledge(
+        IFunding fundingModule,
+        bytes calldata facilityData,
+        IERC20 collateralToken,
+        uint256 collateralAmount
+    ) external nonReentrant {
         require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 
@@ -504,7 +526,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param collateralAmount Amount to withdraw (max uint256 = all)
      * @dev Returns tokens to vault, must maintain required collateral ratios
      */
-    function depledge(IFunding fundingModule, bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external nonReentrant {
+    function depledge(
+        IFunding fundingModule,
+        bytes calldata facilityData,
+        IERC20 collateralToken,
+        uint256 collateralAmount
+    ) external nonReentrant {
         require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
 

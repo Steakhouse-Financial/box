@@ -8,7 +8,18 @@ import {IBox} from "./IBox.sol";
 interface IBoxFactory {
     /* EVENTS */
 
-    event BoxCreated(IBox indexed box, IERC20 indexed currency, address indexed owner, address curator, string name, string symbol, uint256 maxSlippage, uint256 slippageEpochDuration, uint256 shutdownSlippageDuration, uint256 shutdownWarmup);
+    event BoxCreated(
+        IBox indexed box,
+        IERC20 indexed currency,
+        address indexed owner,
+        address curator,
+        string name,
+        string symbol,
+        uint256 maxSlippage,
+        uint256 slippageEpochDuration,
+        uint256 shutdownSlippageDuration,
+        uint256 shutdownWarmup
+    );
 
     /* FUNCTIONS */
 
