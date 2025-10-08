@@ -102,7 +102,8 @@ contract DeployBaseScript is Script {
             0.01 ether,
             7 days,
             10 days,
-            7 days);
+            7 days
+        );
         console.log("BoxFactory deployed at:", address(boxFactory_));
         vm.stopBroadcast();
         return boxFactory_;
@@ -134,12 +135,11 @@ contract DeployBaseScript is Script {
     function deployVaultV2Helper() public returns (VaultV2Helper) {
         vm.startBroadcast();
         VaultV2Helper vaultV2Helper_ = new VaultV2Helper();
-        new Revoker(address(1), address(2)); // For decoding purposes on basescan
+        new Revoker(IVaultV2(address(1)), address(2)); // For decoding purposes on basescan
         console.log("VaultV2Helper deployed at:", address(vaultV2Helper_));
         vm.stopBroadcast();
         return vaultV2Helper_;
     }
-
 
     function addMarketsToAdapterFromVault(VaultV2 vault, MorphoMarketV1Adapter mm1Adapter, IMetaMorpho vaultv1) public {
         uint256 length = vaultv1.withdrawQueueLength();
@@ -510,7 +510,7 @@ contract DeployBaseScript is Script {
         vm.stopBroadcast();
         return vault;
     }
-/*
+    /*
     function deployPeatyCBBTC() public returns (IVaultV2) {
         vm.startBroadcast();
 
@@ -635,7 +635,6 @@ contract DeployBaseScript is Script {
         return vault;
     }*/
 
-
     function deployPeatyETHTurbo() public returns (IVaultV2) {
         vm.startBroadcast();
 
@@ -729,7 +728,11 @@ contract DeployBaseScript is Script {
         facilityData = fundingMorpho.encodeFacilityData(fundingMarketParams);
         box1.addFundingFacilityInstant(fundingMorpho, facilityData);
 
-        FundingAave fundingAave = new FundingAave(address(box1), IPool(0xA238Dd80C259a72e81d7e4664a9801593F98d1c5), 8 /* wstETH/ETH emode) */);
+        FundingAave fundingAave = new FundingAave(
+            address(box1),
+            IPool(0xA238Dd80C259a72e81d7e4664a9801593F98d1c5),
+            8 /* wstETH/ETH emode) */
+        );
         box1.addFundingInstant(fundingAave);
         box1.addFundingCollateralInstant(fundingAave, wsteth);
         box1.addFundingDebtInstant(fundingAave, weth);
@@ -737,11 +740,10 @@ contract DeployBaseScript is Script {
         fundingAave = new FundingAave(address(box1), IPool(0xA238Dd80C259a72e81d7e4664a9801593F98d1c5), 9 /* cbETH/ETH emode) */);
         box1.addFundingInstant(fundingAave);
         box1.addFundingCollateralInstant(fundingAave, cbeth);
-        box1.addFundingDebtInstant(fundingAave, weth);        
+        box1.addFundingDebtInstant(fundingAave, weth);
 
         box1.setCurator(address(curator));
         box1.transferOwnership(address(owner));
-
 
         vault.removeAllocatorInstant(address(tx.origin));
         vault.setCurator(address(curator));
@@ -751,19 +753,18 @@ contract DeployBaseScript is Script {
         return vault;
     }
 
-
     function deployBbqUSDC() public returns (IVaultV2) {
         vm.startBroadcast();
 
         VaultV2Helper helper = new VaultV2Helper();
 
-        IVaultV2 vault = helper.create(usdc, "45", "Steakhouse High Yield Instant", "bbqUSDC");
-        console.log("Vault deployed at:", vault);
+        IVaultV2 vault = helper.create(address(usdc), bytes32("45"), "Steakhouse High Yield Instant", "bbqUSDC");
+        console.log("Vault deployed at:", address(vault));
 
-        address guardian = helper.createGuardian(vault);
-        console.log("Guardian deployed at:", guardian);
-        helper.setGuardian(vault, guardian);
-        address msig = helper.setOwner(vault, owner, guardian);
+        address guardianAddr = helper.createGuardian(vault);
+        console.log("Guardian deployed at:", guardianAddr);
+        helper.setGuardian(vault, guardianAddr);
+        address msig = helper.setOwner(vault, owner, guardianAddr);
         console.log("Msig deployed at:", msig);
 
         helper.addVaultV1(vault, address(bbqusdc), true);
