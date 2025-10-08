@@ -118,6 +118,7 @@ contract DeployEthereumScript is Script {
     function deployBoxAdapterFactory() public returns (BoxAdapterFactory) {
         vm.startBroadcast();
         BoxAdapterFactory boxAdapterFactory_ = new BoxAdapterFactory();
+        new BoxAdapter(address(1), IBox(address(1))); // Just for etherscan to have the source code
         console.log("BoxAdapterFactory deployed at:", address(boxAdapterFactory_));
         vm.stopBroadcast();
         return boxAdapterFactory_;
@@ -126,6 +127,7 @@ contract DeployEthereumScript is Script {
     function deployBoxAdapterCachedFactory() public returns (BoxAdapterCachedFactory) {
         vm.startBroadcast();
         BoxAdapterCachedFactory boxAdapterCachedFactory_ = new BoxAdapterCachedFactory();
+        new BoxAdapterCached(address(1), IBox(address(1))); // Just for etherscan to have the source code
         console.log("BoxAdapterCachedFactory deployed at:", address(boxAdapterCachedFactory_));
         vm.stopBroadcast();
         return boxAdapterCachedFactory_;
@@ -136,6 +138,69 @@ contract DeployEthereumScript is Script {
         FlashLoanMorpho flm = new FlashLoanMorpho(address(morpho));
         console.log("FlashLoanMorpho deployed at:", address(flm));
         vm.stopBroadcast();
+    }
+
+
+    function _createVault(address currency, bytes salt, string memory name, string memory symbol)) internal returns (IVaultV2 vault) {
+        vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
+        console.log("Peaty deployed at:", address(vault));
+
+        vault.setCurator(address(tx.origin));
+
+        vault.addAllocatorInstant(address(tx.origin));
+        vault.addAllocatorInstant(address(allocator1));
+        vault.addAllocatorInstant(address(allocator2));
+
+        vault.setName("Peaty USDC");
+        vault.setSymbol("ptUSDC");
+
+        vault.setMaxRate(MAX_MAX_RATE);
+    }
+
+    function _updateForMorphoAdapterRegistry(IVaultV2 vault) internal {
+        // Set the correct adapter registry and abdicate
+        vault.submit(abi.encodeWithSelector(vault.setAdapterRegistry.selector, 0x3696c5eAe4a7Ffd04Ea163564571E9CD8Ed9364e));
+        vault.setAdapterRegistry(0x3696c5eAe4a7Ffd04Ea163564571E9CD8Ed9364e);
+        vault.submit(abi.encodeWithSelector(vault.abdicate.selector, vault.setAdapterRegistry.selector));
+        vault.abdicate(vault.setAdapterRegistry.selector);
+    }
+
+    function _finalizeConfig(IVaultV2 vault, uint256 capsDays) internal {
+        // Morpho requires a lot of them to be 7 days, some are fine with 3 days
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.setReceiveAssetsGate.selector, 7 days));
+        vault.increaseTimelock(vault.setReceiveAssetsGate.selector, 7 days);
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.setReceiveSharesGate.selector, 7 days));
+        vault.increaseTimelock(vault.setReceiveSharesGate.selector, 7 days);
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.setSendSharesGate.selector, 7 days));
+        vault.increaseTimelock(vault.setSendSharesGate.selector, 7 days);
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.setSendAssetsGate.selector, 7 days));
+        vault.increaseTimelock(vault.setSendAssetsGate.selector, 7 days);
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.abdicate.selector, 7 days));
+        vault.increaseTimelock(vault.abdicate.selector, 7 days);
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.setAdapterRegistry.selector, 7 days));
+        vault.increaseTimelock(vault.setAdapterRegistry.selector, 7 days);
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.removeAdapter.selector, 7 days));
+        vault.increaseTimelock(vault.removeAdapter.selector, 7 days);
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.setForceDeallocatePenalty.selector, 7 days));
+        vault.increaseTimelock(vault.setForceDeallocatePenalty.selector, 7 days);
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.abdicate.selector, 7 days));
+        vault.increaseTimelock(vault.abdicate.selector, 7 days);
+
+        // Those need to be 3-days to be accepted in the Morpho UI
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.addAdapter.selector, capsDays));
+        vault.increaseTimelock(vault.addAdapter.selector, capsDays);
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.increaseRelativeCap.selector, capsDays));
+        vault.increaseTimelock(vault.increaseRelativeCap.selector, capsDays);
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.increaseAbsoluteCap.selector, capsDays));
+        vault.increaseTimelock(vault.increaseAbsoluteCap.selector, capsDays);
+
+        // Those need to be at least 7-days to be accepted in the Morpho UI, this should be the last increase
+        vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.increaseTimelock.selector, 7 days));
+        vault.increaseTimelock(vault.increaseTimelock.selector, 7 days);
+
+        // Production owners 
+        vault.setCurator(address(curator));
+        vault.setOwner(address(owner));
     }
 
     function addMarketsToAdapterFromVault(VaultV2 vault, MorphoMarketV1Adapter mm1Adapter, IMetaMorpho vaultv1) public {
@@ -174,6 +239,227 @@ contract DeployEthereumScript is Script {
         bytes32 salt = "42";
 
         VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
+        console.log("Peaty deployed at:", address(vault));
+
+        vault.setCurator(address(tx.origin));
+
+        vault.addAllocatorInstant(address(tx.origin));
+        vault.addAllocatorInstant(address(allocator1));
+        vault.addAllocatorInstant(address(allocator2));
+
+        vault.setName("Peaty USDC");
+        vault.setSymbol("ptUSDC");
+
+        vault.setMaxRate(MAX_MAX_RATE);
+
+        address adapterMV1 = mv1AdapterFactory.createMorphoVaultV1Adapter(address(vault), address(bbqusdc));
+        console.log("MorphoVaultV1Adapter deployed at:", adapterMV1);
+
+        vault.addCollateralInstant(
+            adapterMV1,
+            abi.encode("this", adapterMV1),
+            1_000_000_000 * 10 ** 6, // 1_000_000_000 USDC absolute cap
+            1 ether // 100% relative cap
+        );
+
+        // Creating Box which will invest in Ethena ecosystem
+        string memory name = "Box Ethena";
+        string memory symbol = "BOX_ETHENA";
+        uint256 maxSlippage = 0.0025 ether; // 0.25%
+        uint256 slippageEpochDuration = 7 days;
+        uint256 shutdownSlippageDuration = 10 days;
+        uint256 shutdownWarmup = 7 days;
+        IBox box = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box Ethena deployed at:", address(box));
+        // Creating the ERC4626 adapter between the vault and box
+        IBoxAdapter adapter = boxAdapterFactory.createBoxAdapter(address(vault), box);
+
+        box.addTokenInstant(ptsusde25sep, ptsusde25sepOracle);
+        box.addTokenInstant(ptusde25sep, ptusde25sepOracle);
+        box.addTokenInstant(ptsusde27nov, ptsusde27novOracle);
+        box.addTokenInstant(ptusde27nov, ptusde27novOracle);
+        box.addTokenInstant(usde, usdeOracle);
+        box.addTokenInstant(susde, susdeOracle);
+
+        box.abdicateTimelock(box.addFunding.selector);
+
+        box.setIsAllocator(address(allocator1), true);
+        box.setIsAllocator(address(allocator2), true);
+        box.addFeederInstant(address(adapter));
+        box.setCurator(address(curator));
+        box.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter), adapter.adapterData(), 100_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter), 0.0 ether); // 0% penalty
+
+        IBox boxEthena = box;
+        address boxEthenaAdapter = address(adapter);
+
+        // Creating Box which will invest in Reservoir ecosystem
+        name = "Box Reservoir";
+        symbol = "BOX_RESERVOIR";
+        maxSlippage = 0.0025 ether; // 0.25%
+        slippageEpochDuration = 7 days;
+        shutdownSlippageDuration = 10 days;
+        shutdownWarmup = 7 days;
+        box = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box Reservoir deployed at:", address(box));
+        // Creating the ERC4626 adapter between the vault and box2
+        adapter = boxAdapterFactory.createBoxAdapter(address(vault), box);
+
+        // Allow box 2 to invest in PT-WSR-USD-30OCT
+        box.addTokenInstant(ptwsrusd30oct, ptwsrusd30octOracle);
+        box.addTokenInstant(wsrusd, wsrusdOracle);
+        box.abdicateTimelock(box.addFunding.selector);
+
+        box.setIsAllocator(address(allocator1), true);
+        box.setIsAllocator(address(allocator2), true);
+        box.addFeederInstant(address(adapter));
+        box.setCurator(address(curator));
+        box.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter), adapter.adapterData(), 100_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter), 0.0 ether); // 0% penalty
+
+        IBox boxReservoir = box;
+        address boxReservoirAdapter = address(adapter);
+
+        // Creating Box which will invest in csUSDL ecosystem
+        name = "Box csUSDL";
+        symbol = "BOX_CSUSDL";
+        maxSlippage = 0.0025 ether; // 0.25%
+        slippageEpochDuration = 7 days;
+        shutdownSlippageDuration = 10 days;
+        shutdownWarmup = 7 days;
+        box = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box csUSDL deployed at:", address(box));
+        // Creating the ERC4626 adapter between the vault and box2
+        adapter = boxAdapterFactory.createBoxAdapter(address(vault), box);
+
+        // Allow box 2 to invest in PT-CUSDL-30OCT
+        box.addTokenInstant(ptcusdl30oct, ptcusdl30octOracle);
+        box.abdicateTimelock(box.addFunding.selector);
+
+        box.setIsAllocator(address(allocator1), true);
+        box.setIsAllocator(address(allocator2), true);
+        box.addFeederInstant(address(adapter));
+        box.setCurator(address(curator));
+        box.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter), adapter.adapterData(), 100_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter), 0.0 ether); // 0% penalty
+
+        IBox boxCoinshift = box;
+        address boxCoinshiftAdapter = address(adapter);
+
+        // Creating Box which will invest in cUSDO ecosystem
+        name = "Box cUSDO";
+        symbol = "BOX_CUSDO";
+        maxSlippage = 0.0025 ether; // 0.25%
+        slippageEpochDuration = 7 days;
+        shutdownSlippageDuration = 10 days;
+        shutdownWarmup = 7 days;
+        box = boxFactory.createBox(
+            usdc,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log("Box cUSDO deployed at:", address(box));
+        // Creating the ERC4626 adapter between the vault and box2
+        adapter = boxAdapterFactory.createBoxAdapter(address(vault), box);
+
+        // Allow box 2 to invest in PT-CUSDO-20NOV
+        box.addTokenInstant(ptcusdo20nov, ptcusdo20novOracle);
+        box.abdicateTimelock(box.addFunding.selector);
+
+        box.setIsAllocator(address(allocator1), true);
+        box.setIsAllocator(address(allocator2), true);
+        box.addFeederInstant(address(adapter));
+        box.setCurator(address(curator));
+        box.transferOwnership(address(owner));
+        vault.addCollateralInstant(address(adapter), adapter.adapterData(), 100_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
+        vault.setForceDeallocatePenaltyInstant(address(adapter), 0.0 ether); // 0% penalty
+
+        IBox boxUSDO = box;
+        address boxUSDOAdapter = address(adapter);
+
+        //========== Seeding some USDC to the vault for testing ==========
+        usdc.approve(address(vault), 10 * 10 ** 6);
+        vault.deposit(10 * 10 ** 6, address(vault));
+
+        vault.allocate(adapterMV1, "", 1 * 10 ** 6);
+
+        vault.allocate(boxEthenaAdapter, "", 2 * 10 ** 6);
+        boxEthena.allocate(ptusde25sep, 1.6 * 10 ** 6, swapper, "");
+        boxEthena.allocate(ptsusde25sep, 0.2 * 10 ** 6, swapper, "");
+        boxEthena.allocate(ptusde27nov, 0.1 * 10 ** 6, swapper, "");
+        boxEthena.allocate(ptsusde27nov, 0.1 * 10 ** 6, swapper, "");
+
+        vault.allocate(boxReservoirAdapter, "", 2 * 10 ** 6);
+        boxReservoir.allocate(ptwsrusd30oct, 1.9 * 10 ** 6, swapper, "");
+        boxReservoir.allocate(wsrusd, 0.1 * 10 ** 6, swapper, "");
+
+        vault.allocate(boxCoinshiftAdapter, "", 1 * 10 ** 6);
+        boxCoinshift.allocate(ptcusdl30oct, 1 * 10 ** 6, swapper, "");
+
+        vault.allocate(boxUSDOAdapter, "", 2 * 10 ** 6);
+        boxUSDO.allocate(ptcusdo20nov, 2 * 10 ** 6, swapper, "");
+
+        //========== Preprod settings ==========
+        vault.setCurator(address(curator));
+        vault.setOwner(address(owner));
+
+        // To fail the script
+        // boxEthena.abdicateTimelock(Box.setGuardian.selector);
+
+        vm.stopBroadcast();
+        return vault;
+    }
+
+
+    function deployPeaty() public returns (IVaultV2) {
+        vm.startBroadcast();
+
+        bytes32 salt = "42";
+
+        VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(eth), salt));
         console.log("Peaty deployed at:", address(vault));
 
         vault.setCurator(address(tx.origin));
