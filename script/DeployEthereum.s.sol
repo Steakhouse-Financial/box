@@ -140,8 +140,7 @@ contract DeployEthereumScript is Script {
         vm.stopBroadcast();
     }
 
-
-    function _createVault(address currency, bytes salt, string memory name, string memory symbol)) internal returns (IVaultV2 vault) {
+    function _createVault(address currency, bytes32 salt, string memory name, string memory symbol) internal returns (IVaultV2 vault) {
         vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
         console.log("Peaty deployed at:", address(vault));
 
@@ -198,7 +197,7 @@ contract DeployEthereumScript is Script {
         vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.increaseTimelock.selector, 7 days));
         vault.increaseTimelock(vault.increaseTimelock.selector, 7 days);
 
-        // Production owners 
+        // Production owners
         vault.setCurator(address(curator));
         vault.setOwner(address(owner));
     }
@@ -452,7 +451,6 @@ contract DeployEthereumScript is Script {
         vm.stopBroadcast();
         return vault;
     }
-
 
     function deployPeaty() public returns (IVaultV2) {
         vm.startBroadcast();
