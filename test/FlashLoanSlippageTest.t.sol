@@ -86,12 +86,15 @@ contract FlashLoanSlippageTest is Test {
         console2.log("");
 
         // Setup: Deposit 1M USDC into box
-        vm.startPrank(owner);
+        vm.startPrank(curator);
         bytes memory setFeederData = abi.encodeWithSelector(Box.setIsFeeder.selector, owner, true);
         box.submit(setFeederData);
         vm.warp(block.timestamp + 1);
         box.setIsFeeder(owner, true);
         vm.stopPrank();
+
+        // Transfer tokens to owner
+        asset.transfer(owner, 1_000_000e6);
 
         vm.startPrank(owner);
         asset.approve(address(box), 1_000_000e6);
@@ -108,7 +111,7 @@ contract FlashLoanSlippageTest is Test {
         asset.mint(address(attacker), 9_000_000e6);
 
         // Attacker attempts to exploit
-        vm.prank(allocator);
+        vm.prank(curator);
         box.setIsAllocator(address(attacker), true);
 
         console2.log("");
