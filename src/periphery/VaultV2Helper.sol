@@ -30,6 +30,9 @@ contract VaultV2Helper {
     MorphoVaultV1AdapterFactory mv1AdapterFactory;
 
     constructor() {
+
+        // Default value per chain
+
         morphoRegistry = 0x5C2531Cbd2cf112Cf687da3Cd536708aDd7DB10a;
         owner = 0x0A0e559bc3b0950a7e448F0d4894db195b9cf8DD;
         curator = 0x827e86072B06674a077f592A531dcE4590aDeCdB;
@@ -61,8 +64,13 @@ contract VaultV2Helper {
     }
 
     function createGuardian(IVaultV2 vault) public returns (address guardian) {
+        // TODO use address(this) as admin
         (bool success, bytes memory result) = aragonCreator.call(aragonGuardian);
         guardian = abi.decode(result, (address));
+
+        // TODO: Add the plugin for having vault as voting token and LockToVote plugin
+        // TODO: retirer les authorization
+        // TODO: abdicate the admin role of address(this)
 
         // Optionally revert if the call failed
         require(success, "Guardian creation failed");
@@ -136,6 +144,9 @@ contract VaultV2Helper {
 
         (bool success, bytes memory result) = aragonCreator.call(aragonOwner);
         msigOwner = abi.decode(result, (address));
+
+        // TODO: Add plugin multisig 2/2 owner and guardian
+        // TODO: Abdicate the admin role so only the multisig controls the Aragon DAO
 
         // Optionally revert if the call failed
         require(success, "Msig creation failed");
