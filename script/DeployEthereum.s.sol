@@ -118,7 +118,6 @@ contract DeployEthereumScript is Script {
     function deployBoxAdapterFactory() public returns (BoxAdapterFactory) {
         vm.startBroadcast();
         BoxAdapterFactory boxAdapterFactory_ = new BoxAdapterFactory();
-        new BoxAdapter(address(1), IBox(address(1))); // Just for etherscan to have the source code
         console.log("BoxAdapterFactory deployed at:", address(boxAdapterFactory_));
         vm.stopBroadcast();
         return boxAdapterFactory_;
@@ -127,7 +126,6 @@ contract DeployEthereumScript is Script {
     function deployBoxAdapterCachedFactory() public returns (BoxAdapterCachedFactory) {
         vm.startBroadcast();
         BoxAdapterCachedFactory boxAdapterCachedFactory_ = new BoxAdapterCachedFactory();
-        new BoxAdapterCached(address(1), IBox(address(1))); // Just for etherscan to have the source code
         console.log("BoxAdapterCachedFactory deployed at:", address(boxAdapterCachedFactory_));
         vm.stopBroadcast();
         return boxAdapterCachedFactory_;
@@ -146,9 +144,9 @@ contract DeployEthereumScript is Script {
 
         vault.setCurator(address(tx.origin));
 
-        vault.addAllocatorInstant(address(tx.origin));
-        vault.addAllocatorInstant(address(allocator1));
-        vault.addAllocatorInstant(address(allocator2));
+        vault.setIsAllocator(address(tx.origin), true);
+        vault.setIsAllocator(address(allocator1), true);
+        vault.setIsAllocator(address(allocator2), true);
 
         vault.setName("Peaty USDC");
         vault.setSymbol("ptUSDC");
@@ -242,9 +240,9 @@ contract DeployEthereumScript is Script {
 
         vault.setCurator(address(tx.origin));
 
-        vault.addAllocatorInstant(address(tx.origin));
-        vault.addAllocatorInstant(address(allocator1));
-        vault.addAllocatorInstant(address(allocator2));
+        vault.setIsAllocator(address(tx.origin), true);
+        vault.setIsAllocator(address(allocator1), true);
+        vault.setIsAllocator(address(allocator2), true);
 
         vault.setName("Peaty USDC");
         vault.setSymbol("ptUSDC");
@@ -452,19 +450,19 @@ contract DeployEthereumScript is Script {
         return vault;
     }
 
-    function deployPeaty() public returns (IVaultV2) {
+    function deployPeaty2() public returns (IVaultV2) {
         vm.startBroadcast();
 
         bytes32 salt = "42";
 
-        VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(eth), salt));
-        console.log("Peaty deployed at:", address(vault));
+        VaultV2 vault = VaultV2(vaultV2Factory.createVaultV2(address(tx.origin), address(usdc), salt));
+        console.log("Peaty2 deployed at:", address(vault));
 
         vault.setCurator(address(tx.origin));
 
-        vault.addAllocatorInstant(address(tx.origin));
-        vault.addAllocatorInstant(address(allocator1));
-        vault.addAllocatorInstant(address(allocator2));
+        vault.setIsAllocator(address(tx.origin), true);
+        vault.setIsAllocator(address(allocator1), true);
+        vault.setIsAllocator(address(allocator2), true);
 
         vault.setName("Peaty USDC");
         vault.setSymbol("ptUSDC");
