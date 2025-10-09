@@ -754,8 +754,6 @@ contract DeployBaseScript is Script {
         return vault;
     }
 
-
-
     function deploySteakUSDC() public returns (IVaultV2) {
         vm.startBroadcast();
 
@@ -805,7 +803,6 @@ contract DeployBaseScript is Script {
         vm.stopBroadcast();
         return vault;
     }
-
 
     function deployRampUSDC() public returns (IVaultV2) {
         vm.startBroadcast();

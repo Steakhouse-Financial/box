@@ -75,8 +75,8 @@ contract VaultV2Helper {
 
     function addVaultV1(IVaultV2 vault, address vaultV1, bool liquidity, uint256 capAbs, uint256 capRel) public {
         address adapterMV1 = mv1AdapterFactory.createMorphoVaultV1Adapter(address(vault), vaultV1);
-
-        vault.addCollateralInstant(adapterMV1, abi.encode("this", adapterMV1), capAbs, capRel); // 1_000_000_000 USDC absolute cap, 100% relative cap
+        // 1_000_000_000 USDC absolute cap, 100% relative cap
+        vault.addCollateralInstant(adapterMV1, abi.encode("this", adapterMV1), capAbs, capRel);
 
         if (liquidity) {
             vault.setLiquidityAdapterAndData(adapterMV1, "");
