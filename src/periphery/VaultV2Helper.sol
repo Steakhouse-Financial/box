@@ -17,6 +17,7 @@ contract VaultV2Helper {
     event RevokerCreated(address vault, address sentinel, address revoker);
 
     /* ======== VARIABLES ======== */
+    address public owner;
     address public curator;
     address[] allocators;
 
@@ -29,7 +30,8 @@ contract VaultV2Helper {
     MorphoVaultV1AdapterFactory mv1AdapterFactory;
 
     constructor() {
-        morphoRegistry = 0x3696c5eAe4a7Ffd04Ea163564571E9CD8Ed9364e;
+        morphoRegistry = 0x5C2531Cbd2cf112Cf687da3Cd536708aDd7DB10a;
+        owner = 0x0A0e559bc3b0950a7e448F0d4894db195b9cf8DD;
         curator = 0x827e86072B06674a077f592A531dcE4590aDeCdB;
         aragonCreator = 0xcc602EA573a42eBeC290f33F49D4A87177ebB8d2;
         // solhint-disable-next-line max-line-length
@@ -46,9 +48,10 @@ contract VaultV2Helper {
         vault = VaultV2(vaultV2Factory.createVaultV2(address(this), asset, salt));
 
         vault.setCurator(address(this));
+        vault.addAllocatorInstant(address(this));
 
         for (uint i = 0; i < allocators.length; i++) {
-            vault.setIsAllocator(address(allocators[i]), true);
+            vault.addAllocatorInstant(address(allocators[i]));
         }
 
         vault.setName(name);
@@ -70,26 +73,14 @@ contract VaultV2Helper {
         vault.setIsSentinel(address(revoker), true);
     }
 
-    function addVaultV1(IVaultV2 vault, address vaultV1, bool liquidity) public {
+    function addVaultV1(IVaultV2 vault, address vaultV1, bool liquidity, uint256 capAbs, uint256 capRel) public {
         address adapterMV1 = mv1AdapterFactory.createMorphoVaultV1Adapter(address(vault), vaultV1);
 
-        vault.addAdapter(adapterMV1);
-        vault.increaseAbsoluteCap(abi.encode("this", adapterMV1), 1_000_000_000 * 10 ** 6); // 1_000_000_000 USDC absolute cap
-        vault.increaseRelativeCap(abi.encode("this", adapterMV1), 1 ether); // 100% relative cap
+        vault.addCollateralInstant(adapterMV1, abi.encode("this", adapterMV1), capAbs, capRel); // 1_000_000_000 USDC absolute cap, 100% relative cap
 
         if (liquidity) {
             vault.setLiquidityAdapterAndData(adapterMV1, "");
         }
-    }
-
-    function setOwner(IVaultV2 vault, address owner, address guardian) public returns (address msig) {
-        (bool success, bytes memory result) = aragonCreator.call(aragonOwner);
-        msig = abi.decode(result, (address));
-
-        // Optionally revert if the call failed
-        require(success, "Msig creation failed");
-
-        vault.setOwner(msig);
     }
 
     function seed(IVaultV2 vault, uint256 amount) public {
@@ -101,13 +92,13 @@ contract VaultV2Helper {
 
     function conformMorphoRegistry(IVaultV2 vault) public {
         // Set the correct adapter registry and abdicate
-        vault.submit(abi.encodeWithSelector(vault.setAdapterRegistry.selector, 0x3696c5eAe4a7Ffd04Ea163564571E9CD8Ed9364e));
-        vault.setAdapterRegistry(0x3696c5eAe4a7Ffd04Ea163564571E9CD8Ed9364e);
+        vault.submit(abi.encodeWithSelector(vault.setAdapterRegistry.selector, morphoRegistry));
+        vault.setAdapterRegistry(morphoRegistry);
         vault.submit(abi.encodeWithSelector(vault.abdicate.selector, vault.setAdapterRegistry.selector));
         vault.abdicate(vault.setAdapterRegistry.selector);
     }
 
-    function finalize(IVaultV2 vault, uint capsDays) public {
+    function finalize(IVaultV2 vault, uint capsDays, address guardian) public returns (address msigOwner) {
         // Morpho requires a lot of them to be 7 days, some are fine with 3 days
         vault.submit(abi.encodeWithSelector(vault.increaseTimelock.selector, vault.setReceiveAssetsGate.selector, 7 days));
         vault.increaseTimelock(vault.setReceiveAssetsGate.selector, 7 days);
@@ -142,5 +133,13 @@ contract VaultV2Helper {
 
         // Production owners
         vault.setCurator(address(curator));
+
+        (bool success, bytes memory result) = aragonCreator.call(aragonOwner);
+        msigOwner = abi.decode(result, (address));
+
+        // Optionally revert if the call failed
+        require(success, "Msig creation failed");
+
+        vault.setOwner(msigOwner);
     }
 }

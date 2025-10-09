@@ -64,6 +64,7 @@ contract DeployBaseScript is Script {
 
     IMorpho morpho = IMorpho(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
     IMetaMorpho bbqusdc = IMetaMorpho(0xBEEFA7B88064FeEF0cEe02AAeBBd95D30df3878F); // bbqUSDC on Base
+    IMetaMorpho steakusdc = IMetaMorpho(0xBEEFE94c8aD530842bfE7d8B397938fFc1cb83b2); // steakUSDC on Base
 
     IERC4626 stusd = IERC4626(0x0022228a2cc5E7eF0274A7Baa600d44da5aB5776);
     IOracle stusdOracle = IOracle(0x2eede25066af6f5F2dfc695719dB239509f69915);
@@ -753,6 +754,33 @@ contract DeployBaseScript is Script {
         return vault;
     }
 
+
+
+    function deploySteakUSDC() public returns (IVaultV2) {
+        vm.startBroadcast();
+
+        VaultV2Helper helper = new VaultV2Helper();
+
+        IVaultV2 vault = helper.create(address(usdc), bytes32("45"), "Steakhouse High Yield Instant", "bbqUSDC");
+        console.log("Vault deployed at:", address(vault));
+
+        address guardianAddr = helper.createGuardian(vault);
+        console.log("Guardian deployed at:", guardianAddr);
+        helper.setGuardian(vault, guardianAddr);
+
+        helper.addVaultV1(vault, address(steakusdc), true, 1_000_000_000 * 10 ** 6, 1 ether);
+
+        helper.conformMorphoRegistry(vault);
+        address msig = helper.finalize(vault, 3 days, guardianAddr);
+        console.log("Msig owner deployed at:", msig);
+
+        usdc.approve(address(vault), 10);
+        vault.deposit(10, address(tx.origin));
+
+        vm.stopBroadcast();
+        return vault;
+    }
+
     function deployBbqUSDC() public returns (IVaultV2) {
         vm.startBroadcast();
 
@@ -764,13 +792,38 @@ contract DeployBaseScript is Script {
         address guardianAddr = helper.createGuardian(vault);
         console.log("Guardian deployed at:", guardianAddr);
         helper.setGuardian(vault, guardianAddr);
-        address msig = helper.setOwner(vault, owner, guardianAddr);
-        console.log("Msig deployed at:", msig);
 
-        helper.addVaultV1(vault, address(bbqusdc), true);
+        helper.addVaultV1(vault, address(bbqusdc), true, 1_000_000_000 * 10 ** 6, 1 ether);
 
         helper.conformMorphoRegistry(vault);
-        helper.finalize(vault, 3 days);
+        address msig = helper.finalize(vault, 3 days, guardianAddr);
+        console.log("Msig owner deployed at:", msig);
+
+        usdc.approve(address(vault), 10);
+        vault.deposit(10, address(tx.origin));
+
+        vm.stopBroadcast();
+        return vault;
+    }
+
+
+    function deployRampUSDC() public returns (IVaultV2) {
+        vm.startBroadcast();
+
+        VaultV2Helper helper = new VaultV2Helper();
+
+        IVaultV2 vault = helper.create(address(usdc), bytes32("45"), "Ramp x Steakhouse High Yield Instant", "ramp-bbqUSDC");
+        console.log("Vault deployed at:", address(vault));
+
+        address guardianAddr = helper.createGuardian(vault);
+        console.log("Guardian deployed at:", guardianAddr);
+        helper.setGuardian(vault, guardianAddr);
+
+        helper.addVaultV1(vault, address(steakusdc), true, 1_000_000_000 * 10 ** 6, 1 ether);
+
+        // Not conforming vault helper.conformMorphoRegistry(vault);
+        address msig = helper.finalize(vault, 7 days, guardianAddr);
+        console.log("Msig owner deployed at:", msig);
 
         usdc.approve(address(vault), 10);
         vault.deposit(10, address(tx.origin));
