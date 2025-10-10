@@ -252,7 +252,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum assets owner can withdraw
     function maxWithdraw(address owner_) external view returns (uint256) {
-        return convertToAssets(balanceOf(owner_));
+        uint256 ownerAssets = convertToAssets(balanceOf(owner_));
+        uint256 availableLiquidity = IERC20(asset).balanceOf(address(this));
+        return ownerAssets < availableLiquidity ? ownerAssets : availableLiquidity;
     }
 
     /// @inheritdoc IERC4626
@@ -290,7 +292,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum shares owner can redeem
     function maxRedeem(address owner_) external view returns (uint256) {
-        return balanceOf(owner_);
+        uint256 ownerShares = balanceOf(owner_);
+        uint256 availableLiquidity = IERC20(asset).balanceOf(address(this));
+        uint256 liquidityShares = convertToShares(availableLiquidity);
+        return ownerShares < liquidityShares ? ownerShares : liquidityShares;
     }
 
     /// @inheritdoc IERC4626
