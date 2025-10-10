@@ -731,4 +731,73 @@ contract BoxLeverageAaveMainnetTest is Test {
         assertEq(fundingModule.debtBalance(bytes(""), usdc), 0, "Debt repaid");
         assertGt(usdc.balanceOf(address(box)), boxBalance - 200e6, "Box keeps funds");
     }
+
+    function testSkimNonDebtToken() public {
+        vm.createSelectFork(vm.rpcUrl("mainnet"), 21000000);
+
+        Box box = new Box(address(usdc), owner, curator, "Box", "BOX", 0.01 ether, 1 days, 7 days, 1 days);
+
+        vm.startPrank(curator);
+        box.setIsAllocator(allocator, true);
+        vm.stopPrank();
+
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+
+        vm.startPrank(curator);
+        box.addFundingInstant(fundingModule);
+        box.addFundingFacilityInstant(fundingModule, bytes(""));
+        vm.stopPrank();
+
+        // Send some random token to the funding module
+        IERC20 randomToken = usde;
+        deal(address(randomToken), address(fundingModule), 100e18);
+
+        uint256 balanceBefore = randomToken.balanceOf(address(box));
+
+        vm.prank(allocator);
+        box.skimFunding(fundingModule, randomToken);
+
+        assertEq(randomToken.balanceOf(address(fundingModule)), 0, "Token skimmed");
+        assertEq(randomToken.balanceOf(address(box)), balanceBefore + 100e18, "Box received token");
+    }
+
+    function testSkimTokenWithPositionFails() public {
+        vm.createSelectFork(vm.rpcUrl("mainnet"), 21000000);
+
+        Box box = new Box(address(usdc), owner, curator, "Box", "BOX", 0.01 ether, 1 days, 7 days, 1 days);
+
+        vm.startPrank(curator);
+        box.setIsAllocator(allocator, true);
+        box.addFeederInstant(address(this));
+        vm.stopPrank();
+
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+
+        vm.startPrank(curator);
+        box.addFundingInstant(fundingModule);
+        box.addFundingFacilityInstant(fundingModule, bytes(""));
+        box.addFundingDebtInstant(fundingModule, usdc);
+        box.addFundingCollateralInstant(fundingModule, usdc);
+        vm.stopPrank();
+
+        deal(address(usdc), address(this), 1_000_000e6);
+        usdc.approve(address(box), type(uint256).max);
+        box.deposit(1_000_000e6, address(this));
+
+        vm.startPrank(allocator);
+        box.pledge(fundingModule, bytes(""), usdc, 10_000e6);
+        vm.stopPrank();
+
+        // Get the aToken address for USDC collateral
+        (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(address(usdc));
+        IERC20 aToken = IERC20(aTokenAddress);
+
+        // Try to skim the aToken - should fail because it changes NAV
+        uint256 aTokenBalance = aToken.balanceOf(address(fundingModule));
+        assertGt(aTokenBalance, 0, "Should have aToken balance");
+
+        vm.prank(allocator);
+        vm.expectRevert(abi.encodeWithSelector(ErrorsLib.SkimChangedNav.selector));
+        box.skimFunding(fundingModule, aToken);
+    }
 }

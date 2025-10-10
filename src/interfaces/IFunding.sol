@@ -38,6 +38,7 @@ interface IFunding {
     function debtTokensLength() external view returns (uint256);
 
     // ========== ACTIONS ==========
+    function skim(IERC20 token, IOracleCallback oraclesProvider) external;
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
     function depledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external;

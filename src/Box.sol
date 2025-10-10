@@ -334,6 +334,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function skim(IERC20 token) external nonReentrant {
         require(msg.sender == skimRecipient, ErrorsLib.OnlySkimRecipient());
         require(skimRecipient != address(0), ErrorsLib.InvalidAddress());
+
+        if (address(token) == address(0)) {
+            uint256 amount = address(this).balance;
+            require(amount > 0, ErrorsLib.CannotSkimZero());
+            payable(skimRecipient).transfer(amount);
+            emit EventsLib.Skim(token, skimRecipient, amount);
+            return;
+        }
+
         require(address(token) != address(asset), ErrorsLib.CannotSkimAsset());
         require(!isToken(token), ErrorsLib.CannotSkimToken());
 
@@ -588,6 +597,19 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         fundingModule.repay(facilityData, debtToken, repayAmount);
 
         emit EventsLib.Repay(fundingModule, facilityData, debtToken, repayAmount);
+    }
+
+    /**
+     * @notice Recovers non-position tokens from a funding module
+     * @param fundingModule Module to skim from
+     * @param token Token to recover
+     * @dev NAV must remain unchanged to prevent skimming tokenized positions
+     */
+    function skimFunding(IFunding fundingModule, IERC20 token) external nonReentrant {
+        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        fundingModule.skim(token, IOracleCallback(address(this)));
     }
 
     /**
