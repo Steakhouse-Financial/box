@@ -370,9 +370,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 slippageTolerance = winddown ? _winddownSlippageTolerance() : maxSlippage;
 
         if (winddown) {
-            // Limit allocation to debt value adjusted for slippage tolerance
-            uint256 debtValue = _debtBalance(token).mulDiv(oraclePrice, ORACLE_PRECISION);
-            uint256 maxAllocation = debtValue.mulDiv(PRECISION, PRECISION - slippageTolerance);
+            // Limit allocation to debt shortfall adjusted for slippage tolerance
+            uint256 debtAmount = _debtBalance(token);
+            uint256 existingBalance = token.balanceOf(address(this));
+            uint256 neededTokens = debtAmount > existingBalance ? debtAmount - existingBalance : 0;
+            uint256 neededValue = neededTokens.mulDiv(oraclePrice, ORACLE_PRECISION);
+            uint256 maxAllocation = neededValue.mulDiv(PRECISION, PRECISION - slippageTolerance);
             require(assetsAmount <= maxAllocation, ErrorsLib.InvalidAmount());
         }
 
