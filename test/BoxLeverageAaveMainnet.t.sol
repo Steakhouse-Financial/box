@@ -693,4 +693,42 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         vm.stopPrank();
     }
+
+    function testAaveOverRepayment() public {
+        Box box = new Box(address(usdc), owner, curator, "Box", "BOX", 0.01 ether, 1 days, 7 days, 1 days);
+
+        vm.startPrank(curator);
+        box.setIsAllocator(allocator, true);
+        box.addFeederInstant(address(this));
+        vm.stopPrank();
+
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+
+        vm.startPrank(curator);
+        box.addFundingInstant(fundingModule);
+        box.addFundingFacilityInstant(fundingModule, bytes(""));
+        box.addFundingDebtInstant(fundingModule, usdc);
+        box.addFundingCollateralInstant(fundingModule, usdc);
+        vm.stopPrank();
+
+        deal(address(usdc), address(this), 1_000_000e6);
+        usdc.approve(address(box), type(uint256).max);
+        box.deposit(1_000_000e6, address(this));
+
+        vm.startPrank(allocator);
+        box.pledge(fundingModule, bytes(""), usdc, 10_000e6);
+        box.borrow(fundingModule, bytes(""), usdc, 100e6);
+        vm.stopPrank();
+
+        vm.prank(curator);
+        box.shutdown();
+        vm.warp(block.timestamp + 2 days);
+
+        uint256 boxBalance = usdc.balanceOf(address(box));
+        box.repay(fundingModule, bytes(""), usdc, boxBalance);
+
+        assertEq(usdc.balanceOf(address(fundingModule)), 0, "No funds stuck");
+        assertEq(fundingModule.debtBalance(bytes(""), usdc), 0, "Debt repaid");
+        assertGt(usdc.balanceOf(address(box)), boxBalance - 200e6, "Box keeps funds");
+    }
 }

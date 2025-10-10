@@ -226,7 +226,11 @@ contract FundingAave is IFunding {
         require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         debtToken.forceApprove(address(pool), repayAmount);
-        pool.repay(address(debtToken), repayAmount, rateMode, address(this));
+        uint256 actualRepaid = pool.repay(address(debtToken), repayAmount, rateMode, address(this));
+
+        if (actualRepaid < repayAmount) {
+            debtToken.safeTransfer(owner, repayAmount - actualRepaid);
+        }
     }
 
     // ========== POSITION ==========

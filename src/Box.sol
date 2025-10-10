@@ -577,7 +577,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
 
-        if (repayAmount == type(uint256).max) {
+        if (repayAmount > debtAmount) {
             repayAmount = debtAmount;
         }
 
