@@ -241,25 +241,7 @@ contract DeployBaseScript is Script {
         addMarketsToAdapterFromVault(vault, bbqusdcAdapter, bbqusdc);
 
         // Creating Box 1 which will invest in stUSD
-        string memory name = "Box Angle";
-        string memory symbol = "BOX_ANGLE";
-        uint256 maxSlippage = 0.0001 ether; // 0.01%
-        uint256 slippageEpochDuration = 7 days;
-        uint256 shutdownSlippageDuration = 10 days;
-        uint256 shutdownWarmup = 7 days;
-        IBox box1 = boxFactory.createBox(
-            usdc,
-            address(tx.origin),
-            address(tx.origin),
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
-            shutdownWarmup,
-            salt
-        );
-        console.log("Box Angle deployed at:", address(box1));
+        IBox box1 = _deployStandardBox(usdc, "Box Angle", "BOX_ANGLE", 0.0001 ether, salt);
 
         // Creating the ERC4626 adapter between the vault and box1
         IBoxAdapter adapter1 = boxAdapterFactory.createBoxAdapter(address(vault), box1);
@@ -273,26 +255,8 @@ contract DeployBaseScript is Script {
         box1.transferOwnership(address(owner));
         vault.addCollateralInstant(address(adapter1), adapter1.adapterData(), 10_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
 
-        // Creating Box 2 which will invest in PT-USR-25SEP
-        name = "Box Ethena";
-        symbol = "BOX_ETHENA";
-        maxSlippage = 0.01 ether; // 0.1%
-        slippageEpochDuration = 7 days;
-        shutdownSlippageDuration = 10 days;
-        shutdownWarmup = 7 days;
-        IBox box2 = boxFactory.createBox(
-            usdc,
-            address(tx.origin),
-            address(tx.origin),
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
-            shutdownWarmup,
-            salt
-        );
-        console.log("Box Ethena deployed at:", address(box2));
+        // Creating Box 2 which will invest in PT-USDe-11DEC
+        IBox box2 = _deployStandardBox(usdc, "Box Ethena", "BOX_ETHENA", 0.01 ether, salt);
         // Creating the ERC4626 adapter between the vault and box2
         IBoxAdapter adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
 
@@ -307,26 +271,8 @@ contract DeployBaseScript is Script {
         vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 100_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
         vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
 
-        // Creating Box 2 which will invest in PT-USR-25SEP
-        name = "Box Resolv";
-        symbol = "BOX_RESOLV";
-        maxSlippage = 0.001 ether; // 0.1%
-        slippageEpochDuration = 7 days;
-        shutdownSlippageDuration = 10 days;
-        shutdownWarmup = 7 days;
-        box2 = boxFactory.createBox(
-            usdc,
-            address(tx.origin),
-            address(tx.origin),
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
-            shutdownWarmup,
-            salt
-        );
-        console.log("Box Resolv deployed at:", address(box2));
+        // Creating Box 3 which will invest in PT-USR-25SEP
+        box2 = _deployStandardBox(usdc, "Box Resolv", "BOX_RESOLV", 0.001 ether, salt);
         // Creating the ERC4626 adapter between the vault and box2
         adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
 
@@ -376,25 +322,7 @@ contract DeployBaseScript is Script {
         addMarketsToAdapterFromVault(vault, bbqusdcAdapter, bbqusdc);
 
         // Creating Box 1 which will invest in stUSD
-        string memory name = "Box Angle";
-        string memory symbol = "BOX_ANGLE";
-        uint256 maxSlippage = 0.001 ether; // 0.1%
-        uint256 slippageEpochDuration = 7 days;
-        uint256 shutdownSlippageDuration = 10 days;
-        uint256 shutdownWarmup = 7 days;
-        IBox box1 = boxFactory.createBox(
-            usdc,
-            address(tx.origin),
-            address(tx.origin),
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
-            shutdownWarmup,
-            salt
-        );
-        console.log("Box Angle deployed at:", address(box1));
+        IBox box1 = _deployStandardBox(usdc, "Box Angle", "BOX_ANGLE", 0.001 ether, salt);
 
         // Creating the ERC4626 adapter between the vault and box1
         IBoxAdapter adapter1 = boxAdapterFactory.createBoxAdapter(address(vault), box1);
@@ -408,30 +336,12 @@ contract DeployBaseScript is Script {
         box1.transferOwnership(address(owner));
         vault.addCollateralInstant(address(adapter1), adapter1.adapterData(), 10_000_000 * 10 ** 6, 1 ether); // 1,000,000 USDC absolute cap and 50% relative cap
 
-        // Creating Box 2 which will invest in PT-USR-25SEP
-        name = "Box Ethena";
-        symbol = "BOX_ETHENA";
-        maxSlippage = 0.001 ether; // 0.1%
-        slippageEpochDuration = 7 days;
-        shutdownSlippageDuration = 10 days;
-        shutdownWarmup = 7 days;
-        IBox box2 = boxFactory.createBox(
-            usdc,
-            address(tx.origin),
-            address(tx.origin),
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
-            shutdownWarmup,
-            salt
-        );
-        console.log("Box Ethena deployed at:", address(box2));
+        // Creating Box 2 which will invest in PT-USDe-11DEC
+        IBox box2 = _deployStandardBox(usdc, "Box Ethena", "BOX_ETHENA", 0.001 ether, salt);
         // Creating the ERC4626 adapter between the vault and box2
         IBoxAdapter adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
 
-        // Allow box 2 to invest in PT-USR-25SEP
+        // Allow box 2 to invest in PT-USDe-11DEC
         box2.addTokenInstant(ptusde11dec, ptusde11decOracle);
 
         FundingMorpho fundingMorpho = new FundingMorpho(address(box2), address(morpho), 99e16);
@@ -456,26 +366,8 @@ contract DeployBaseScript is Script {
         vault.addCollateralInstant(address(adapter2), adapter2.adapterData(), 1_000_000 * 10 ** 6, 0.9 ether); // 1,000,000 USDC absolute cap and 90% relative cap
         vault.setForceDeallocatePenaltyInstant(address(adapter2), 0.02 ether); // 2% penalty
 
-        // Creating Box 2 which will invest in PT-USR-25SEP
-        name = "Box Resolv";
-        symbol = "BOX_RESOLV";
-        maxSlippage = 0.001 ether; // 0.1%
-        slippageEpochDuration = 7 days;
-        shutdownSlippageDuration = 10 days;
-        shutdownWarmup = 7 days;
-        box2 = boxFactory.createBox(
-            usdc,
-            address(tx.origin),
-            address(tx.origin),
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
-            shutdownWarmup,
-            salt
-        );
-        console.log("Box Resolv deployed at:", address(box2));
+        // Creating Box 3 which will invest in PT-USR-25SEP
+        box2 = _deployStandardBox(usdc, "Box Resolv", "BOX_RESOLV", 0.001 ether, salt);
         // Creating the ERC4626 adapter between the vault and box2
         adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
 
@@ -532,25 +424,7 @@ contract DeployBaseScript is Script {
         vault.setMaxRate(MAX_MAX_RATE);
 
         // Creating Box 1 which will invest in stUSD
-        string memory name = "Box Peaty";
-        string memory symbol = "BOX_PEATY";
-        uint256 maxSlippage = 0.003 ether; // 0.3%
-        uint256 slippageEpochDuration = 7 days;
-        uint256 shutdownSlippageDuration = 10 days;
-        uint256 shutdownWarmup = 7 days;
-        IBox box1 = boxFactory.createBox(
-            usdc,
-            address(tx.origin),
-            address(tx.origin),
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
-            shutdownWarmup,
-            salt
-        );
-        console.log("Box Peaty deployed at:", address(box1));
+        IBox box1 = _deployStandardBox(usdc, "Box Peaty", "BOX_PEATY", 0.003 ether, salt);
 
         // Creating the ERC4626 adapter between the vault and box1
         IBoxAdapter adapter1 = boxAdapterFactory.createBoxAdapter(address(vault), box1);
@@ -578,28 +452,8 @@ contract DeployBaseScript is Script {
         box1.addFundingDebtInstant(fundingMorpho, usdc);
         box1.addFundingFacilityInstant(fundingMorpho, facilityData);
 
-
-
         // Creating Box 2 which will invest in PT-USR-25SEP
-        name = "Box Resolv";
-        symbol = "BOX_RESOLV";
-        maxSlippage = 0.001 ether; // 0.1%
-        slippageEpochDuration = 7 days;
-        shutdownSlippageDuration = 10 days;
-        shutdownWarmup = 7 days;
-        box2 = boxFactory.createBox(
-            usdc,
-            address(tx.origin),
-            address(tx.origin),
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
-            shutdownWarmup,
-            salt
-        );
-        console.log("Box Resolv deployed at:", address(box2));
+        IBox box2 = _deployStandardBox(usdc, "Box Resolv", "BOX_RESOLV", 0.001 ether, salt);
         // Creating the ERC4626 adapter between the vault and box2
         adapter2 = boxAdapterFactory.createBoxAdapter(address(vault), box2);
 
@@ -655,26 +509,8 @@ contract DeployBaseScript is Script {
 
         vault.setMaxRate(MAX_MAX_RATE);
 
-        // Creating Box 1 which will invest in stUSD
-        string memory name = "Box Peaty";
-        string memory symbol = "BOX_PEATY";
-        uint256 maxSlippage = 0.001 ether; // 0.1%
-        uint256 slippageEpochDuration = 7 days;
-        uint256 shutdownSlippageDuration = 10 days;
-        uint256 shutdownWarmup = 7 days;
-        IBox box1 = boxFactory.createBox(
-            weth,
-            address(tx.origin),
-            address(tx.origin),
-            name,
-            symbol,
-            maxSlippage,
-            slippageEpochDuration,
-            shutdownSlippageDuration,
-            shutdownWarmup,
-            salt
-        );
-        console.log("Box Peaty deployed at:", address(box1));
+        // Creating Box 1 which will invest in wstETH and cbETH
+        IBox box1 = _deployStandardBox(weth, "Box Peaty", "BOX_PEATY", 0.001 ether, salt);
 
         // Creating the ERC4626 adapter between the vault and box1
         IBoxAdapter adapter1 = boxAdapterFactory.createBoxAdapter(address(vault), box1);
@@ -827,5 +663,59 @@ contract DeployBaseScript is Script {
 
         vm.stopBroadcast();
         return vault;
+    }
+
+    /// @dev Helper function to deploy a box with standardized parameters
+    /// @param asset The asset token for the box
+    /// @param name The name of the box
+    /// @param symbol The symbol of the box
+    /// @param maxSlippage Maximum slippage tolerance
+    /// @param slippageEpochDuration Duration of slippage epoch
+    /// @param shutdownSlippageDuration Duration for shutdown slippage
+    /// @param shutdownWarmup Warmup period before shutdown
+    /// @param salt Salt for deterministic deployment
+    /// @return The deployed box
+    function _deployBox(
+        IERC20 asset,
+        string memory name,
+        string memory symbol,
+        uint256 maxSlippage,
+        uint256 slippageEpochDuration,
+        uint256 shutdownSlippageDuration,
+        uint256 shutdownWarmup,
+        bytes32 salt
+    ) internal returns (IBox) {
+        IBox box = boxFactory.createBox(
+            asset,
+            address(tx.origin),
+            address(tx.origin),
+            name,
+            symbol,
+            maxSlippage,
+            slippageEpochDuration,
+            shutdownSlippageDuration,
+            shutdownWarmup,
+            salt
+        );
+        console.log(string.concat(symbol, " deployed at:"), address(box));
+        return box;
+    }
+
+    /// @dev Helper function to deploy a box with standard timing parameters
+    /// Uses: 7 days slippage epoch, 10 days shutdown slippage, 7 days shutdown warmup
+    /// @param asset The asset token for the box
+    /// @param name The name of the box
+    /// @param symbol The symbol of the box
+    /// @param maxSlippage Maximum slippage tolerance
+    /// @param salt Salt for deterministic deployment
+    /// @return The deployed box
+    function _deployStandardBox(
+        IERC20 asset,
+        string memory name,
+        string memory symbol,
+        uint256 maxSlippage,
+        bytes32 salt
+    ) internal returns (IBox) {
+        return _deployBox(asset, name, symbol, maxSlippage, 7 days, 10 days, 7 days, salt);
     }
 }
