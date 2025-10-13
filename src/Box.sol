@@ -252,7 +252,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum assets owner can withdraw
     function maxWithdraw(address owner_) external view returns (uint256) {
-        return convertToAssets(balanceOf(owner_));
+        uint256 ownerAssets = convertToAssets(balanceOf(owner_));
+        uint256 availableLiquidity = IERC20(asset).balanceOf(address(this));
+        return ownerAssets < availableLiquidity ? ownerAssets : availableLiquidity;
     }
 
     /// @inheritdoc IERC4626
@@ -290,7 +292,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum shares owner can redeem
     function maxRedeem(address owner_) external view returns (uint256) {
-        return balanceOf(owner_);
+        uint256 ownerShares = balanceOf(owner_);
+        uint256 availableLiquidity = IERC20(asset).balanceOf(address(this));
+        uint256 liquidityShares = convertToShares(availableLiquidity);
+        return ownerShares < liquidityShares ? ownerShares : liquidityShares;
     }
 
     /// @inheritdoc IERC4626
@@ -334,6 +339,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function skim(IERC20 token) external nonReentrant {
         require(msg.sender == skimRecipient, ErrorsLib.OnlySkimRecipient());
         require(skimRecipient != address(0), ErrorsLib.InvalidAddress());
+
+        if (address(token) == address(0)) {
+            uint256 amount = address(this).balance;
+            require(amount > 0, ErrorsLib.CannotSkimZero());
+            payable(skimRecipient).transfer(amount);
+            emit EventsLib.Skim(token, skimRecipient, amount);
+            return;
+        }
+
         require(address(token) != address(asset), ErrorsLib.CannotSkimAsset());
         require(!isToken(token), ErrorsLib.CannotSkimToken());
 
@@ -370,9 +384,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 slippageTolerance = winddown ? _winddownSlippageTolerance() : maxSlippage;
 
         if (winddown) {
-            // Limit allocation to debt value adjusted for slippage tolerance
-            uint256 debtValue = _debtBalance(token).mulDiv(oraclePrice, ORACLE_PRECISION);
-            uint256 maxAllocation = debtValue.mulDiv(PRECISION, PRECISION - slippageTolerance);
+            // Limit allocation to debt shortfall adjusted for slippage tolerance
+            uint256 debtAmount = _debtBalance(token);
+            uint256 existingBalance = token.balanceOf(address(this));
+            uint256 neededTokens = debtAmount > existingBalance ? debtAmount - existingBalance : 0;
+            uint256 neededValue = neededTokens.mulDiv(oraclePrice, ORACLE_PRECISION);
+            uint256 maxAllocation = neededValue.mulDiv(PRECISION, PRECISION - slippageTolerance);
             require(assetsAmount <= maxAllocation, ErrorsLib.InvalidAmount());
         }
 
@@ -577,7 +594,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
 
-        if (repayAmount == type(uint256).max) {
+        if (repayAmount > debtAmount) {
             repayAmount = debtAmount;
         }
 
@@ -585,6 +602,19 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         fundingModule.repay(facilityData, debtToken, repayAmount);
 
         emit EventsLib.Repay(fundingModule, facilityData, debtToken, repayAmount);
+    }
+
+    /**
+     * @notice Recovers non-position tokens from a funding module
+     * @param fundingModule Module to skim from
+     * @param token Token to recover
+     * @dev NAV must remain unchanged to prevent skimming tokenized positions
+     */
+    function skimFunding(IFunding fundingModule, IERC20 token) external nonReentrant {
+        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+
+        fundingModule.skim(token, IOracleCallback(address(this)));
     }
 
     /**

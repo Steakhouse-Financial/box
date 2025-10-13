@@ -242,6 +242,7 @@ contract MockFunding is IFunding {
         token.safeTransfer(msg.sender, amount);
     }
     function repay(bytes calldata, IERC20, uint256) external {}
+    function skim(IERC20, IOracleCallback) external {}
 }
 
 contract BoxTest is Test {
