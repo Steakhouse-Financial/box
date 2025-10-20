@@ -106,10 +106,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     mapping(IFunding => bool) internal fundingMap;
 
     /// @notice Depth counter for nested NAV-caching operations (flash and swaps)
-    uint8 private _navCacheDepth;
+    uint8 private transient _navCacheDepth;
 
     /// @notice Cached NAV value during flash and swap operations to prevent manipulation
-    uint256 private _cachedNav;
+    uint256 private transient _cachedNav;
 
     // ========== CONSTRUCTOR ==========
 
@@ -147,7 +147,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         asset = _asset;
         owner = _owner;
         curator = _curator;
-        skimRecipient = address(0);
         maxSlippage = _maxSlippage;
         slippageEpochDuration = _slippageEpochDuration;
         shutdownSlippageDuration = _shutdownSlippageDuration;
@@ -322,7 +321,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function skim(IERC20 token) external nonReentrant {
         require(msg.sender == skimRecipient, ErrorsLib.OnlySkimRecipient());
-        require(skimRecipient != address(0), ErrorsLib.InvalidAddress());
 
         if (address(token) == address(0)) {
             uint256 amount = address(this).balance;
@@ -645,7 +643,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Allows EOAs to execute multiple operations atomically
      */
     function multicall(bytes[] calldata data) external {
-        for (uint256 i = 0; i < data.length; i++) {
+        uint256 length = data.length;
+        for (uint256 i = 0; i < length; i++) {
             (bool success, bytes memory returnData) = address(this).delegatecall(data[i]);
             if (!success) {
                 assembly ("memory-safe") {
@@ -665,9 +664,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function setSkimRecipient(address newSkimRecipient) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(newSkimRecipient != address(0), ErrorsLib.InvalidAddress());
-        require(newSkimRecipient != skimRecipient, ErrorsLib.AlreadySet());
-
         address oldRecipient = skimRecipient;
+        require(newSkimRecipient != oldRecipient, ErrorsLib.AlreadySet());
+
         skimRecipient = newSkimRecipient;
 
         emit EventsLib.SkimRecipientUpdated(oldRecipient, newSkimRecipient);
@@ -679,11 +678,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Immediately transfers all owner privileges
      */
     function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(newOwner != address(0), ErrorsLib.InvalidAddress());
-        require(newOwner != owner, ErrorsLib.InvalidValue());
-
         address oldOwner = owner;
+        require(msg.sender == oldOwner, ErrorsLib.OnlyOwner());
+        require(newOwner != oldOwner, ErrorsLib.InvalidValue());
+
         owner = newOwner;
 
         emit EventsLib.OwnershipTransferred(oldOwner, newOwner);
@@ -841,9 +840,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function decreaseTimelock(bytes4 selector, uint256 newDuration) external {
         timelocked();
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        uint256 currentTimelock = timelock[selector];
+        require(currentTimelock != TIMELOCK_DISABLED, ErrorsLib.InvalidTimelock());
+        require(newDuration < currentTimelock, ErrorsLib.TimelockIncrease());
         require(newDuration <= TIMELOCK_CAP, ErrorsLib.InvalidTimelock());
-        require(newDuration < timelock[selector], ErrorsLib.TimelockIncrease());
-        require(timelock[selector] != TIMELOCK_DISABLED, ErrorsLib.InvalidTimelock());
 
         timelock[selector] = newDuration;
 
@@ -1313,7 +1313,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Reverts if module is not whitelisted
      */
     function _findFundingIndex(IFunding fundingModule) internal view returns (uint256) {
-        for (uint256 i = 0; i < fundings.length; i++) {
+        uint256 length = fundings.length;
+        for (uint256 i = 0; i < length; i++) {
             if (fundings[i] == fundingModule) {
                 return i;
             }

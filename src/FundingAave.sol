@@ -228,8 +228,7 @@ contract FundingAave is IFunding {
         require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
         require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
-        pool.withdraw(address(collateralToken), collateralAmount, address(this));
-        collateralToken.safeTransfer(owner, collateralAmount);
+        pool.withdraw(address(collateralToken), collateralAmount, owner);
     }
 
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
@@ -297,11 +296,12 @@ contract FundingAave is IFunding {
 
     /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
     function nav(IOracleCallback oraclesProvider) external view returns (uint256) {
-        uint256 totalCollateralValue = 0;
-        uint256 totalDebtValue = 0;
+        uint256 totalCollateralValue;
+        uint256 totalDebtValue;
 
         // Calculate total collateral value
-        for (uint256 i = 0; i < collateralTokens.length; i++) {
+        uint256 collateralLength = collateralTokens.length;
+        for (uint256 i = 0; i < collateralLength; i++) {
             IERC20 collateralToken = collateralTokens[i];
             uint256 collateralBalance_ = _collateralBalance(collateralToken);
 
@@ -320,7 +320,8 @@ contract FundingAave is IFunding {
         }
 
         // Calculate total debt value
-        for (uint256 i = 0; i < debtTokens.length; i++) {
+        uint256 debtLength = debtTokens.length;
+        for (uint256 i = 0; i < debtLength; i++) {
             IERC20 debtToken = debtTokens[i];
             uint256 debtBalance_ = _debtBalance(debtToken);
 
@@ -339,13 +340,15 @@ contract FundingAave is IFunding {
         }
 
         // Return NAV = collateral - debt (floor at 0)
-        return totalCollateralValue >= totalDebtValue ? totalCollateralValue - totalDebtValue : 0;
+        if (totalCollateralValue <= totalDebtValue) return 0;
+        unchecked {
+            return totalCollateralValue - totalDebtValue;
+        }
     }
 
     function _debtBalance(IERC20 debtToken) internal view returns (uint256 balance) {
-        (, , , , , , , , , address stableDebtToken, address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
-        address aDebtToken = rateMode == 2 ? variableDebtToken : stableDebtToken;
-        return IERC20(aDebtToken).balanceOf(address(this));
+        (, , , , , , , , , , address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
+        return IERC20(variableDebtToken).balanceOf(address(this));
     }
 
     function _collateralBalance(IERC20 collateralToken) internal view returns (uint256 balance) {

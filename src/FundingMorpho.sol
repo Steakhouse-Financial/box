@@ -195,11 +195,9 @@ contract FundingMorpho is IFunding {
         MarketParams memory market = decodeFacilityData(facilityData);
         require(address(collateralToken) == market.collateralToken, "FundingModuleMorpho: Wrong collateral token");
 
-        morpho.withdrawCollateral(market, collateralAmount, address(this), address(this));
+        morpho.withdrawCollateral(market, collateralAmount, address(this), owner);
 
         require(ltv(facilityData) <= (market.lltv * lltvCap) / 100e16, ErrorsLib.ExcessiveLTV());
-
-        collateralToken.safeTransfer(owner, collateralAmount);
     }
 
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external override {
@@ -210,11 +208,9 @@ contract FundingMorpho is IFunding {
         MarketParams memory market = decodeFacilityData(facilityData);
         require(address(debtToken) == market.loanToken, "FundingModuleMorpho: Wrong debt token");
 
-        morpho.borrow(market, borrowAmount, 0, address(this), address(this));
+        morpho.borrow(market, borrowAmount, 0, address(this), owner);
 
         require(ltv(facilityData) <= (market.lltv * lltvCap) / 100e16, ErrorsLib.ExcessiveLTV());
-
-        debtToken.safeTransfer(owner, borrowAmount);
     }
 
     /// @dev Assume caller did transfer the debt tokens to this contract before calling
@@ -365,8 +361,10 @@ contract FundingMorpho is IFunding {
     }
 
     function _findFacilityIndex(bytes calldata facilityData) internal view returns (uint256) {
-        for (uint256 i = 0; i < facilities.length; i++) {
-            if (keccak256(facilities[i]) == keccak256(facilityData)) {
+        bytes32 facilityHash = keccak256(facilityData);
+        uint256 length = facilities.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (keccak256(facilities[i]) == facilityHash) {
                 return i;
             }
         }
