@@ -205,6 +205,11 @@ contract ReadOnlyReentrancySwapper is ISwapper {
 contract MockFunding is IFunding {
     using SafeERC20 for IERC20;
     mapping(IERC20 => uint256) public debtBalances;
+    address public immutable owner;
+
+    constructor(address _owner) {
+        owner = _owner;
+    }
 
     function setDebtBalance(IERC20 token, uint256 amount) external {
         debtBalances[token] = amount;
@@ -363,7 +368,6 @@ contract BoxTest is Test {
         backupSwapper = new MockSwapper();
         badSwapper = new MockSwapper();
         maliciousSwapper = new MaliciousSwapper();
-        mockFunding = new MockFunding();
 
         // Mint tokens for testing
         asset.mint(address(this), 10000e18);
@@ -442,6 +446,9 @@ contract BoxTest is Test {
             bytes32(0)
         );
 
+        // Create mockFunding with box as owner
+        mockFunding = new MockFunding(address(box));
+
         // Setup roles and investment tokens using new timelock pattern
         // Note: owner is initially the curator, so owner can submit
         vm.startPrank(owner);
@@ -453,7 +460,6 @@ contract BoxTest is Test {
 
         box.setGuardianInstant(guardian);
         box.addFeederInstant(feeder);
-        box.addFeederInstant(user1);
         box.setIsAllocator(allocator, true);
         box.setIsAllocator(address(maliciousSwapper), true);
 

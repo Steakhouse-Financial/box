@@ -138,6 +138,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     ) ERC20(_name, _symbol) {
         require(_asset != address(0), ErrorsLib.InvalidAddress());
         require(_owner != address(0), ErrorsLib.InvalidAddress());
+        require(_curator != address(0), ErrorsLib.InvalidAddress());
         require(_maxSlippage <= MAX_SLIPPAGE_LIMIT, ErrorsLib.SlippageTooHigh());
         require(_slippageEpochDuration != 0, ErrorsLib.InvalidValue());
         require(_shutdownSlippageDuration != 0, ErrorsLib.InvalidValue());
@@ -700,6 +701,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function transferOwnership(address newOwner) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(newOwner != address(0), ErrorsLib.InvalidAddress());
+        require(newOwner != owner, ErrorsLib.InvalidValue());
 
         address oldOwner = owner;
         owner = newOwner;
@@ -714,6 +716,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function setCurator(address newCurator) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        require(newCurator != address(0), ErrorsLib.InvalidAddress());
+        require(newCurator != curator, ErrorsLib.InvalidValue());
 
         address oldCurator = curator;
         curator = newCurator;
@@ -730,6 +734,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
         timelocked();
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        require(newGuardian != address(0), ErrorsLib.InvalidAddress());
+        require(newGuardian != guardian, ErrorsLib.InvalidValue());
 
         address oldGuardian = guardian;
         guardian = newGuardian;
@@ -745,7 +751,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function setIsAllocator(address account, bool newIsAllocator) external {
         require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        //        require(account != address(0), ErrorsLib.InvalidAddress());
+        require(account != address(0), ErrorsLib.InvalidAddress());
+        require(isAllocator[account] != newIsAllocator, ErrorsLib.InvalidValue());
 
         isAllocator[account] = newIsAllocator;
 
@@ -887,6 +894,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function setIsFeeder(address account, bool newIsFeeder) external {
         timelocked();
         require(account != address(0), ErrorsLib.InvalidAddress());
+        require(isFeeder[account] != newIsFeeder, ErrorsLib.InvalidValue());
 
         isFeeder[account] = newIsFeeder;
 
@@ -901,6 +909,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function setMaxSlippage(uint256 newMaxSlippage) external {
         timelocked();
         require(newMaxSlippage <= MAX_SLIPPAGE_LIMIT, ErrorsLib.SlippageTooHigh());
+        require(newMaxSlippage != maxSlippage, ErrorsLib.InvalidValue());
 
         uint256 oldMaxSlippage = maxSlippage;
         maxSlippage = newMaxSlippage;
@@ -917,6 +926,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function addToken(IERC20 token, IOracle oracle) external {
         timelocked();
         require(address(token) != address(0), ErrorsLib.InvalidAddress());
+        require(address(token) != asset, ErrorsLib.InvalidValue());
         require(address(oracle) != address(0), ErrorsLib.OracleRequired());
         require(!isToken(token), ErrorsLib.TokenAlreadyWhitelisted());
         require(tokens.length < MAX_TOKENS, ErrorsLib.TooManyTokens());
@@ -970,6 +980,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         }
         require(address(oracle) != address(0), ErrorsLib.InvalidAddress());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
+        require(oracles[token] != oracle, ErrorsLib.InvalidValue());
 
         oracles[token] = oracle;
 
@@ -985,6 +996,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         timelocked();
         require(!fundingMap[fundingModule], ErrorsLib.AlreadyWhitelisted());
         require(address(fundingModule) != address(0), ErrorsLib.InvalidAddress());
+        // Check that Box is the owner of the funding module
+        (bool success, bytes memory data) = address(fundingModule).staticcall(abi.encodeWithSignature("owner()"));
+        require(success && data.length == 32, ErrorsLib.InvalidValue());
+        address fundingOwner = abi.decode(data, (address));
+        require(fundingOwner == address(this), ErrorsLib.InvalidValue());
         require(fundingModule.facilitiesLength() == 0, ErrorsLib.NotClean());
         require(fundingModule.collateralTokensLength() == 0, ErrorsLib.NotClean());
         require(fundingModule.debtTokensLength() == 0, ErrorsLib.NotClean());
