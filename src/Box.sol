@@ -1251,6 +1251,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Negative funding NAV is floored to zero
      */
     function _nav() internal view returns (uint256 nav) {
+        require(_navCacheDepth == 0, ErrorsLib.NoNavDuringCache());
         nav = IERC20(asset).balanceOf(address(this));
 
         // Add value of all tokens
