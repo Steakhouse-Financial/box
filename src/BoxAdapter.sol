@@ -60,8 +60,7 @@ contract BoxAdapter is IBoxAdapter {
         require(msg.sender == parentVault, NotAuthorized());
 
         if (assets > 0) IERC4626(box).deposit(assets, address(this));
-        // Safe casts because Box bounds the total supply of the underlying token, and allocation is less than the
-        // max total assets of the box.
+        // Safe casts because uint256 values fit within int256's positive range
         int256 newAllocation = int256(box.previewRedeem(box.balanceOf(address(this))));
         int256 oldAllocation = int256(allocation());
 
@@ -75,8 +74,7 @@ contract BoxAdapter is IBoxAdapter {
         require(msg.sender == parentVault, NotAuthorized());
 
         if (assets > 0) IERC4626(box).withdraw(assets, address(this), address(this));
-        // Safe casts because Box bounds the total supply of the underlying token, and allocation is less than the
-        // max total assets of the vault.
+        // Safe casts because uint256 values fit within int256's positive range
         int256 newAllocation = int256(box.previewRedeem(box.balanceOf(address(this))));
         int256 oldAllocation = int256(allocation());
 
