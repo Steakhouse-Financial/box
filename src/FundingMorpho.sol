@@ -181,6 +181,8 @@ contract FundingMorpho is IFunding {
         require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
+        require(address(collateralToken) == market.collateralToken, "FundingModuleMorpho: Wrong collateral token");
+
         collateralToken.forceApprove(address(morpho), collateralAmount);
         morpho.supplyCollateral(market, collateralAmount, address(this), "");
     }
@@ -191,6 +193,8 @@ contract FundingMorpho is IFunding {
         require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
+        require(address(collateralToken) == market.collateralToken, "FundingModuleMorpho: Wrong collateral token");
+
         morpho.withdrawCollateral(market, collateralAmount, address(this), address(this));
 
         require(ltv(facilityData) <= (market.lltv * lltvCap) / 100e16, ErrorsLib.ExcessiveLTV());
@@ -204,6 +208,8 @@ contract FundingMorpho is IFunding {
         require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
+        require(address(debtToken) == market.loanToken, "FundingModuleMorpho: Wrong debt token");
+
         morpho.borrow(market, borrowAmount, 0, address(this), address(this));
 
         require(ltv(facilityData) <= (market.lltv * lltvCap) / 100e16, ErrorsLib.ExcessiveLTV());
@@ -218,6 +224,7 @@ contract FundingMorpho is IFunding {
         require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
+        require(address(debtToken) == market.loanToken, "FundingModuleMorpho: Wrong debt token");
 
         uint256 debtAmount = morpho.expectedBorrowAssets(market, address(this));
 

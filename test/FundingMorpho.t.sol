@@ -297,4 +297,49 @@ contract FundingMorphoTest is Test {
 
         fundingMorpho.borrow(facilityDataLtv80, debtToken, (0.08 ether * fundingMorpho.lltvCap()) / 1e18);
     }
+
+    /// @dev Test for audit issue 5.6: Ensure token parameters match the market's actual tokens
+    function testTokenParameterValidation() public {
+        // Setup: whitelist a second collateral token
+        vm.startPrank(owner);
+        fundingMorpho.addCollateralToken(collateral2Token);
+
+        // Create a market with collateralToken but we'll try to use collateral2Token parameter
+        collateralToken.mint(address(fundingMorpho), 1 ether);
+
+        // Test pledge: should revert when using wrong collateral token parameter
+        vm.expectRevert("FundingModuleMorpho: Wrong collateral token");
+        fundingMorpho.pledge(facilityDataLtv80, collateral2Token, 1 ether);
+
+        // Correct pledge should work
+        fundingMorpho.pledge(facilityDataLtv80, collateralToken, 1 ether);
+
+        // Test depledge: should revert when using wrong collateral token parameter
+        vm.expectRevert("FundingModuleMorpho: Wrong collateral token");
+        fundingMorpho.depledge(facilityDataLtv80, collateral2Token, 0.5 ether);
+
+        // Correct depledge should work
+        fundingMorpho.depledge(facilityDataLtv80, collateralToken, 0.5 ether);
+
+        // Setup for debt token tests: whitelist a second debt token
+        fundingMorpho.addDebtToken(debt2Token);
+
+        // Test borrow: should revert when using wrong debt token parameter
+        vm.expectRevert("FundingModuleMorpho: Wrong debt token");
+        fundingMorpho.borrow(facilityDataLtv80, debt2Token, 0.1 ether);
+
+        // Correct borrow should work
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.1 ether);
+
+        // Test repay: should revert when using wrong debt token parameter
+        debt2Token.mint(address(fundingMorpho), 0.1 ether);
+        vm.expectRevert("FundingModuleMorpho: Wrong debt token");
+        fundingMorpho.repay(facilityDataLtv80, debt2Token, 0.1 ether);
+
+        // Correct repay should work
+        debtToken.transfer(address(fundingMorpho), 0.1 ether);
+        fundingMorpho.repay(facilityDataLtv80, debtToken, 0.1 ether);
+
+        vm.stopPrank();
+    }
 }
