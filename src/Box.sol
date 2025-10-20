@@ -1002,7 +1002,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
         timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
         require(isTokenOrAsset(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
