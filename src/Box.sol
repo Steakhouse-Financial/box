@@ -163,7 +163,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             _symbol,
             maxSlippage,
             slippageEpochDuration,
-            shutdownSlippageDuration
+            shutdownSlippageDuration,
+            shutdownWarmup
         );
         emit EventsLib.OwnershipTransferred(address(0), _owner);
         emit EventsLib.CuratorUpdated(address(0), _curator);
@@ -929,14 +930,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(!_isTokenUsedInFunding(token), ErrorsLib.CannotRemove());
 
         uint256 length = tokens.length;
-        for (uint256 i; i < length; ) {
+        for (uint256 i; i < length; i++) {
             if (tokens[i] == token) {
                 tokens[i] = tokens[length - 1];
                 tokens.pop();
                 break;
-            }
-            unchecked {
-                ++i;
             }
         }
 
@@ -1269,7 +1267,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Add value of all tokens
         uint256 length = tokens.length;
-        for (uint256 i; i < length; ) {
+        for (uint256 i; i < length; i++) {
             IERC20 token = tokens[i];
             IOracle oracle = oracles[token];
             if (address(oracle) != address(0)) {
@@ -1278,18 +1276,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
                     nav += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
                 }
             }
-            unchecked {
-                ++i;
-            }
         }
         // Loop over funding sources
         length = fundings.length;
-        for (uint256 i; i < length; ) {
+        for (uint256 i; i < length; i++) {
             IFunding funding = fundings[i];
             nav += funding.nav(IOracleCallback(address(this)));
-            unchecked {
-                ++i;
-            }
         }
     }
 

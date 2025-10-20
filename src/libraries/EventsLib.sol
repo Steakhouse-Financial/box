@@ -17,7 +17,8 @@ library EventsLib {
         string symbol,
         uint256 maxSlippage,
         uint256 slippageEpochDuration,
-        uint256 shutdownSlippageDuration
+        uint256 shutdownSlippageDuration,
+        uint256 shutdownWarmup
     );
 
     // ========== ACCESS CONTROL ==========
