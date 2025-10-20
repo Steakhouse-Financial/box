@@ -2389,7 +2389,7 @@ contract BoxTest is Test {
         box.deposit(100e18, feeder);
         vm.stopPrank();
 
-        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        vm.expectRevert();
         vm.prank(allocator);
         box.allocate(token1, 50e18, ISwapper(address(0)), "");
     }
@@ -2403,7 +2403,7 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
-        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        vm.expectRevert();
         vm.prank(allocator);
         box.deallocate(token1, 25e18, ISwapper(address(0)), "");
     }
@@ -2417,7 +2417,7 @@ contract BoxTest is Test {
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
 
-        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        vm.expectRevert();
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, ISwapper(address(0)), "");
     }

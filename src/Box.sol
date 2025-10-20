@@ -209,16 +209,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Deposits base asset and mints shares to receiver
     /// @dev Only authorized feeders can deposit
     function deposit(uint256 assets, address receiver) public nonReentrant returns (uint256 shares) {
-        require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
-        require(!isShutdown(), ErrorsLib.CannotDuringShutdown());
-        require(receiver != address(0), ErrorsLib.InvalidAddress());
-
         shares = previewDeposit(assets);
-
-        IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
-        _mint(receiver, shares);
-
-        emit Deposit(msg.sender, receiver, assets, shares);
+        _depositMint(assets, shares, receiver);
     }
 
     /// @inheritdoc IERC4626
@@ -238,11 +230,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Mints exact shares by depositing necessary base asset
     /// @dev Only authorized feeders can mint
     function mint(uint256 shares, address receiver) external nonReentrant returns (uint256 assets) {
+        assets = previewMint(shares);
+        _depositMint(assets, shares, receiver);
+    }
+
+    /// @dev Internal helper for deposit and mint to reduce bytecode duplication
+    function _depositMint(uint256 assets, uint256 shares, address receiver) internal {
         require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
         require(!isShutdown(), ErrorsLib.CannotDuringShutdown());
         require(receiver != address(0), ErrorsLib.InvalidAddress());
-
-        assets = previewMint(shares);
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
         _mint(receiver, shares);
@@ -269,25 +265,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Withdraws base asset by burning owner's shares
     /// @dev Requires sufficient shares and vault liquidity
     function withdraw(uint256 assets, address receiver, address owner_) public nonReentrant returns (uint256 shares) {
-        if (receiver == address(0)) revert ErrorsLib.InvalidAddress();
-
         shares = previewWithdraw(assets);
-
-        if (msg.sender != owner_) {
-            uint256 allowed = allowance(owner_, msg.sender);
-            if (allowed < shares) revert ErrorsLib.InsufficientAllowance();
-            if (allowed != type(uint256).max) {
-                _approve(owner_, msg.sender, allowed - shares);
-            }
-        }
-
-        if (balanceOf(owner_) < shares) revert ErrorsLib.InsufficientShares();
-        if (IERC20(asset).balanceOf(address(this)) < assets) revert ErrorsLib.InsufficientLiquidity();
-
-        _burn(owner_, shares);
-        IERC20(asset).safeTransfer(receiver, assets);
-
-        emit Withdraw(msg.sender, receiver, owner_, assets, shares);
+        _withdrawRedeem(assets, shares, receiver, owner_);
     }
 
     /// @inheritdoc IERC4626
@@ -309,6 +288,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Redeems shares for underlying base asset
     /// @dev Burns shares and transfers base asset to receiver
     function redeem(uint256 shares, address receiver, address owner_) external nonReentrant returns (uint256 assets) {
+        assets = previewRedeem(shares);
+        _withdrawRedeem(assets, shares, receiver, owner_);
+    }
+
+    /// @dev Internal helper for withdraw and redeem to reduce bytecode duplication
+    function _withdrawRedeem(uint256 assets, uint256 shares, address receiver, address owner_) internal {
         if (receiver == address(0)) revert ErrorsLib.InvalidAddress();
 
         if (msg.sender != owner_) {
@@ -320,8 +305,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         }
 
         if (balanceOf(owner_) < shares) revert ErrorsLib.InsufficientShares();
-
-        assets = previewRedeem(shares);
         if (IERC20(asset).balanceOf(address(this)) < assets) revert ErrorsLib.InsufficientLiquidity();
 
         _burn(owner_, shares);
@@ -381,7 +364,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) > 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
-        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
 
         uint256 oraclePrice = oracles[token].price();
         uint256 slippageTolerance = winddown ? _winddownSlippageTolerance() : maxSlippage;
@@ -439,7 +421,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) == 0), ErrorsLib.OnlyAllocatorsOrWinddown());
-        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
 
         uint256 oraclePrice = oracles[token].price();
@@ -491,7 +472,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
         require(isToken(from) && isToken(to), ErrorsLib.TokenNotWhitelisted());
-        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
 
         uint256 fromOraclePrice = oracles[from].price();
         uint256 toOraclePrice = oracles[to].price();
