@@ -658,6 +658,22 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         emit EventsLib.Flash(msg.sender, flashToken, flashAmount);
     }
 
+    /**
+     * @notice Executes multiple calls in a single transaction
+     * @param data Array of encoded function calls
+     * @dev Allows EOAs to execute multiple operations atomically
+     */
+    function multicall(bytes[] calldata data) external {
+        for (uint256 i = 0; i < data.length; i++) {
+            (bool success, bytes memory returnData) = address(this).delegatecall(data[i]);
+            if (!success) {
+                assembly ("memory-safe") {
+                    revert(add(32, returnData), mload(returnData))
+                }
+            }
+        }
+    }
+
     // ========== ADMIN FUNCTIONS ==========
 
     /**
