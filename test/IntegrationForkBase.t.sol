@@ -643,7 +643,7 @@ contract IntegrationForkBaseTest is Test {
         assertEq(box2.accumulatedSlippage(), 0, "Before the start, accumulated slippage should be 0");
 
         vm.expectEmit(true, true, true, true);
-        emit EventsLib.SlippageAccumulated(430674700893582, 430674700893582);
+        emit EventsLib.SlippageAccumulated(430489300000000, 430489300000000);
         vm.expectEmit(true, true, true, true);
         emit EventsLib.Allocation(
             IERC20(ptusr25sep),
@@ -657,10 +657,10 @@ contract IntegrationForkBaseTest is Test {
         box2.allocate(ptusr25sep, USDC_AMOUNT, swapper, "");
 
         assertEq(box2.totalAssets(), 9995695106, "Total asset after allocate doesn't match");
-        assertEq(box2.accumulatedSlippage(), 430674700893582, "Accumulated slippage after allocate doesn't match");
+        assertEq(box2.accumulatedSlippage(), 430489300000000, "Accumulated slippage after allocate doesn't match");
 
         vm.expectEmit(true, true, true, true);
-        emit EventsLib.SlippageAccumulated(464070846766503, 894745547660085);
+        emit EventsLib.SlippageAccumulated(463855584912435, 894344884912435);
         vm.expectEmit(true, true, true, true);
         emit EventsLib.Deallocation(
             IERC20(ptusr25sep),
@@ -674,19 +674,19 @@ contract IntegrationForkBaseTest is Test {
         box2.deallocate(ptusr25sep, ptusr25sep.balanceOf(address(box2)), swapper, "");
 
         assertEq(box2.totalAssets(), 9991058547, "Total asset after deallocate doesn't match");
-        assertEq(box2.accumulatedSlippage(), 894745547660085, "Accumulated slippage after deallocate doesn't match");
+        assertEq(box2.accumulatedSlippage(), 894344884912435, "Accumulated slippage after deallocate doesn't match");
 
         vm.warp(block.timestamp + 8 days);
 
-        assertEq(box2.accumulatedSlippage(), 894745547660085, "Slippage doesn't change just by passage of time");
+        assertEq(box2.accumulatedSlippage(), 894344884912435, "Slippage doesn't change just by passage of time");
 
         vm.expectEmit(true, true, true, true);
         // August 22th, 2025 (8 days after August 14th)
         emit EventsLib.SlippageEpochReset(1755868569);
         vm.expectEmit(true, true, true, true);
-        emit EventsLib.SlippageAccumulated(64154975793433, 64154975793433);
+        emit EventsLib.SlippageAccumulated(64150860190129, 64150860190129);
         box2.allocate(ptusr25sep, USDC_AMOUNT / 2, swapper, "");
-        assertEq(box2.accumulatedSlippage(), 64154975793433, "Slippage reset");
+        assertEq(box2.accumulatedSlippage(), 64150860190129, "Slippage reset");
 
         vm.stopPrank();
     }

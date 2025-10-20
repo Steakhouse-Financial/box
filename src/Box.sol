@@ -105,11 +105,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Quick lookup to check if a funding module is whitelisted
     mapping(IFunding => bool) internal fundingMap;
 
-    /// @notice Flag indicating if a flash operation is in progress
-    bool private _isInFlash;
+    /// @notice Depth counter for nested NAV-caching operations (flash and swaps)
+    uint8 private _navCacheDepth;
 
-    /// @notice Cached NAV value during flash operations to prevent manipulation
-    uint256 private _cachedNavForFlash;
+    /// @notice Cached NAV value during flash and swap operations to prevent manipulation
+    uint256 private _cachedNav;
 
     // ========== CONSTRUCTOR ==========
 
@@ -173,9 +173,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @inheritdoc IERC4626
     /// @notice Returns the total value of assets managed by the vault
-    /// @dev Reverts during flash loans to prevent NAV manipulation
+    /// @dev Returns cached NAV during flash and swap operations to prevent manipulation
     function totalAssets() public view returns (uint256) {
-        return _nav();
+        return _navCacheDepth > 0 ? _cachedNav : _nav();
     }
 
     /// @inheritdoc IERC4626
@@ -375,6 +375,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         ISwapper swapper,
         bytes calldata data
     ) public nonReentrant returns (uint256 expected, uint256 received) {
+        _startNavCache();
+
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) > 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(isToken(token), ErrorsLib.TokenNotWhitelisted());
@@ -406,11 +408,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage if we are not in winddown and have positive slippage
         if (!winddown && tokensReceived < expectedTokens) {
             uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
         emit EventsLib.Allocation(token, assetsSpent, expectedTokens, tokensReceived, slippagePct, swapper, data);
 
+        _endNavCache();
         return (expectedTokens, tokensReceived);
     }
 
@@ -431,6 +434,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         ISwapper swapper,
         bytes calldata data
     ) external nonReentrant returns (uint256 expected, uint256 received) {
+        _startNavCache();
+
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) == 0), ErrorsLib.OnlyAllocatorsOrWinddown());
         require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
@@ -453,11 +458,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         if (!winddown && assetsReceived < expectedAssets) {
             // slippage is already in asset units
             uint256 slippageValue = expectedAssets - assetsReceived;
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
         emit EventsLib.Deallocation(token, tokensSpent, expectedAssets, assetsReceived, slippagePct, swapper, data);
 
+        _endNavCache();
         return (expectedAssets, assetsReceived);
     }
 
@@ -479,6 +485,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         ISwapper swapper,
         bytes calldata data
     ) external nonReentrant returns (uint256 expected, uint256 received) {
+        _startNavCache();
+
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
         require(isToken(from) && isToken(to), ErrorsLib.TokenNotWhitelisted());
@@ -502,11 +510,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Note: No winddown check needed as reallocate cannot be called during winddown
         if (toReceived < expectedToTokens) {
             uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
         }
 
         emit EventsLib.Reallocation(from, to, fromSpent, expectedToTokens, toReceived, slippagePct, swapper, data);
 
+        _endNavCache();
         return (expectedToTokens, toReceived);
     }
 
@@ -630,11 +639,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
         require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
         // Prevent re-entrancy. Can't use nonReentrant modifier because of conflict with allocate/deallocate/reallocate
-        require(!_isInFlash, ErrorsLib.AlreadyInFlash());
+        require(_navCacheDepth == 0, ErrorsLib.AlreadyInFlash());
 
         // Cache NAV before starting flash operation for slippage calculations
-        _cachedNavForFlash = _nav();
-        _isInFlash = true;
+        _startNavCache();
 
         // Transfer flash amount FROM caller TO this contract
         flashToken.safeTransferFrom(msg.sender, address(this), flashAmount);
@@ -645,7 +653,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Repay the flash loan by transferring back TO caller
         flashToken.safeTransfer(msg.sender, flashAmount);
 
-        _isInFlash = false;
+        _endNavCache();
 
         emit EventsLib.Flash(msg.sender, flashToken, flashAmount);
     }
@@ -1148,11 +1156,23 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== INTERNAL FUNCTIONS ==========
 
     /**
-     * @dev Gets NAV for slippage tracking, using cached value during flash loans
-     * @return NAV value safe for slippage calculations
+     * @dev Starts NAV caching for the current operation
+     * @dev Caches NAV on first call (depth 0 -> 1), increments depth on nested calls
+     * @dev Properly handles nesting when swaps are called from flash callbacks
      */
-    function _navForSlippage() internal view returns (uint256) {
-        return _isInFlash ? _cachedNavForFlash : _nav();
+    function _startNavCache() internal {
+        if (_navCacheDepth == 0) {
+            _cachedNav = _nav();
+        }
+        _navCacheDepth++;
+    }
+
+    /**
+     * @dev Ends NAV caching for the current operation
+     * @dev Decrements the depth counter
+     */
+    function _endNavCache() internal {
+        _navCacheDepth--;
     }
 
     /**
@@ -1229,11 +1249,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /**
      * @dev Calculates total vault value across all positions
      * @return nav Sum of base asset, token values, and funding positions
-     * @dev Reverts during flash operations to prevent manipulation
      * @dev Negative funding NAV is floored to zero
      */
     function _nav() internal view returns (uint256 nav) {
-        require(_isInFlash == false, ErrorsLib.NoNavDuringFlash());
         nav = IERC20(asset).balanceOf(address(this));
 
         // Add value of all tokens

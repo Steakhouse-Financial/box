@@ -172,6 +172,35 @@ contract MaliciousFundingSwapper is ISwapper {
     }
 }
 
+// Malicious swapper that attempts read-only reentrancy attack (5.2)
+contract ReadOnlyReentrancySwapper is ISwapper {
+    using SafeERC20 for IERC20;
+    IBox public immutable box;
+    uint256 public observedTotalAssets;
+    IOracle public oracle;
+
+    constructor(IBox _box) {
+        box = _box;
+    }
+
+    function setOracle(IOracle _oracle) external {
+        oracle = _oracle;
+    }
+
+    function sell(IERC20 input, IERC20 output, uint256 amountIn, bytes calldata) external {
+        // Take tokens from Box
+        input.safeTransferFrom(msg.sender, address(this), amountIn);
+
+        // Attempt read-only reentrancy: try to observe manipulated NAV
+        // With the fix, this should return the CACHED (pre-swap) NAV, not the manipulated NAV
+        observedTotalAssets = box.totalAssets();
+
+        // Return assets based on oracle price
+        uint256 outputAmount = (amountIn * oracle.price()) / ORACLE_PRECISION;
+        output.safeTransfer(msg.sender, outputAmount);
+    }
+}
+
 // Mock funding module for testing debt scenarios
 contract MockFunding is IFunding {
     using SafeERC20 for IERC20;
@@ -1523,8 +1552,9 @@ contract BoxTest is Test {
         require(msg.sender == address(box), "Only Box can call");
         require(token == flashToken, "Only asset token");
 
-        vm.expectRevert(ErrorsLib.NoNavDuringFlash.selector);
-        box.totalAssets();
+        // totalAssets() should return the cached NAV during flash, not revert
+        uint256 assetsInFlash = box.totalAssets();
+        assertEq(assetsInFlash, 50e18, "totalAssets during flash returns cached value");
     }
 
     function testFlashNav() public {
@@ -2650,13 +2680,15 @@ contract BoxTest is Test {
         asset.mint(address(pSwapper), 10000e18);
 
         // Deallocate 40 tokens. Expected assets = 40 * 5 = 200; actual = 198; loss = 2 assets
+        // Get NAV before deallocate for slippage calculation (now uses cached pre-swap NAV)
+        uint256 totalBefore = box.totalAssets();
+
         vm.prank(allocator);
         box.deallocate(token1, 40e18, pSwapper, "");
 
-        // Expected accumulated slippage is loss / totalAssetsAfter
-        uint256 totalAfter = box.totalAssets();
+        // Expected accumulated slippage is loss / totalAssetsBefore (cached NAV used during swap)
         uint256 expectedLoss = 2e18; // 2 assets lost
-        uint256 expectedAccumulated = (expectedLoss * 1e18) / totalAfter;
+        uint256 expectedAccumulated = (expectedLoss * 1e18) / totalBefore;
 
         // Ensure value matches what contract recorded (no extra price multiplication)
         assertApproxEqAbs(box.accumulatedSlippage(), expectedAccumulated, 1); // within 1 wei
@@ -2691,6 +2723,9 @@ contract BoxTest is Test {
         uint256 expectedLoss = expectedAssets / 100; // 1% loss = 10 assets
         uint256 inflatedValue = (expectedLoss * price) / ORACLE_PRECISION; // 10 * 500 = 5000 assets
 
+        // Get NAV before deallocate for slippage calculation (now uses cached pre-swap NAV)
+        uint256 totalBefore = box.totalAssets();
+
         // Execute deallocation with fixed logic - should NOT revert
         vm.prank(allocator);
         box.deallocate(token1, tokensToSell, pSwapper, "");
@@ -2700,8 +2735,8 @@ contract BoxTest is Test {
         uint256 oldBugPct = (inflatedValue * PRECISION) / totalAfter; // in 1e18 precision
         assertGe(oldBugPct, box.maxSlippage(), "Old buggy accounting would not have reverted as expected");
 
-        // Actual accumulated slippage must equal actual loss / totalAfter
-        uint256 expectedAccumulated = (expectedLoss * PRECISION) / totalAfter;
+        // Actual accumulated slippage must equal actual loss / totalBefore (cached NAV used during swap)
+        uint256 expectedAccumulated = (expectedLoss * PRECISION) / totalBefore;
         assertApproxEqAbs(box.accumulatedSlippage(), expectedAccumulated, 1);
         assertLt(box.accumulatedSlippage(), box.maxSlippage());
     }
@@ -3110,6 +3145,51 @@ contract BoxTest is Test {
         vm.prank(nonAuthorized);
         vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
         box.allocate(token1, 50e18, swapper, "");
+    }
+
+    // Test for 5.2 Read-only Reentrancy protection
+    // Verifies that totalAssets() returns cached NAV during swaps, preventing manipulation
+    function testReadOnlyReentrancyProtection() public {
+        // Setup: deposit assets
+        vm.startPrank(feeder);
+        asset.approve(address(box), 1000e18);
+        box.deposit(1000e18, feeder);
+        vm.stopPrank();
+
+        // Allocate some tokens to create a non-trivial position
+        vm.startPrank(allocator);
+        box.allocate(token1, 500e18, swapper, "");
+        vm.stopPrank();
+
+        // Set oracle price for token1
+        oracle1.setPrice(2e36); // 1 token1 = 2 assets
+
+        // NAV should be: 500 assets + 500 tokens * 2 = 1500
+        assertEq(box.totalAssets(), 1500e18, "Initial NAV should be 1500");
+
+        // Create a malicious swapper that attempts read-only reentrancy
+        ReadOnlyReentrancySwapper maliciousSwapper = new ReadOnlyReentrancySwapper(box);
+        maliciousSwapper.setOracle(oracle1);
+        asset.mint(address(maliciousSwapper), 1000e18); // Give it assets to return for the swap
+
+        // The malicious swapper will:
+        // 1. Take tokens from Box in sell()
+        // 2. Try to read totalAssets() (should get cached value, not manipulated value)
+        // 3. Return tokens
+        vm.prank(allocator);
+        (uint256 expected, uint256 received) = box.deallocate(token1, 100e18, maliciousSwapper, "");
+
+        // Verify the malicious swapper observed the CACHED (pre-swap) NAV, not the manipulated NAV
+        uint256 observedNav = maliciousSwapper.observedTotalAssets();
+        assertEq(observedNav, 1500e18, "Swapper should observe cached pre-swap NAV");
+
+        // Verify the swapper did NOT see the manipulated NAV (which would be lower)
+        // Manipulated NAV would be: 500 assets + 400 tokens * 2 = 1300
+        assertTrue(observedNav != 1300e18, "Swapper should NOT see manipulated mid-swap NAV");
+
+        // After the swap completes, totalAssets() should return the real (post-swap) NAV
+        // Post-swap NAV: 700 assets + 400 tokens * 2 = 1500 (same because we return equal value)
+        assertEq(box.totalAssets(), 1500e18, "Post-swap NAV should be correct");
     }
 
     // A malicious swapper could use a borrow or depledge and steal the funds
