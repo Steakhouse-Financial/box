@@ -147,8 +147,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _requireNonZeroAddress(_owner);
         _requireNonZeroAddress(_curator);
         require(_maxSlippage <= MAX_SLIPPAGE_LIMIT, ErrorsLib.SlippageTooHigh());
-        require(_slippageEpochDuration != 0, ErrorsLib.InvalidValue());
-        require(_shutdownSlippageDuration != 0, ErrorsLib.InvalidValue());
+        _requireNotEqual(_slippageEpochDuration, 0);
+        _requireNotEqual(_shutdownSlippageDuration, 0);
         require(_shutdownWarmup <= MAX_SHUTDOWN_WARMUP, ErrorsLib.InvalidValue());
 
         asset = _asset;
@@ -350,7 +350,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             return;
         }
 
-        require(address(token) != address(asset), ErrorsLib.CannotSkimAsset());
+        _requireNotEqualAddress(address(token), asset);
         require(!isToken(token), ErrorsLib.CannotSkimToken());
 
         uint256 amount = token.balanceOf(address(this));
@@ -637,7 +637,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
         _onlyAllocator();
         _requireNonZeroAddress(address(flashToken));
-        require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
+        _requireIsTokenOrAsset(flashToken);
         // Prevent re-entrancy. Can't use nonReentrant modifier because of conflict with allocate/deallocate/reallocate
         require(_navCacheDepth == 0, ErrorsLib.AlreadyInFlash());
 
@@ -1030,7 +1030,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
         timelocked();
         _requireIsFunding(fundingModule);
-        require(isTokenOrAsset(collateralToken), ErrorsLib.TokenNotWhitelisted());
+        _requireIsTokenOrAsset(collateralToken);
 
         fundingModule.addCollateralToken(collateralToken);
 
@@ -1046,7 +1046,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
         timelocked();
         _requireIsFunding(fundingModule);
-        require(isTokenOrAsset(debtToken), ErrorsLib.TokenNotWhitelisted());
+        _requireIsTokenOrAsset(debtToken);
 
         fundingModule.addDebtToken(debtToken);
 
@@ -1277,6 +1277,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function _requireNotShutdown() internal view {
         require(!isShutdown(), ErrorsLib.CannotDuringShutdown());
+    }
+
+    /**
+     * @dev Checks if token or asset is whitelisted
+     */
+    function _requireIsTokenOrAsset(IERC20 token) internal view {
+        require(isTokenOrAsset(token), ErrorsLib.TokenNotWhitelisted());
     }
 
     /**
