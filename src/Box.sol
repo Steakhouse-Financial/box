@@ -255,8 +255,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @dev Internal helper for deposit and mint to reduce bytecode duplication
     function _depositMint(uint256 assets, uint256 shares, address receiver) internal {
-        require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
-        require(!isShutdown(), ErrorsLib.CannotDuringShutdown());
+        _onlyFeeder();
+        _requireNotShutdown();
         _requireNonZeroAddress(receiver);
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
@@ -487,7 +487,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     ) external nonReentrant returns (uint256 expected, uint256 received) {
         _startNavCache();
 
-        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        _onlyAllocator();
         _requireNotWinddown();
         _requireIsToken(from);
         _requireIsToken(to);
@@ -635,7 +635,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev NAV is cached during flash to prevent manipulation
      */
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
-        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+        _onlyAllocator();
         _requireNonZeroAddress(address(flashToken));
         require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
         // Prevent re-entrancy. Can't use nonReentrant modifier because of conflict with allocate/deallocate/reallocate
@@ -969,7 +969,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function changeTokenOracle(IERC20 token, IOracle oracle) external {
         if (isWinddown()) {
             require(block.timestamp >= shutdownTime + shutdownWarmup + shutdownSlippageDuration, ErrorsLib.NotAllowed());
-            require(msg.sender == guardian, ErrorsLib.OnlyGuardian());
+            _onlyGuardian();
         } else {
             timelocked();
         }
@@ -1249,6 +1249,34 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function _requireNotEqualAddress(address a, address b) internal pure {
         require(a != b, ErrorsLib.InvalidValue());
+    }
+
+    /**
+     * @dev Checks if msg.sender is the guardian
+     */
+    function _onlyGuardian() internal view {
+        require(msg.sender == guardian, ErrorsLib.OnlyGuardian());
+    }
+
+    /**
+     * @dev Checks if msg.sender is allocator
+     */
+    function _onlyAllocator() internal view {
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+    }
+
+    /**
+     * @dev Checks if msg.sender is feeder
+     */
+    function _onlyFeeder() internal view {
+        require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
+    }
+
+    /**
+     * @dev Checks that vault is not shutdown
+     */
+    function _requireNotShutdown() internal view {
+        require(!isShutdown(), ErrorsLib.CannotDuringShutdown());
     }
 
     /**
