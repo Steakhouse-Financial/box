@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -45,6 +46,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @notice Base currency token (e.g., USDC)
     address public immutable asset;
+
+    /// @notice Number of decimals for the vault shares (normalized to 18 for assets with fewer decimals)
+    uint8 private immutable _decimals;
+
+    /// @notice Virtual shares used for inflation attack protection
+    uint256 public immutable virtualShares;
 
     /// @notice Duration of slippage tracking epochs
     uint256 public immutable slippageEpochDuration;
@@ -154,6 +161,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         slippageEpochStart = block.timestamp;
         shutdownTime = type(uint256).max; // No shutdown initially
 
+        // Set up decimals following VaultV2 pattern
+        uint256 assetDecimals = IERC20Metadata(asset).decimals();
+        uint256 decimalOffset = uint256(18) > assetDecimals ? uint256(18) - assetDecimals : 0;
+        _decimals = uint8(assetDecimals + decimalOffset);
+        virtualShares = 10 ** decimalOffset;
+
         emit EventsLib.BoxCreated(
             address(this),
             asset,
@@ -172,6 +185,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     // ========== ERC4626 IMPLEMENTATION ==========
 
+    /// @notice Returns the number of decimals for the vault shares
+    /// @dev Overrides ERC20.decimals() to support assets with different decimal values
+    function decimals() public view override(ERC20, IERC20Metadata) returns (uint8) {
+        return _decimals;
+    }
+
     /// @inheritdoc IERC4626
     /// @notice Returns the total value of assets managed by the vault
     /// @dev Returns cached NAV during flash and swap operations to prevent manipulation
@@ -183,14 +202,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Calculates shares received for a given asset amount
     function convertToShares(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? assets : assets.mulDiv(supply, totalAssets());
+        return assets.mulDiv(supply + virtualShares, totalAssets() + 1, Math.Rounding.Floor);
     }
 
     /// @inheritdoc IERC4626
     /// @notice Calculates assets received for redeeming shares
     function convertToAssets(uint256 shares) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply);
+        return shares.mulDiv(totalAssets() + 1, supply + virtualShares, Math.Rounding.Floor);
     }
 
     /// @inheritdoc IERC4626
@@ -223,7 +242,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Simulates assets needed to mint shares
     function previewMint(uint256 shares) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply, Math.Rounding.Ceil);
+        return shares.mulDiv(totalAssets() + 1, supply + virtualShares, Math.Rounding.Ceil);
     }
 
     /// @inheritdoc IERC4626
@@ -258,7 +277,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Simulates shares burned for withdrawing assets
     function previewWithdraw(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? assets : assets.mulDiv(supply, totalAssets(), Math.Rounding.Ceil);
+        return assets.mulDiv(supply + virtualShares, totalAssets() + 1, Math.Rounding.Ceil);
     }
 
     /// @inheritdoc IERC4626

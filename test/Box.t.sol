@@ -503,6 +503,9 @@ contract BoxTest is Test {
         vm.assume(shutdownSlippageDuration_ != 0);
         vm.assume(shutdownWarmup_ <= MAX_SHUTDOWN_WARMUP);
 
+        // Mock decimals() to return 18 for the fuzzed asset address
+        vm.mockCall(asset_, abi.encodeWithSignature("decimals()"), abi.encode(uint8(18)));
+
         bytes memory initCode = abi.encodePacked(
             type(Box).creationCode,
             abi.encode(
@@ -632,9 +635,11 @@ contract BoxTest is Test {
         vm.prank(address(box));
         asset.transfer(address(0xdead), 100e18);
 
-        // Will revert if there is at least a share an no more assets
-        vm.expectRevert();
-        box.convertToShares(100e18);
+        // With virtual shares + 1 offset, conversion doesn't revert even when totalAssets=0
+        // Formula: assets * (supply + virtual) / (totalAssets + 1)
+        // This matches VaultV2 and ERC4626 standard behavior
+        uint256 shares = box.convertToShares(100e18);
+        assertGt(shares, 0, "Should return valid shares even with 0 total assets");
     }
 
     function testDeposit() public {
