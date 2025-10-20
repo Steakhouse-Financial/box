@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2025 Steakhouse
-pragma solidity >=0.8.0;
+pragma solidity 0.8.28;
 
 // Precision for percentage calculations
 uint256 constant PRECISION = 1 ether;

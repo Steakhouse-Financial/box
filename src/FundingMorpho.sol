@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Steakhouse Financial
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import {IMorpho, Id, MarketParams, Position} from "@morpho-blue/interfaces/IMorpho.sol";
 import "@morpho-blue/libraries/ConstantsLib.sol";

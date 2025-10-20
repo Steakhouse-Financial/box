@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Morpho Association, Steakhouse Financial
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import {BoxAdapterCached} from "./../BoxAdapterCached.sol";
 import {IBox} from "./../interfaces/IBox.sol";
