@@ -409,7 +409,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage if we are not in winddown and have positive slippage
         if (!winddown && tokensReceived < expectedTokens) {
             uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
         }
 
         emit EventsLib.Allocation(token, assetsSpent, expectedTokens, tokensReceived, slippagePct, swapper, data);
@@ -459,7 +459,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         if (!winddown && assetsReceived < expectedAssets) {
             // slippage is already in asset units
             uint256 slippageValue = expectedAssets - assetsReceived;
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
         }
 
         emit EventsLib.Deallocation(token, tokensSpent, expectedAssets, assetsReceived, slippagePct, swapper, data);
@@ -511,7 +511,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Note: No winddown check needed as reallocate cannot be called during winddown
         if (toReceived < expectedToTokens) {
             uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
         }
 
         emit EventsLib.Reallocation(from, to, fromSpent, expectedToTokens, toReceived, slippagePct, swapper, data);
@@ -1254,7 +1254,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @return minAmount Minimum acceptable amount after slippage
      */
     function _calculateMinAmount(uint256 expectedAmount, uint256 tolerance) internal pure returns (uint256 minAmount) {
-        minAmount = expectedAmount.mulDiv(PRECISION - tolerance, PRECISION);
+        minAmount = expectedAmount.mulDiv(PRECISION - tolerance, PRECISION, Math.Rounding.Ceil);
     }
 
     /**
