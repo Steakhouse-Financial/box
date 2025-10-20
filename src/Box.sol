@@ -488,7 +488,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _startNavCache();
 
         require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
+        _requireNotWinddown();
         _requireIsToken(from);
         _requireIsToken(to);
 
@@ -535,7 +535,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         IERC20 collateralToken,
         uint256 collateralAmount
     ) external nonReentrant {
-        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
+        _onlyAllocatorNotWinddown();
         _requireIsFunding(fundingModule);
 
         collateralToken.safeTransfer(address(fundingModule), collateralAmount);
@@ -558,7 +558,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         IERC20 collateralToken,
         uint256 collateralAmount
     ) external nonReentrant {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
+        _onlyAllocatorOrWinddown();
         _requireIsFunding(fundingModule);
 
         uint256 pledgeAmount = fundingModule.collateralBalance(facilityData, collateralToken);
@@ -581,7 +581,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Requires sufficient collateral, borrowed tokens sent to vault
      */
     function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external nonReentrant {
-        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
+        _onlyAllocatorNotWinddown();
         _requireIsFunding(fundingModule);
 
         fundingModule.borrow(facilityData, debtToken, borrowAmount);
@@ -598,7 +598,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Transfers tokens from vault to module, reduces debt position
      */
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external nonReentrant {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
+        _onlyAllocatorOrWinddown();
         _requireIsFunding(fundingModule);
 
         uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
@@ -620,7 +620,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev NAV must remain unchanged to prevent skimming tokenized positions
      */
     function skimFunding(IFunding fundingModule, IERC20 token) external nonReentrant {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
+        _onlyAllocatorOrWinddown();
         _requireIsFunding(fundingModule);
 
         fundingModule.skim(token, IOracleCallback(address(this)));
@@ -635,7 +635,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev NAV is cached during flash to prevent manipulation
      */
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocators());
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
         _requireNonZeroAddress(address(flashToken));
         require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
         // Prevent re-entrancy. Can't use nonReentrant modifier because of conflict with allocate/deallocate/reallocate
@@ -686,7 +686,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _onlyOwner();
         _requireNonZeroAddress(newSkimRecipient);
         address oldRecipient = skimRecipient;
-        require(newSkimRecipient != oldRecipient, ErrorsLib.AlreadySet());
+        _requireNotEqualAddress(newSkimRecipient, oldRecipient);
 
         skimRecipient = newSkimRecipient;
 
@@ -702,7 +702,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _requireNonZeroAddress(newOwner);
         address oldOwner = owner;
         _onlyOwner();
-        require(newOwner != oldOwner, ErrorsLib.InvalidValue());
+        _requireNotEqualAddress(newOwner, oldOwner);
 
         owner = newOwner;
 
@@ -717,7 +717,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function setCurator(address newCurator) external {
         _onlyOwner();
         _requireNonZeroAddress(newCurator);
-        require(newCurator != curator, ErrorsLib.InvalidValue());
+        _requireNotEqualAddress(newCurator, curator);
 
         address oldCurator = curator;
         curator = newCurator;
@@ -731,11 +731,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Requires timelock, only curator can execute
      */
     function setGuardian(address newGuardian) external {
-        require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
+        _requireNotWinddown();
         timelocked();
         _onlyCurator();
         _requireNonZeroAddress(newGuardian);
-        require(newGuardian != guardian, ErrorsLib.InvalidValue());
+        _requireNotEqualAddress(newGuardian, guardian);
 
         address oldGuardian = guardian;
         guardian = newGuardian;
@@ -907,7 +907,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function setMaxSlippage(uint256 newMaxSlippage) external {
         timelocked();
         require(newMaxSlippage <= MAX_SLIPPAGE_LIMIT, ErrorsLib.SlippageTooHigh());
-        require(newMaxSlippage != maxSlippage, ErrorsLib.InvalidValue());
+        _requireNotEqual(newMaxSlippage, maxSlippage);
 
         uint256 oldMaxSlippage = maxSlippage;
         maxSlippage = newMaxSlippage;
@@ -924,7 +924,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function addToken(IERC20 token, IOracle oracle) external {
         timelocked();
         _requireNonZeroAddress(address(token));
-        require(address(token) != asset, ErrorsLib.InvalidValue());
+        _requireNotEqualAddress(address(token), asset);
         require(address(oracle) != address(0), ErrorsLib.OracleRequired());
         require(!isToken(token), ErrorsLib.TokenAlreadyWhitelisted());
         require(tokens.length < MAX_TOKENS, ErrorsLib.TooManyTokens());
@@ -1214,6 +1214,41 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function _requireIsFunding(IFunding fundingModule) internal view {
         require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+    }
+
+    /**
+     * @dev Checks that vault is not in winddown
+     */
+    function _requireNotWinddown() internal view {
+        require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
+    }
+
+    /**
+     * @dev Checks if msg.sender is allocator and not in winddown
+     */
+    function _onlyAllocatorNotWinddown() internal view {
+        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
+    }
+
+    /**
+     * @dev Checks if msg.sender is allocator or in winddown
+     */
+    function _onlyAllocatorOrWinddown() internal view {
+        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
+    }
+
+    /**
+     * @dev Checks that two values are not equal
+     */
+    function _requireNotEqual(uint256 a, uint256 b) internal pure {
+        require(a != b, ErrorsLib.InvalidValue());
+    }
+
+    /**
+     * @dev Checks that two addresses are not equal
+     */
+    function _requireNotEqualAddress(address a, address b) internal pure {
+        require(a != b, ErrorsLib.InvalidValue());
     }
 
     /**
