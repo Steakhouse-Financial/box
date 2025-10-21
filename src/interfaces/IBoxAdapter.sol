@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Steakhouse
-pragma solidity >=0.8.0;
+pragma solidity 0.8.28;
 
 import {IAdapter} from "../../lib/vault-v2/src/interfaces/IAdapter.sol";
 import {IBox} from "./IBox.sol";

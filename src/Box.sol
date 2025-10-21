@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 // Copyright (c) 2025 Steakhouse Financial
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -30,7 +31,7 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @dev During flash operations there is no totalAssets() calculation possible to avoid NAV based attacks
  * @dev There is no protection against ERC4626 inflation attacks, as deposits are controlled via the isFeeder role.
  * @dev Users shouldn't be able to deposited directly or indirectly to a Box.
- * @dev The Box uses forApprove with 0 value, making it incompatible with BNB chain
+ * @dev The Box uses forceApprove with 0 value, making it incompatible with BNB chain
  * @dev Token removal can be stopped by sending dust amount of tokens. Can be fixed by deallocating then removing the token atomically
  * @dev The epoch-based slippage protection is relative to Box total assets, but a bad allocator can deposit all parent Vault V2
  * @dev fund into one Box to temporarily inflate its total asset and extract more value than expected.
@@ -45,6 +46,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @notice Base currency token (e.g., USDC)
     address public immutable asset;
+
+    /// @notice Number of decimals for the vault shares (normalized to 18 for assets with fewer decimals)
+    uint8 private immutable _decimals;
+
+    /// @notice Virtual shares used for inflation attack protection
+    uint256 public immutable virtualShares;
 
     /// @notice Duration of slippage tracking epochs
     uint256 public immutable slippageEpochDuration;
@@ -105,11 +112,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Quick lookup to check if a funding module is whitelisted
     mapping(IFunding => bool) internal fundingMap;
 
-    /// @notice Flag indicating if a flash operation is in progress
-    bool private _isInFlash;
+    /// @notice Depth counter for nested NAV-caching operations (flash and swaps)
+    uint8 private transient _navCacheDepth;
 
-    /// @notice Cached NAV value during flash operations to prevent manipulation
-    uint256 private _cachedNavForFlash;
+    /// @notice Cached NAV value during flash and swap operations to prevent manipulation
+    uint256 private transient _cachedNav;
 
     // ========== CONSTRUCTOR ==========
 
@@ -136,23 +143,29 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 _shutdownSlippageDuration,
         uint256 _shutdownWarmup
     ) ERC20(_name, _symbol) {
-        require(_asset != address(0), ErrorsLib.InvalidAddress());
-        require(_owner != address(0), ErrorsLib.InvalidAddress());
+        _requireNonZeroAddress(_asset);
+        _requireNonZeroAddress(_owner);
+        _requireNonZeroAddress(_curator);
         require(_maxSlippage <= MAX_SLIPPAGE_LIMIT, ErrorsLib.SlippageTooHigh());
-        require(_slippageEpochDuration != 0, ErrorsLib.InvalidValue());
-        require(_shutdownSlippageDuration != 0, ErrorsLib.InvalidValue());
+        _requireNotEqual(_slippageEpochDuration, 0);
+        _requireNotEqual(_shutdownSlippageDuration, 0);
         require(_shutdownWarmup <= MAX_SHUTDOWN_WARMUP, ErrorsLib.InvalidValue());
 
         asset = _asset;
         owner = _owner;
         curator = _curator;
-        skimRecipient = address(0);
         maxSlippage = _maxSlippage;
         slippageEpochDuration = _slippageEpochDuration;
         shutdownSlippageDuration = _shutdownSlippageDuration;
         shutdownWarmup = _shutdownWarmup;
         slippageEpochStart = block.timestamp;
         shutdownTime = type(uint256).max; // No shutdown initially
+
+        // Set up decimals following VaultV2 pattern
+        uint256 assetDecimals = IERC20Metadata(asset).decimals();
+        uint256 decimalOffset = uint256(18) > assetDecimals ? uint256(18) - assetDecimals : 0;
+        _decimals = uint8(assetDecimals + decimalOffset);
+        virtualShares = 10 ** decimalOffset;
 
         emit EventsLib.BoxCreated(
             address(this),
@@ -163,7 +176,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             _symbol,
             maxSlippage,
             slippageEpochDuration,
-            shutdownSlippageDuration
+            shutdownSlippageDuration,
+            shutdownWarmup
         );
         emit EventsLib.OwnershipTransferred(address(0), _owner);
         emit EventsLib.CuratorUpdated(address(0), _curator);
@@ -171,25 +185,31 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     // ========== ERC4626 IMPLEMENTATION ==========
 
+    /// @notice Returns the number of decimals for the vault shares
+    /// @dev Overrides ERC20.decimals() to support assets with different decimal values
+    function decimals() public view override(ERC20, IERC20Metadata) returns (uint8) {
+        return _decimals;
+    }
+
     /// @inheritdoc IERC4626
     /// @notice Returns the total value of assets managed by the vault
-    /// @dev Reverts during flash loans to prevent NAV manipulation
+    /// @dev Returns cached NAV during flash and swap operations to prevent manipulation
     function totalAssets() public view returns (uint256) {
-        return _nav();
+        return _navCacheDepth > 0 ? _cachedNav : _nav();
     }
 
     /// @inheritdoc IERC4626
     /// @notice Calculates shares received for a given asset amount
     function convertToShares(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? assets : assets.mulDiv(supply, totalAssets());
+        return assets.mulDiv(supply + virtualShares, totalAssets() + 1, Math.Rounding.Floor);
     }
 
     /// @inheritdoc IERC4626
     /// @notice Calculates assets received for redeeming shares
     function convertToAssets(uint256 shares) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply);
+        return shares.mulDiv(totalAssets() + 1, supply + virtualShares, Math.Rounding.Floor);
     }
 
     /// @inheritdoc IERC4626
@@ -208,16 +228,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Deposits base asset and mints shares to receiver
     /// @dev Only authorized feeders can deposit
     function deposit(uint256 assets, address receiver) public nonReentrant returns (uint256 shares) {
-        require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
-        require(!isShutdown(), ErrorsLib.CannotDuringShutdown());
-        require(receiver != address(0), ErrorsLib.InvalidAddress());
-
         shares = previewDeposit(assets);
-
-        IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
-        _mint(receiver, shares);
-
-        emit Deposit(msg.sender, receiver, assets, shares);
+        _depositMint(assets, shares, receiver);
     }
 
     /// @inheritdoc IERC4626
@@ -230,18 +242,22 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Simulates assets needed to mint shares
     function previewMint(uint256 shares) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply, Math.Rounding.Ceil);
+        return shares.mulDiv(totalAssets() + 1, supply + virtualShares, Math.Rounding.Ceil);
     }
 
     /// @inheritdoc IERC4626
     /// @notice Mints exact shares by depositing necessary base asset
     /// @dev Only authorized feeders can mint
     function mint(uint256 shares, address receiver) external nonReentrant returns (uint256 assets) {
-        require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
-        require(!isShutdown(), ErrorsLib.CannotDuringShutdown());
-        require(receiver != address(0), ErrorsLib.InvalidAddress());
-
         assets = previewMint(shares);
+        _depositMint(assets, shares, receiver);
+    }
+
+    /// @dev Internal helper for deposit and mint to reduce bytecode duplication
+    function _depositMint(uint256 assets, uint256 shares, address receiver) internal {
+        _onlyFeeder();
+        _requireNotShutdown();
+        _requireNonZeroAddress(receiver);
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
         _mint(receiver, shares);
@@ -261,32 +277,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Simulates shares burned for withdrawing assets
     function previewWithdraw(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? assets : assets.mulDiv(supply, totalAssets(), Math.Rounding.Ceil);
+        return assets.mulDiv(supply + virtualShares, totalAssets() + 1, Math.Rounding.Ceil);
     }
 
     /// @inheritdoc IERC4626
     /// @notice Withdraws base asset by burning owner's shares
     /// @dev Requires sufficient shares and vault liquidity
     function withdraw(uint256 assets, address receiver, address owner_) public nonReentrant returns (uint256 shares) {
-        if (receiver == address(0)) revert ErrorsLib.InvalidAddress();
-
         shares = previewWithdraw(assets);
-
-        if (msg.sender != owner_) {
-            uint256 allowed = allowance(owner_, msg.sender);
-            if (allowed < shares) revert ErrorsLib.InsufficientAllowance();
-            if (allowed != type(uint256).max) {
-                _approve(owner_, msg.sender, allowed - shares);
-            }
-        }
-
-        if (balanceOf(owner_) < shares) revert ErrorsLib.InsufficientShares();
-        if (IERC20(asset).balanceOf(address(this)) < assets) revert ErrorsLib.InsufficientLiquidity();
-
-        _burn(owner_, shares);
-        IERC20(asset).safeTransfer(receiver, assets);
-
-        emit Withdraw(msg.sender, receiver, owner_, assets, shares);
+        _withdrawRedeem(assets, shares, receiver, owner_);
     }
 
     /// @inheritdoc IERC4626
@@ -308,7 +307,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Redeems shares for underlying base asset
     /// @dev Burns shares and transfers base asset to receiver
     function redeem(uint256 shares, address receiver, address owner_) external nonReentrant returns (uint256 assets) {
-        if (receiver == address(0)) revert ErrorsLib.InvalidAddress();
+        assets = previewRedeem(shares);
+        _withdrawRedeem(assets, shares, receiver, owner_);
+    }
+
+    /// @dev Internal helper for withdraw and redeem to reduce bytecode duplication
+    function _withdrawRedeem(uint256 assets, uint256 shares, address receiver, address owner_) internal {
+        _requireNonZeroAddress(receiver);
 
         if (msg.sender != owner_) {
             uint256 allowed = allowance(owner_, msg.sender);
@@ -319,8 +324,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         }
 
         if (balanceOf(owner_) < shares) revert ErrorsLib.InsufficientShares();
-
-        assets = previewRedeem(shares);
         if (IERC20(asset).balanceOf(address(this)) < assets) revert ErrorsLib.InsufficientLiquidity();
 
         _burn(owner_, shares);
@@ -338,7 +341,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function skim(IERC20 token) external nonReentrant {
         require(msg.sender == skimRecipient, ErrorsLib.OnlySkimRecipient());
-        require(skimRecipient != address(0), ErrorsLib.InvalidAddress());
 
         if (address(token) == address(0)) {
             uint256 amount = address(this).balance;
@@ -348,7 +350,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             return;
         }
 
-        require(address(token) != address(asset), ErrorsLib.CannotSkimAsset());
+        _requireNotEqualAddress(address(token), asset);
         require(!isToken(token), ErrorsLib.CannotSkimToken());
 
         uint256 amount = token.balanceOf(address(this));
@@ -375,10 +377,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         ISwapper swapper,
         bytes calldata data
     ) public nonReentrant returns (uint256 expected, uint256 received) {
+        _startNavCache();
+
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) > 0), ErrorsLib.OnlyAllocatorsOrWinddown());
-        require(isToken(token), ErrorsLib.TokenNotWhitelisted());
-        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
+        _requireIsToken(token);
 
         uint256 oraclePrice = oracles[token].price();
         uint256 slippageTolerance = winddown ? _winddownSlippageTolerance() : maxSlippage;
@@ -406,11 +409,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage if we are not in winddown and have positive slippage
         if (!winddown && tokensReceived < expectedTokens) {
             uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
         }
 
         emit EventsLib.Allocation(token, assetsSpent, expectedTokens, tokensReceived, slippagePct, swapper, data);
 
+        _endNavCache();
         return (expectedTokens, tokensReceived);
     }
 
@@ -431,10 +435,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         ISwapper swapper,
         bytes calldata data
     ) external nonReentrant returns (uint256 expected, uint256 received) {
+        _startNavCache();
+
         bool winddown = isWinddown();
         require((isAllocator[msg.sender] && !winddown) || (winddown && _debtBalance(token) == 0), ErrorsLib.OnlyAllocatorsOrWinddown());
-        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
-        require(isToken(token), ErrorsLib.TokenNotWhitelisted());
+        _requireIsToken(token);
 
         uint256 oraclePrice = oracles[token].price();
         uint256 slippageTolerance = winddown ? _winddownSlippageTolerance() : maxSlippage;
@@ -453,11 +458,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         if (!winddown && assetsReceived < expectedAssets) {
             // slippage is already in asset units
             uint256 slippageValue = expectedAssets - assetsReceived;
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
         }
 
         emit EventsLib.Deallocation(token, tokensSpent, expectedAssets, assetsReceived, slippagePct, swapper, data);
 
+        _endNavCache();
         return (expectedAssets, assetsReceived);
     }
 
@@ -479,10 +485,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         ISwapper swapper,
         bytes calldata data
     ) external nonReentrant returns (uint256 expected, uint256 received) {
-        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
-        require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
-        require(isToken(from) && isToken(to), ErrorsLib.TokenNotWhitelisted());
-        require(address(swapper) != address(0), ErrorsLib.InvalidAddress());
+        _startNavCache();
+
+        _onlyAllocator();
+        _requireNotWinddown();
+        _requireIsToken(from);
+        _requireIsToken(to);
 
         uint256 fromOraclePrice = oracles[from].price();
         uint256 toOraclePrice = oracles[to].price();
@@ -502,11 +510,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Note: No winddown check needed as reallocate cannot be called during winddown
         if (toReceived < expectedToTokens) {
             uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, _navForSlippage()));
+            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
         }
 
         emit EventsLib.Reallocation(from, to, fromSpent, expectedToTokens, toReceived, slippagePct, swapper, data);
 
+        _endNavCache();
         return (expectedToTokens, toReceived);
     }
 
@@ -526,8 +535,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         IERC20 collateralToken,
         uint256 collateralAmount
     ) external nonReentrant {
-        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        _onlyAllocatorNotWinddown();
+        _requireIsFunding(fundingModule);
 
         collateralToken.safeTransfer(address(fundingModule), collateralAmount);
         fundingModule.pledge(facilityData, collateralToken, collateralAmount);
@@ -549,8 +558,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         IERC20 collateralToken,
         uint256 collateralAmount
     ) external nonReentrant {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        _onlyAllocatorOrWinddown();
+        _requireIsFunding(fundingModule);
 
         uint256 pledgeAmount = fundingModule.collateralBalance(facilityData, collateralToken);
 
@@ -572,8 +581,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Requires sufficient collateral, borrowed tokens sent to vault
      */
     function borrow(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external nonReentrant {
-        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        _onlyAllocatorNotWinddown();
+        _requireIsFunding(fundingModule);
 
         fundingModule.borrow(facilityData, debtToken, borrowAmount);
 
@@ -589,8 +598,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Transfers tokens from vault to module, reduces debt position
      */
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external nonReentrant {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        _onlyAllocatorOrWinddown();
+        _requireIsFunding(fundingModule);
 
         uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
 
@@ -611,8 +620,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev NAV must remain unchanged to prevent skimming tokenized positions
      */
     function skimFunding(IFunding fundingModule, IERC20 token) external nonReentrant {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        _onlyAllocatorOrWinddown();
+        _requireIsFunding(fundingModule);
 
         fundingModule.skim(token, IOracleCallback(address(this)));
     }
@@ -626,15 +635,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev NAV is cached during flash to prevent manipulation
      */
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
-        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocators());
-        require(address(flashToken) != address(0), ErrorsLib.InvalidAddress());
-        require(isTokenOrAsset(flashToken), ErrorsLib.TokenNotWhitelisted());
+        _onlyAllocator();
+        _requireNonZeroAddress(address(flashToken));
+        _requireIsTokenOrAsset(flashToken);
         // Prevent re-entrancy. Can't use nonReentrant modifier because of conflict with allocate/deallocate/reallocate
-        require(!_isInFlash, ErrorsLib.AlreadyInFlash());
+        require(_navCacheDepth == 0, ErrorsLib.AlreadyInFlash());
 
         // Cache NAV before starting flash operation for slippage calculations
-        _cachedNavForFlash = _nav();
-        _isInFlash = true;
+        _startNavCache();
 
         // Transfer flash amount FROM caller TO this contract
         flashToken.safeTransferFrom(msg.sender, address(this), flashAmount);
@@ -645,9 +653,26 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Repay the flash loan by transferring back TO caller
         flashToken.safeTransfer(msg.sender, flashAmount);
 
-        _isInFlash = false;
+        _endNavCache();
 
         emit EventsLib.Flash(msg.sender, flashToken, flashAmount);
+    }
+
+    /**
+     * @notice Executes multiple calls in a single transaction
+     * @param data Array of encoded function calls
+     * @dev Allows EOAs to execute multiple operations atomically
+     */
+    function multicall(bytes[] calldata data) external {
+        uint256 length = data.length;
+        for (uint256 i = 0; i < length; i++) {
+            (bool success, bytes memory returnData) = address(this).delegatecall(data[i]);
+            if (!success) {
+                assembly ("memory-safe") {
+                    revert(add(32, returnData), mload(returnData))
+                }
+            }
+        }
     }
 
     // ========== ADMIN FUNCTIONS ==========
@@ -658,11 +683,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Only owner can call this function
      */
     function setSkimRecipient(address newSkimRecipient) external {
-        require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(newSkimRecipient != address(0), ErrorsLib.InvalidAddress());
-        require(newSkimRecipient != skimRecipient, ErrorsLib.AlreadySet());
-
+        _onlyOwner();
+        _requireNonZeroAddress(newSkimRecipient);
         address oldRecipient = skimRecipient;
+        _requireNotEqualAddress(newSkimRecipient, oldRecipient);
+
         skimRecipient = newSkimRecipient;
 
         emit EventsLib.SkimRecipientUpdated(oldRecipient, newSkimRecipient);
@@ -674,10 +699,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Immediately transfers all owner privileges
      */
     function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(newOwner != address(0), ErrorsLib.InvalidAddress());
-
+        _requireNonZeroAddress(newOwner);
         address oldOwner = owner;
+        _onlyOwner();
+        _requireNotEqualAddress(newOwner, oldOwner);
+
         owner = newOwner;
 
         emit EventsLib.OwnershipTransferred(oldOwner, newOwner);
@@ -689,7 +715,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Only owner can update the curator
      */
     function setCurator(address newCurator) external {
-        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        _onlyOwner();
+        _requireNonZeroAddress(newCurator);
+        _requireNotEqualAddress(newCurator, curator);
 
         address oldCurator = curator;
         curator = newCurator;
@@ -703,9 +731,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Requires timelock, only curator can execute
      */
     function setGuardian(address newGuardian) external {
-        require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
+        _requireNotWinddown();
         timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        _onlyCurator();
+        _requireNonZeroAddress(newGuardian);
+        _requireNotEqualAddress(newGuardian, guardian);
 
         address oldGuardian = guardian;
         guardian = newGuardian;
@@ -720,8 +750,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Allocators can execute investment strategies
      */
     function setIsAllocator(address account, bool newIsAllocator) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        //        require(account != address(0), ErrorsLib.InvalidAddress());
+        _onlyCurator();
+        _requireNonZeroAddress(account);
+        require(isAllocator[account] != newIsAllocator, ErrorsLib.InvalidValue());
 
         isAllocator[account] = newIsAllocator;
 
@@ -764,13 +795,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Delay duration depends on the function selector
      */
     function submit(bytes calldata data) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        _onlyCurator();
         require(executableAt[data] == 0, ErrorsLib.DataAlreadyTimelocked());
         require(data.length >= 4, ErrorsLib.InvalidAmount());
 
-        // forge-lint: disable-next-line(unsafe-typecast)
         bytes4 selector = bytes4(data);
-        // forge-lint: disable-next-line(unsafe-typecast)
         uint256 delay = selector == IBox.decreaseTimelock.selector ? timelock[bytes4(data[4:8])] : timelock[selector];
         executableAt[data] = block.timestamp + delay;
 
@@ -801,7 +830,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         executableAt[data] = 0;
 
-        // forge-lint: disable-next-line(unsafe-typecast)
         emit EventsLib.TimelockRevoked(bytes4(data), data, msg.sender);
     }
 
@@ -812,7 +840,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev No timelock required to increase delays
      */
     function increaseTimelock(bytes4 selector, uint256 newDuration) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        _onlyCurator();
         require(newDuration <= TIMELOCK_CAP, ErrorsLib.InvalidTimelock());
         require(newDuration > timelock[selector], ErrorsLib.TimelockDecrease());
 
@@ -829,10 +857,11 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function decreaseTimelock(bytes4 selector, uint256 newDuration) external {
         timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        _onlyCurator();
+        uint256 currentTimelock = timelock[selector];
+        require(currentTimelock != TIMELOCK_DISABLED, ErrorsLib.InvalidTimelock());
+        require(newDuration < currentTimelock, ErrorsLib.TimelockIncrease());
         require(newDuration <= TIMELOCK_CAP, ErrorsLib.InvalidTimelock());
-        require(newDuration < timelock[selector], ErrorsLib.TimelockIncrease());
-        require(timelock[selector] != TIMELOCK_DISABLED, ErrorsLib.InvalidTimelock());
 
         timelock[selector] = newDuration;
 
@@ -845,7 +874,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Irreversible - function becomes permanently inaccessible
      */
     function abdicateTimelock(bytes4 selector) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+        _onlyCurator();
 
         timelock[selector] = TIMELOCK_DISABLED;
 
@@ -862,7 +891,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function setIsFeeder(address account, bool newIsFeeder) external {
         timelocked();
-        require(account != address(0), ErrorsLib.InvalidAddress());
+        _requireNonZeroAddress(account);
+        require(isFeeder[account] != newIsFeeder, ErrorsLib.InvalidValue());
 
         isFeeder[account] = newIsFeeder;
 
@@ -877,6 +907,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function setMaxSlippage(uint256 newMaxSlippage) external {
         timelocked();
         require(newMaxSlippage <= MAX_SLIPPAGE_LIMIT, ErrorsLib.SlippageTooHigh());
+        _requireNotEqual(newMaxSlippage, maxSlippage);
 
         uint256 oldMaxSlippage = maxSlippage;
         maxSlippage = newMaxSlippage;
@@ -892,7 +923,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function addToken(IERC20 token, IOracle oracle) external {
         timelocked();
-        require(address(token) != address(0), ErrorsLib.InvalidAddress());
+        _requireNonZeroAddress(address(token));
+        _requireNotEqualAddress(address(token), asset);
         require(address(oracle) != address(0), ErrorsLib.OracleRequired());
         require(!isToken(token), ErrorsLib.TokenAlreadyWhitelisted());
         require(tokens.length < MAX_TOKENS, ErrorsLib.TooManyTokens());
@@ -909,20 +941,17 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Token balance must be zero and not used in any funding module
      */
     function removeToken(IERC20 token) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isToken(token), ErrorsLib.TokenNotWhitelisted());
+        _onlyCurator();
+        _requireIsToken(token);
         require(token.balanceOf(address(this)) == 0, ErrorsLib.TokenBalanceMustBeZero());
         require(!_isTokenUsedInFunding(token), ErrorsLib.CannotRemove());
 
         uint256 length = tokens.length;
-        for (uint256 i; i < length; ) {
+        for (uint256 i; i < length; i++) {
             if (tokens[i] == token) {
                 tokens[i] = tokens[length - 1];
                 tokens.pop();
                 break;
-            }
-            unchecked {
-                ++i;
             }
         }
 
@@ -940,12 +969,13 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function changeTokenOracle(IERC20 token, IOracle oracle) external {
         if (isWinddown()) {
             require(block.timestamp >= shutdownTime + shutdownWarmup + shutdownSlippageDuration, ErrorsLib.NotAllowed());
-            require(msg.sender == guardian, ErrorsLib.OnlyGuardian());
+            _onlyGuardian();
         } else {
             timelocked();
         }
-        require(address(oracle) != address(0), ErrorsLib.InvalidAddress());
-        require(isToken(token), ErrorsLib.TokenNotWhitelisted());
+        _requireNonZeroAddress(address(oracle));
+        _requireIsToken(token);
+        require(oracles[token] != oracle, ErrorsLib.InvalidValue());
 
         oracles[token] = oracle;
 
@@ -960,7 +990,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function addFunding(IFunding fundingModule) external {
         timelocked();
         require(!fundingMap[fundingModule], ErrorsLib.AlreadyWhitelisted());
-        require(address(fundingModule) != address(0), ErrorsLib.InvalidAddress());
+        _requireNonZeroAddress(address(fundingModule));
+        // Check that Box is the owner of the funding module
+        (bool success, bytes memory data) = address(fundingModule).staticcall(abi.encodeWithSignature("owner()"));
+        require(success && data.length == 32, ErrorsLib.InvalidValue());
+        address fundingOwner = abi.decode(data, (address));
+        require(fundingOwner == address(this), ErrorsLib.InvalidValue());
         require(fundingModule.facilitiesLength() == 0, ErrorsLib.NotClean());
         require(fundingModule.collateralTokensLength() == 0, ErrorsLib.NotClean());
         require(fundingModule.debtTokensLength() == 0, ErrorsLib.NotClean());
@@ -979,7 +1014,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function addFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
         timelocked();
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        _requireIsFunding(fundingModule);
 
         fundingModule.addFacility(facilityData);
 
@@ -994,9 +1029,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function addFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
         timelocked();
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-        require(isTokenOrAsset(collateralToken), ErrorsLib.TokenNotWhitelisted());
+        _requireIsFunding(fundingModule);
+        _requireIsTokenOrAsset(collateralToken);
 
         fundingModule.addCollateralToken(collateralToken);
 
@@ -1011,8 +1045,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function addFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
         timelocked();
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
-        require(isTokenOrAsset(debtToken), ErrorsLib.TokenNotWhitelisted());
+        _requireIsFunding(fundingModule);
+        _requireIsTokenOrAsset(debtToken);
 
         fundingModule.addDebtToken(debtToken);
 
@@ -1025,8 +1059,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Module must be empty with no active facilities, collateral, or debt
      */
     function removeFunding(IFunding fundingModule) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        _onlyCurator();
+        _requireIsFunding(fundingModule);
 
         require(fundingModule.facilitiesLength() == 0, ErrorsLib.CannotRemove());
         require(fundingModule.collateralTokensLength() == 0, ErrorsLib.CannotRemove());
@@ -1047,8 +1081,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Facility must have no outstanding positions
      */
     function removeFundingFacility(IFunding fundingModule, bytes calldata facilityData) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        _onlyCurator();
+        _requireIsFunding(fundingModule);
 
         fundingModule.removeFacility(facilityData);
 
@@ -1062,8 +1096,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Token must not be actively used as collateral
      */
     function removeFundingCollateral(IFunding fundingModule, IERC20 collateralToken) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        _onlyCurator();
+        _requireIsFunding(fundingModule);
 
         fundingModule.removeCollateralToken(collateralToken);
 
@@ -1077,8 +1111,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev No outstanding debt must exist for this token
      */
     function removeFundingDebt(IFunding fundingModule, IERC20 debtToken) external {
-        require(msg.sender == curator, ErrorsLib.OnlyCurator());
-        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+        _onlyCurator();
+        _requireIsFunding(fundingModule);
 
         fundingModule.removeDebtToken(debtToken);
 
@@ -1148,11 +1182,128 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== INTERNAL FUNCTIONS ==========
 
     /**
-     * @dev Gets NAV for slippage tracking, using cached value during flash loans
-     * @return NAV value safe for slippage calculations
+     * @dev Checks if msg.sender is the owner
      */
-    function _navForSlippage() internal view returns (uint256) {
-        return _isInFlash ? _cachedNavForFlash : _nav();
+    function _onlyOwner() internal view {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+    }
+
+    /**
+     * @dev Checks if msg.sender is the curator
+     */
+    function _onlyCurator() internal view {
+        require(msg.sender == curator, ErrorsLib.OnlyCurator());
+    }
+
+    /**
+     * @dev Checks that an address is not zero
+     */
+    function _requireNonZeroAddress(address addr) internal pure {
+        require(addr != address(0), ErrorsLib.InvalidAddress());
+    }
+
+    /**
+     * @dev Checks if a token is whitelisted
+     */
+    function _requireIsToken(IERC20 token) internal view {
+        require(isToken(token), ErrorsLib.TokenNotWhitelisted());
+    }
+
+    /**
+     * @dev Checks if a funding module is whitelisted
+     */
+    function _requireIsFunding(IFunding fundingModule) internal view {
+        require(isFunding(fundingModule), ErrorsLib.NotWhitelisted());
+    }
+
+    /**
+     * @dev Checks that vault is not in winddown
+     */
+    function _requireNotWinddown() internal view {
+        require(!isWinddown(), ErrorsLib.CannotDuringWinddown());
+    }
+
+    /**
+     * @dev Checks if msg.sender is allocator and not in winddown
+     */
+    function _onlyAllocatorNotWinddown() internal view {
+        require(isAllocator[msg.sender] && !isWinddown(), ErrorsLib.OnlyAllocators());
+    }
+
+    /**
+     * @dev Checks if msg.sender is allocator or in winddown
+     */
+    function _onlyAllocatorOrWinddown() internal view {
+        require(isAllocator[msg.sender] || isWinddown(), ErrorsLib.OnlyAllocatorsOrWinddown());
+    }
+
+    /**
+     * @dev Checks that two values are not equal
+     */
+    function _requireNotEqual(uint256 a, uint256 b) internal pure {
+        require(a != b, ErrorsLib.InvalidValue());
+    }
+
+    /**
+     * @dev Checks that two addresses are not equal
+     */
+    function _requireNotEqualAddress(address a, address b) internal pure {
+        require(a != b, ErrorsLib.InvalidValue());
+    }
+
+    /**
+     * @dev Checks if msg.sender is the guardian
+     */
+    function _onlyGuardian() internal view {
+        require(msg.sender == guardian, ErrorsLib.OnlyGuardian());
+    }
+
+    /**
+     * @dev Checks if msg.sender is allocator
+     */
+    function _onlyAllocator() internal view {
+        require(isAllocator[msg.sender], ErrorsLib.OnlyAllocators());
+    }
+
+    /**
+     * @dev Checks if msg.sender is feeder
+     */
+    function _onlyFeeder() internal view {
+        require(isFeeder[msg.sender], ErrorsLib.OnlyFeeders());
+    }
+
+    /**
+     * @dev Checks that vault is not shutdown
+     */
+    function _requireNotShutdown() internal view {
+        require(!isShutdown(), ErrorsLib.CannotDuringShutdown());
+    }
+
+    /**
+     * @dev Checks if token or asset is whitelisted
+     */
+    function _requireIsTokenOrAsset(IERC20 token) internal view {
+        require(isTokenOrAsset(token), ErrorsLib.TokenNotWhitelisted());
+    }
+
+    /**
+     * @dev Starts NAV caching for the current operation
+     * @dev Caches NAV on first call (depth 0 -> 1), increments depth on nested calls
+     * @dev Properly handles nesting when swaps are called from flash callbacks
+     */
+    function _startNavCache() internal {
+        if (_navCacheDepth == 0) {
+            _cachedNav = _nav();
+        }
+        _navCacheDepth++;
+    }
+
+    /**
+     * @dev Ends NAV caching for the current operation
+     * @dev Decrements the depth counter
+     */
+    function _endNavCache() internal {
+        _navCacheDepth--;
     }
 
     /**
@@ -1203,7 +1354,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @return minAmount Minimum acceptable amount after slippage
      */
     function _calculateMinAmount(uint256 expectedAmount, uint256 tolerance) internal pure returns (uint256 minAmount) {
-        minAmount = expectedAmount.mulDiv(PRECISION - tolerance, PRECISION);
+        minAmount = expectedAmount.mulDiv(PRECISION - tolerance, PRECISION, Math.Rounding.Ceil);
     }
 
     /**
@@ -1229,16 +1380,16 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /**
      * @dev Calculates total vault value across all positions
      * @return nav Sum of base asset, token values, and funding positions
-     * @dev Reverts during flash operations to prevent manipulation
      * @dev Negative funding NAV is floored to zero
+     * @dev Reverts if called during NAV-cached operations (swaps or flash) to prevent read-only reentrancy
      */
     function _nav() internal view returns (uint256 nav) {
-        require(_isInFlash == false, ErrorsLib.NoNavDuringFlash());
+        require(_navCacheDepth == 0, ErrorsLib.NoNavDuringCache());
         nav = IERC20(asset).balanceOf(address(this));
 
         // Add value of all tokens
         uint256 length = tokens.length;
-        for (uint256 i; i < length; ) {
+        for (uint256 i; i < length; i++) {
             IERC20 token = tokens[i];
             IOracle oracle = oracles[token];
             if (address(oracle) != address(0)) {
@@ -1247,25 +1398,19 @@ contract Box is IBox, ERC20, ReentrancyGuard {
                     nav += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
                 }
             }
-            unchecked {
-                ++i;
-            }
         }
         // Loop over funding sources
         length = fundings.length;
-        for (uint256 i; i < length; ) {
+        for (uint256 i; i < length; i++) {
             IFunding funding = fundings[i];
             nav += funding.nav(IOracleCallback(address(this)));
-            unchecked {
-                ++i;
-            }
         }
     }
 
     /**
      * @dev Calculates dynamic slippage tolerance during wind-down
      * @return Slippage limit that increases linearly over shutdown duration
-     * @dev Returns up to 100% slippage after full duration
+     * @dev Returns up to 1% slippage after full duration
      */
     function _winddownSlippageTolerance() internal view returns (uint256) {
         uint256 timeElapsed = block.timestamp - shutdownWarmup - shutdownTime;
@@ -1277,13 +1422,14 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /**
      * @dev Locates a funding module's position in the array
-     * @param fundingData Module to find
+     * @param fundingModule Module to find
      * @return Index in the fundings array
      * @dev Reverts if module is not whitelisted
      */
-    function _findFundingIndex(IFunding fundingData) internal view returns (uint256) {
-        for (uint256 i = 0; i < fundings.length; i++) {
-            if (fundings[i] == fundingData) {
+    function _findFundingIndex(IFunding fundingModule) internal view returns (uint256) {
+        uint256 length = fundings.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (fundings[i] == fundingModule) {
                 return i;
             }
         }

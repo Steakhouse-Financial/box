@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0;
+pragma solidity 0.8.28;
 
 library ErrorsLib {
     // General errors
@@ -78,7 +78,7 @@ library ErrorsLib {
 
     // Funding module errors
     error ExcessiveLTV();
-    error NoNavDuringFlash();
+    error NoNavDuringCache();
 
     // Flash callback errors
     error AlreadyInFlash();

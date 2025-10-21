@@ -18,7 +18,7 @@
         "useTabs": false,
         "singleQuote": false,
         "bracketSpacing": false,
-        "compiler": "0.8.19"
+        "compiler": "0.8.28"
       }
     }
   ]

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0;
+pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IFunding} from "./../interfaces/IFunding.sol";
@@ -17,7 +17,8 @@ library EventsLib {
         string symbol,
         uint256 maxSlippage,
         uint256 slippageEpochDuration,
-        uint256 shutdownSlippageDuration
+        uint256 shutdownSlippageDuration,
+        uint256 shutdownWarmup
     );
 
     // ========== ACCESS CONTROL ==========
