@@ -1941,6 +1941,18 @@ contract BoxTest is Test {
 
         vm.stopPrank();
     }
+    
+    function testTimelockAbdicate() public {
+        vm.startPrank(curator);
+
+        box.abdicateTimelock(box.setGuardian.selector);
+        bytes memory data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setGuardian.selector, 2 days);
+        
+        vm.expectRevert();
+        box.submit(data);
+
+        vm.stopPrank();
+    }
 
     function testTimelockNotCurator() public {
         vm.startPrank(nonAuthorized);
