@@ -113,7 +113,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     mapping(IFunding => bool) internal fundingMap;
 
     /// @notice Depth counter for nested NAV-caching operations (flash and swaps)
-    uint8 private transient _navCacheDepth;
+    uint8 private transient _cachedNavDepth;
 
     /// @notice Cached NAV value during flash and swap operations to prevent manipulation
     uint256 private transient _cachedNav;
@@ -195,7 +195,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @notice Returns the total value of assets managed by the vault
     /// @dev Returns cached NAV during flash and swap operations to prevent manipulation
     function totalAssets() public view returns (uint256) {
-        return _navCacheDepth > 0 ? _cachedNav : _nav();
+        return _cachedNavDepth > 0 ? _cachedNav : _nav();
     }
 
     /// @inheritdoc IERC4626
@@ -342,21 +342,23 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function skim(IERC20 token) external nonReentrant {
         require(msg.sender == skimRecipient, ErrorsLib.OnlySkimRecipient());
 
+        uint256 amount;
+
         if (address(token) == address(0)) {
-            uint256 amount = address(this).balance;
+            amount = address(this).balance;
             require(amount > 0, ErrorsLib.CannotSkimZero());
             payable(skimRecipient).transfer(amount);
-            emit EventsLib.Skim(token, skimRecipient, amount);
-            return;
+        }
+        else {
+            _requireNotEqualAddress(address(token), asset);
+            require(!isToken(token), ErrorsLib.CannotSkimToken());
+
+            amount = token.balanceOf(address(this));
+            require(amount > 0, ErrorsLib.CannotSkimZero());
+
+            token.safeTransfer(skimRecipient, amount);
         }
 
-        _requireNotEqualAddress(address(token), asset);
-        require(!isToken(token), ErrorsLib.CannotSkimToken());
-
-        uint256 amount = token.balanceOf(address(this));
-        require(amount > 0, ErrorsLib.CannotSkimZero());
-
-        token.safeTransfer(skimRecipient, amount);
         emit EventsLib.Skim(token, skimRecipient, amount);
     }
 
@@ -623,7 +625,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _onlyAllocatorOrWinddown();
         _requireIsFunding(fundingModule);
 
-        fundingModule.skim(token, IOracleCallback(address(this)));
+        fundingModule.skim(token);
     }
 
     /**
@@ -639,7 +641,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _requireNonZeroAddress(address(flashToken));
         _requireIsTokenOrAsset(flashToken);
         // Prevent re-entrancy. Can't use nonReentrant modifier because of conflict with allocate/deallocate/reallocate
-        require(_navCacheDepth == 0, ErrorsLib.AlreadyInFlash());
+        require(_cachedNavDepth == 0, ErrorsLib.ReentryNotAllowed());
 
         // Cache NAV before starting flash operation for slippage calculations
         _startNavCache();
@@ -1292,10 +1294,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Properly handles nesting when swaps are called from flash callbacks
      */
     function _startNavCache() internal {
-        if (_navCacheDepth == 0) {
+        if (_cachedNavDepth == 0) {
             _cachedNav = _nav();
         }
-        _navCacheDepth++;
+        _cachedNavDepth++;
     }
 
     /**
@@ -1303,7 +1305,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Decrements the depth counter
      */
     function _endNavCache() internal {
-        _navCacheDepth--;
+        _cachedNavDepth--;
     }
 
     /**
@@ -1384,7 +1386,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Reverts if called during NAV-cached operations (swaps or flash) to prevent read-only reentrancy
      */
     function _nav() internal view returns (uint256 nav) {
-        require(_navCacheDepth == 0, ErrorsLib.NoNavDuringCache());
+        require(_cachedNavDepth == 0, ErrorsLib.NoNavDuringCache());
         nav = IERC20(asset).balanceOf(address(this));
 
         // Add value of all tokens

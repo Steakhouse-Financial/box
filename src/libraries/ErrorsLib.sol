@@ -81,5 +81,5 @@ library ErrorsLib {
     error NoNavDuringCache();
 
     // Flash callback errors
-    error AlreadyInFlash();
+    error ReentryNotAllowed();
 }

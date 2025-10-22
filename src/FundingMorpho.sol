@@ -151,29 +151,27 @@ contract FundingMorpho is IFunding {
     }
 
     // ========== ACTIONS ==========
-
-    function skim(IERC20 token, IOracleCallback oraclesProvider) external override {
+    function skim(IERC20 token) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
 
-        uint256 navBefore = this.nav(oraclesProvider);
+        uint256 navBefore = this.nav(IOracleCallback(owner));
+        uint256 balance;
 
-        if (address(token) == address(0)) {
-            uint256 balance = address(this).balance;
+        if (address(token) == address(0)) { // ETH path
+            balance = address(this).balance;
             require(balance > 0, ErrorsLib.InvalidAmount());
             payable(owner).transfer(balance);
-            uint256 navAfter = this.nav(oraclesProvider);
-            require(navBefore == navAfter, ErrorsLib.SkimChangedNav());
-            return;
+        }
+        else { // ERC20 tokens
+            balance = token.balanceOf(address(this));
+            require(balance > 0, ErrorsLib.InvalidAmount());
+            token.safeTransfer(owner, balance);
         }
 
-        uint256 balance = token.balanceOf(address(this));
-        require(balance > 0, ErrorsLib.InvalidAmount());
-        token.safeTransfer(owner, balance);
-
-        uint256 navAfter = this.nav(oraclesProvider);
+        uint256 navAfter = this.nav(IOracleCallback(owner));
         require(navBefore == navAfter, ErrorsLib.SkimChangedNav());
     }
-
+    
     /// @dev Assume caller did transfer the collateral tokens to this contract before calling
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
