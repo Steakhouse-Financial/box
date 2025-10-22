@@ -157,12 +157,13 @@ contract FundingMorpho is IFunding {
         uint256 navBefore = this.nav(IOracleCallback(owner));
         uint256 balance;
 
-        if (address(token) == address(0)) { // ETH path
+        if (address(token) == address(0)) {
+            // ETH path
             balance = address(this).balance;
             require(balance > 0, ErrorsLib.InvalidAmount());
             payable(owner).transfer(balance);
-        }
-        else { // ERC20 tokens
+        } else {
+            // ERC20 tokens
             balance = token.balanceOf(address(this));
             require(balance > 0, ErrorsLib.InvalidAmount());
             token.safeTransfer(owner, balance);
@@ -171,7 +172,7 @@ contract FundingMorpho is IFunding {
         uint256 navAfter = this.nav(IOracleCallback(owner));
         require(navBefore == navAfter, ErrorsLib.SkimChangedNav());
     }
-    
+
     /// @dev Assume caller did transfer the collateral tokens to this contract before calling
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());

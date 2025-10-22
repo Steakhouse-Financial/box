@@ -348,8 +348,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             amount = address(this).balance;
             require(amount > 0, ErrorsLib.CannotSkimZero());
             payable(skimRecipient).transfer(amount);
-        }
-        else {
+        } else {
             _requireNotEqualAddress(address(token), asset);
             require(!isToken(token), ErrorsLib.CannotSkimToken());
 

@@ -276,7 +276,7 @@ contract MockFunding is IFunding {
         token.safeTransfer(msg.sender, amount);
     }
     function repay(bytes calldata, IERC20, uint256) external {}
-    function skim(IERC20, IOracleCallback) external {}
+    function skim(IERC20) external {}
 }
 
 contract BoxTest is Test {
@@ -1941,13 +1941,13 @@ contract BoxTest is Test {
 
         vm.stopPrank();
     }
-    
+
     function testTimelockAbdicate() public {
         vm.startPrank(curator);
 
         box.abdicateTimelock(box.setGuardian.selector);
         bytes memory data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setGuardian.selector, 2 days);
-        
+
         vm.expectRevert();
         box.submit(data);
 
@@ -3191,19 +3191,19 @@ contract BoxTest is Test {
         assertEq(box.totalAssets(), 1500e18, "Initial NAV should be 1500");
 
         // Create a malicious swapper that attempts read-only reentrancy
-        ReadOnlyReentrancySwapper maliciousSwapper = new ReadOnlyReentrancySwapper(box);
-        maliciousSwapper.setOracle(oracle1);
-        asset.mint(address(maliciousSwapper), 1000e18); // Give it assets to return for the swap
+        ReadOnlyReentrancySwapper reentrancySwapper = new ReadOnlyReentrancySwapper(box);
+        reentrancySwapper.setOracle(oracle1);
+        asset.mint(address(reentrancySwapper), 1000e18); // Give it assets to return for the swap
 
         // The malicious swapper will:
         // 1. Take tokens from Box in sell()
         // 2. Try to read totalAssets() (should get cached value, not manipulated value)
         // 3. Return tokens
         vm.prank(allocator);
-        (uint256 expected, uint256 received) = box.deallocate(token1, 100e18, maliciousSwapper, "");
+        (uint256 expected, uint256 received) = box.deallocate(token1, 100e18, reentrancySwapper, "");
 
         // Verify the malicious swapper observed the CACHED (pre-swap) NAV, not the manipulated NAV
-        uint256 observedNav = maliciousSwapper.observedTotalAssets();
+        uint256 observedNav = reentrancySwapper.observedTotalAssets();
         assertEq(observedNav, 1500e18, "Swapper should observe cached pre-swap NAV");
 
         // Verify the swapper did NOT see the manipulated NAV (which would be lower)

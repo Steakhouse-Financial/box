@@ -196,12 +196,13 @@ contract FundingAave is IFunding {
         uint256 navBefore = this.nav(IOracleCallback(owner));
         uint256 balance;
 
-        if (address(token) == address(0)) { // ETH path
+        if (address(token) == address(0)) {
+            // ETH path
             balance = address(this).balance;
             require(balance > 0, ErrorsLib.InvalidAmount());
             payable(owner).transfer(balance);
-        }
-        else { // ERC20 tokens
+        } else {
+            // ERC20 tokens
             balance = token.balanceOf(address(this));
             require(balance > 0, ErrorsLib.InvalidAmount());
             token.safeTransfer(owner, balance);
