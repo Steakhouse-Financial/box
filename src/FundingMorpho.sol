@@ -252,6 +252,7 @@ contract FundingMorpho is IFunding {
 
     // ========== POSITION ==========
 
+    /// @dev returns 0 if there is no collateral
     function ltv(bytes calldata facilityData) public view override returns (uint256) {
         MarketParams memory market = decodeFacilityData(facilityData);
         Id marketId = market.id();
