@@ -223,10 +223,6 @@ contract FundingMorpho is IFunding {
 
         uint256 debtAmount = morpho.expectedBorrowAssets(market, address(this));
 
-        if (repayAmount == type(uint256).max) {
-            repayAmount = debtAmount;
-        }
-
         IERC20(market.loanToken).forceApprove(address(morpho), repayAmount);
 
         // If the amount repaid is all the debt, we convert to all shares
