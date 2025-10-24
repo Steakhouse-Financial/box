@@ -659,6 +659,61 @@ contract BoxTest is Test {
         assertEq(asset.balanceOf(address(box)), 100e18);
     }
 
+    function testDepositOneUnitWithDifferentDecimals() public {
+        // Test that depositing 1 unit of asset (regardless of decimals) gives 1 unit of shares
+        uint8[] memory decimalsToTest = new uint8[](5);
+        decimalsToTest[0] = 6;
+        decimalsToTest[1] = 8;
+        decimalsToTest[2] = 12;
+        decimalsToTest[3] = 18;
+        decimalsToTest[4] = 24;
+
+        for (uint256 i = 0; i < decimalsToTest.length; i++) {
+            uint8 assetDecimals = decimalsToTest[i];
+
+            // Create asset with specific decimals
+            ERC20MockDecimals testAsset = new ERC20MockDecimals(assetDecimals);
+            testAsset.mint(feeder, 1000 * (10 ** assetDecimals));
+
+            // Create box with this asset
+            IBox testBox = boxFactory.createBox(
+                testAsset,
+                owner,
+                curator,
+                "Test Box",
+                "TBOX",
+                0.01 ether,
+                7 days,
+                10 days,
+                7 days,
+                bytes32(uint256(i))
+            );
+
+            // Add feeder
+            vm.prank(curator);
+            testBox.addFeederInstant(feeder);
+
+            // Deposit one unit of the asset
+            uint256 oneUnit = 10 ** assetDecimals;
+            vm.startPrank(feeder);
+            testAsset.approve(address(testBox), oneUnit);
+            uint256 shares = testBox.deposit(oneUnit, feeder);
+            vm.stopPrank();
+
+            // Expected shares: should be 1 unit in the box's decimal system
+            // Box normalizes to 18 decimals for assets with <=18 decimals
+            // For assets with >18 decimals, box uses the asset's decimals
+            uint256 expectedShares = assetDecimals <= 18 ? 1e18 : 10 ** assetDecimals;
+
+            assertEq(shares, expectedShares,
+                string.concat("Failed for ", vm.toString(assetDecimals), " decimals: shares mismatch"));
+            assertEq(testBox.balanceOf(feeder), expectedShares,
+                string.concat("Failed for ", vm.toString(assetDecimals), " decimals: balance mismatch"));
+            assertEq(testBox.decimals(), assetDecimals <= 18 ? 18 : assetDecimals,
+                string.concat("Failed for ", vm.toString(assetDecimals), " decimals: box decimals mismatch"));
+        }
+    }
+
     function testDepositNonFeeder() public {
         vm.startPrank(nonAuthorized);
         asset.approve(address(box), 100e18);
