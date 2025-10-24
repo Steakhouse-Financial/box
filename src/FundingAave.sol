@@ -197,12 +197,12 @@ contract FundingAave is IFunding {
         uint256 balance;
 
         if (address(token) != address(0)) {
-            // ERC20 tokens
+            // ERC-20 tokens
             balance = token.balanceOf(address(this));
             require(balance > 0, ErrorsLib.InvalidAmount());
             token.safeTransfer(owner, balance);
         } else {
-            // ETH path
+            // ETH
             balance = address(this).balance;
             require(balance > 0, ErrorsLib.InvalidAmount());
             payable(owner).transfer(balance);

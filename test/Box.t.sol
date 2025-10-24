@@ -705,12 +705,17 @@ contract BoxTest is Test {
             // For assets with >18 decimals, box uses the asset's decimals
             uint256 expectedShares = assetDecimals <= 18 ? 1e18 : 10 ** assetDecimals;
 
-            assertEq(shares, expectedShares,
-                string.concat("Failed for ", vm.toString(assetDecimals), " decimals: shares mismatch"));
-            assertEq(testBox.balanceOf(feeder), expectedShares,
-                string.concat("Failed for ", vm.toString(assetDecimals), " decimals: balance mismatch"));
-            assertEq(testBox.decimals(), assetDecimals <= 18 ? 18 : assetDecimals,
-                string.concat("Failed for ", vm.toString(assetDecimals), " decimals: box decimals mismatch"));
+            assertEq(shares, expectedShares, string.concat("Failed for ", vm.toString(assetDecimals), " decimals: shares mismatch"));
+            assertEq(
+                testBox.balanceOf(feeder),
+                expectedShares,
+                string.concat("Failed for ", vm.toString(assetDecimals), " decimals: balance mismatch")
+            );
+            assertEq(
+                testBox.decimals(),
+                assetDecimals <= 18 ? 18 : assetDecimals,
+                string.concat("Failed for ", vm.toString(assetDecimals), " decimals: box decimals mismatch")
+            );
         }
     }
 

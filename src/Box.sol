@@ -347,7 +347,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 amount;
 
         if (address(token) != address(0)) {
-            // ERC20
+            // ERC-20 tokens
             amount = token.balanceOf(address(this));
             require(amount > 0, ErrorsLib.CannotSkimZero());
             token.safeTransfer(skimRecipient, amount);
