@@ -272,6 +272,7 @@ contract FundingAave is IFunding {
 
     // ========== POSITION ==========
 
+    /// @dev ltv can also use non whitelisted collaterals (donated)
     function ltv(bytes calldata data) external view returns (uint256) {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
