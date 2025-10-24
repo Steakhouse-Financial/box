@@ -636,7 +636,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev NAV is cached during flash to prevent manipulation
      */
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
-        _onlyAllocator();
+        _onlyAllocatorOrWinddown();
         _requireNonZeroAddress(address(flashToken));
         _requireIsTokenOrAsset(flashToken);
         // Prevent re-entrancy. Can't use nonReentrant modifier because of conflict with allocate/deallocate/reallocate
