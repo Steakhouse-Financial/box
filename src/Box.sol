@@ -344,21 +344,21 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _requireNotEqualAddress(address(token), asset);
         require(!isToken(token), ErrorsLib.CannotSkimToken());
 
-        uint256 amount;
+        uint256 balance;
 
         if (address(token) != address(0)) {
-            // ERC20
-            amount = token.balanceOf(address(this));
-            require(amount > 0, ErrorsLib.CannotSkimZero());
-            token.safeTransfer(skimRecipient, amount);
+            // ERC-20 tokens
+            balance = token.balanceOf(address(this));
+            require(balance > 0, ErrorsLib.CannotSkimZero());
+            token.safeTransfer(skimRecipient, balance);
         } else {
             // ETH
-            amount = address(this).balance;
-            require(amount > 0, ErrorsLib.CannotSkimZero());
-            payable(skimRecipient).transfer(amount);
+            balance = address(this).balance;
+            require(balance > 0, ErrorsLib.CannotSkimZero());
+            payable(skimRecipient).transfer(balance);
         }
 
-        emit EventsLib.Skim(token, skimRecipient, amount);
+        emit EventsLib.Skim(token, skimRecipient, balance);
     }
 
     /**
@@ -636,7 +636,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev NAV is cached during flash to prevent manipulation
      */
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
-        _onlyAllocator();
+        _onlyAllocatorOrWinddown();
         _requireNonZeroAddress(address(flashToken));
         _requireIsTokenOrAsset(flashToken);
         // Prevent re-entrancy. Can't use nonReentrant modifier because of conflict with allocate/deallocate/reallocate
