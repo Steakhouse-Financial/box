@@ -67,7 +67,6 @@ library EventsLib {
     event SlippageAccumulated(uint256 amount, uint256 total);
     event SlippageEpochReset(uint256 newEpochStart);
     event MaxSlippageUpdated(uint256 previousMaxSlippage, uint256 newMaxSlippage);
-    event Unbox(address indexed user, uint256 shares);
     event Skim(IERC20 indexed token, address indexed recipient, uint256 amount);
 
     // ========== CONFIGURATION ==========
