@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 // Copyright (c) 2025 Steakhouse Financial
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import "@morpho-blue/libraries/ConstantsLib.sol";
 import {MathLib} from "@morpho-blue/libraries/MathLib.sol";
