@@ -341,21 +341,21 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function skim(IERC20 token) external nonReentrant {
         require(msg.sender == skimRecipient, ErrorsLib.OnlySkimRecipient());
+        _requireNotEqualAddress(address(token), asset);
+        require(!isToken(token), ErrorsLib.CannotSkimToken());
 
         uint256 amount;
 
-        if (address(token) == address(0)) {
+        if (address(token) != address(0)) {
+            // ERC20
+            amount = token.balanceOf(address(this));
+            require(amount > 0, ErrorsLib.CannotSkimZero());
+            token.safeTransfer(skimRecipient, amount);
+        } else {
+            // ETH
             amount = address(this).balance;
             require(amount > 0, ErrorsLib.CannotSkimZero());
             payable(skimRecipient).transfer(amount);
-        } else {
-            _requireNotEqualAddress(address(token), asset);
-            require(!isToken(token), ErrorsLib.CannotSkimToken());
-
-            amount = token.balanceOf(address(this));
-            require(amount > 0, ErrorsLib.CannotSkimZero());
-
-            token.safeTransfer(skimRecipient, amount);
         }
 
         emit EventsLib.Skim(token, skimRecipient, amount);
