@@ -2,7 +2,6 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-solc_version = "0.8.28"
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "@vault-v2=lib/vault-v2/",

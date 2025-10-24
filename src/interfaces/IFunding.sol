@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2025 Steakhouse
-pragma solidity 0.8.28;
+pragma solidity >=0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IOracle} from "./IOracle.sol";
@@ -38,7 +38,7 @@ interface IFunding {
     function debtTokensLength() external view returns (uint256);
 
     // ========== ACTIONS ==========
-    function skim(IERC20 token, IOracleCallback oraclesProvider) external;
+    function skim(IERC20 token) external;
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
     function depledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external;
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external;

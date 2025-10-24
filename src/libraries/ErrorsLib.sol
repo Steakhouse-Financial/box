@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity >=0.8.0;
 
 library ErrorsLib {
     // General errors
@@ -81,5 +81,5 @@ library ErrorsLib {
     error NoNavDuringCache();
 
     // Flash callback errors
-    error AlreadyInFlash();
+    error ReentryNotAllowed();
 }
