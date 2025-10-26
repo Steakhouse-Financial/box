@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Create DAO metadata JSON and upload to IPFS
 # Usage: ./create_dao_metadata.sh <name> <description>
+source ../.env
 
 set -e
 

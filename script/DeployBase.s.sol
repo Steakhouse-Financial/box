@@ -51,7 +51,7 @@ contract DeployBaseScript is Script {
     BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x09EA5EafbA623D9012124E05068ab884008f32BD);
     FundingMorphoFactory fundingMorphoFactory = FundingMorphoFactory(address(0));
     FundingAaveFactory fundingAaveFactory = FundingAaveFactory(address(0));
-    VaultV2Helper vaultV2Helper = VaultV2Helper(address(0));
+    VaultV2Helper vaultV2Helper = VaultV2Helper(address(0xfa714Dd1194cE35F3f50032846A088F863B66bB5));
 
     address owner = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address curator = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
@@ -607,103 +607,42 @@ contract DeployBaseScript is Script {
         return vault;
     }
 
-    function deploySteakUSDC() public returns (IVaultV2) {
-        vm.startBroadcast();
 
-        VaultV2Helper helper = new VaultV2Helper();
-
-        IVaultV2 vault = helper.create(address(usdc), bytes32("45"), "Steakhouse High Yield Instant", "bbqUSDC");
-        console.log("Vault deployed at:", address(vault));
-
-        helper.addVaultV1(vault, address(steakusdc), true, 1_000_000_000 * 10 ** 6, 1 ether);
-        helper.conformMorphoRegistry(vault);
-
-        // Seed vault (need shares for voting)
-        usdc.approve(address(vault), 0.01e6);
-        vault.deposit(0.01e6, tx.origin);
-        console.log("Vault seeded");
-
-        // === DAO SETUP ===
-        console.log("\n=== DAO Setup Required ===");
-        console.log("1. Create Sentinel DAO at https://app.aragon.org (LockToVote)");
-        console.log("   Voting token:", address(vault));
-        console.log("2. Create Owner DAO at https://app.aragon.org (Multisig 2/2)");
-        console.log("3. Run deploySteakUSDC_connectDAOs(vault, sentinelDao, ownerDao)");
-        console.log("\nVault deployed without DAO governance - must be configured manually");
-
-        vm.stopBroadcast();
-        return vault;
-    }
-
-    /**
-     * @notice Deploy bbqUSDC vault with Aragon DAO governance
-     * @dev Fully automated - creates vault and DAOs in one transaction
-     */
     function deployBbqUSDC() public returns (IVaultV2) {
         vm.startBroadcast();
 
-        // === VAULT SETUP ===
-        VaultV2Helper helper = new VaultV2Helper();
-        IVaultV2 vault = helper.create(address(usdc), bytes32("45"), "Steakhouse High Yield Instant", "bbqUSDC");
+        IVaultV2 vault = vaultV2Helper.createV1WrapperCompliant(address(usdc), 0x177fce7aa7e3a1673e8e8f70ed9651d4ff967f42502a816bef7b18bf9191ca97, "Steakhouse High Yield Instant", "bbqUSDC", address(bbqusdc));
         console.log("\n=== Vault Deployed ===");
         console.log("Vault:", address(vault));
+
 
         // Seed vault (need shares for voting)
         usdc.approve(address(vault), 0.01e6);
         vault.deposit(0.01e6, tx.origin);
 
-        // Add MetaMorpho adapter
-        helper.addVaultV1(vault, address(bbqusdc), true, 1_000_000_000 * 10 ** 6, 1 ether);
-        helper.conformMorphoRegistry(vault);
-
-        // === CREATE DAOs ===
-        console.log("\n=== Creating Aragon DAOs ===");
-        DeployAragonDAO daoHelper = new DeployAragonDAO();
-
-        // Upload metadata to IPFS
-        string memory sentinelMetadata = _uploadMetadataToIPFS(
-            "bbqUSDC Sentinel DAO",
-            "Sentinel DAO for bbqUSDC vault with LockToVote governance"
-        );
-        console.log("Sentinel metadata:", sentinelMetadata);
-
-        string memory ownerMetadata = _uploadMetadataToIPFS(
-            "bbqUSDC Owner DAO",
-            "Owner DAO for bbqUSDC vault with 2/2 multisig between Sentinel and Steakhouse"
-        );
-        console.log("Owner metadata:", ownerMetadata);
-
-        // Create Sentinel DAO (LockToVote)
-        DeployAragonDAO.DAOResult memory sentinelResult = daoHelper.createSentinelDAO(
-            address(vault),
-            sentinelMetadata
-        );
-
-        // Create Owner DAO (Multisig)
-        DeployAragonDAO.DAOResult memory ownerResult = daoHelper.createOwnerDAO(
-            sentinelResult.dao,
-            STEAKHOUSE_SAFE,
-            ownerMetadata
-        );
-
-        // === CONNECT DAOs TO VAULT ===
-        console.log("\n=== Connecting DAOs to Vault ===");
-        helper.setRevoker(vault, sentinelResult.dao);
-        helper.setVaultTimelocks(vault, 3 days);
-        // Remove helper as allocator BEFORE transferring curator/ownership
-        helper.removeHelperAsAllocator(vault);
-        helper.setProductionCurator(vault);
-        helper.transferOwnership(vault, ownerResult.dao);
-
-        console.log("\n=== Deployment Complete ===");
-        console.log("Vault:", address(vault));
-        console.log("Sentinel DAO:", sentinelResult.dao);
-        console.log("LockManager:", sentinelResult.lockManager);
-        console.log("Owner DAO:", ownerResult.dao);
 
         vm.stopBroadcast();
         return vault;
     }
+    
+
+    function deploySteakUSDC() public returns (IVaultV2) {
+        vm.startBroadcast();
+
+        IVaultV2 vault = vaultV2Helper.createV1WrapperCompliant(address(usdc), 0xc1bc0acb1fdceb86f0b153e5403920b676d2c732c5dbab750e17afd584b27753, "Steakhouse Prime Instant", "steakUSDC", address(steakusdc));
+        console.log("\n=== Vault Deployed ===");
+        console.log("Vault:", address(vault));
+
+
+        // Seed vault (need shares for voting)
+        usdc.approve(address(vault), 0.01e6);
+        vault.deposit(0.01e6, tx.origin);
+
+
+        vm.stopBroadcast();
+        return vault;
+    }
+
 
     function _deployBox(
         IERC20 asset,

@@ -2,9 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
-import "../src/interfaces/aragon/AragonStructs.sol";
-import "../src/interfaces/aragon/LockToVoteStructs.sol";
-import "../src/interfaces/aragon/AragonInterfaces.sol";
+import "../src/interfaces/Aragon.sol";
 
 interface IERC20 {
     function balanceOf(address) external view returns (uint256);
@@ -133,7 +131,7 @@ contract DeployAragonDAO is Script {
                 supportThreshold: 500000, // 50%
                 minParticipation: 1, // 0.0001%
                 minApprovalRatio: 0,
-                proposalDuration: 3 days,
+                proposalDuration: 1 days,
                 minProposerVotingPower: 0
             }),
             pluginMetadata: "",
