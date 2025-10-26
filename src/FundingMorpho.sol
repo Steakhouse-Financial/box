@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Steakhouse Financial
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import {IMorpho, Id, MarketParams, Position} from "@morpho-blue/interfaces/IMorpho.sol";
 import "@morpho-blue/libraries/ConstantsLib.sol";
@@ -151,6 +151,27 @@ contract FundingMorpho is IFunding {
     }
 
     // ========== ACTIONS ==========
+    function skim(IERC20 token) external override {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+
+        uint256 navBefore = this.nav(IOracleCallback(owner));
+        uint256 balance;
+
+        if (address(token) != address(0)) {
+            // ERC-20 tokens
+            balance = token.balanceOf(address(this));
+            require(balance > 0, ErrorsLib.InvalidAmount());
+            token.safeTransfer(owner, balance);
+        } else {
+            // ETH
+            balance = address(this).balance;
+            require(balance > 0, ErrorsLib.InvalidAmount());
+            payable(owner).transfer(balance);
+        }
+
+        uint256 navAfter = this.nav(IOracleCallback(owner));
+        require(navBefore == navAfter, ErrorsLib.SkimChangedNav());
+    }
 
     /// @dev Assume caller did transfer the collateral tokens to this contract before calling
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
@@ -159,6 +180,8 @@ contract FundingMorpho is IFunding {
         require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
+        require(address(collateralToken) == market.collateralToken, "FundingModuleMorpho: Wrong collateral token");
+
         collateralToken.forceApprove(address(morpho), collateralAmount);
         morpho.supplyCollateral(market, collateralAmount, address(this), "");
     }
@@ -169,11 +192,11 @@ contract FundingMorpho is IFunding {
         require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
-        morpho.withdrawCollateral(market, collateralAmount, address(this), address(this));
+        require(address(collateralToken) == market.collateralToken, "FundingModuleMorpho: Wrong collateral token");
+
+        morpho.withdrawCollateral(market, collateralAmount, address(this), owner);
 
         require(ltv(facilityData) <= (market.lltv * lltvCap) / 100e16, ErrorsLib.ExcessiveLTV());
-
-        collateralToken.safeTransfer(owner, collateralAmount);
     }
 
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external override {
@@ -182,11 +205,11 @@ contract FundingMorpho is IFunding {
         require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
-        morpho.borrow(market, borrowAmount, 0, address(this), address(this));
+        require(address(debtToken) == market.loanToken, "FundingModuleMorpho: Wrong debt token");
+
+        morpho.borrow(market, borrowAmount, 0, address(this), owner);
 
         require(ltv(facilityData) <= (market.lltv * lltvCap) / 100e16, ErrorsLib.ExcessiveLTV());
-
-        debtToken.safeTransfer(owner, borrowAmount);
     }
 
     /// @dev Assume caller did transfer the debt tokens to this contract before calling
@@ -196,12 +219,9 @@ contract FundingMorpho is IFunding {
         require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         MarketParams memory market = decodeFacilityData(facilityData);
+        require(address(debtToken) == market.loanToken, "FundingModuleMorpho: Wrong debt token");
 
         uint256 debtAmount = morpho.expectedBorrowAssets(market, address(this));
-
-        if (repayAmount == type(uint256).max) {
-            repayAmount = debtAmount;
-        }
 
         IERC20(market.loanToken).forceApprove(address(morpho), repayAmount);
 
@@ -214,8 +234,25 @@ contract FundingMorpho is IFunding {
         }
     }
 
+    /**
+     * @notice Executes multiple calls in a single transaction
+     * @param data Array of encoded function calls
+     * @dev Allows EOAs to execute multiple operations atomically
+     */
+    function multicall(bytes[] calldata data) external {
+        for (uint256 i = 0; i < data.length; i++) {
+            (bool success, bytes memory returnData) = address(this).delegatecall(data[i]);
+            if (!success) {
+                assembly ("memory-safe") {
+                    revert(add(32, returnData), mload(returnData))
+                }
+            }
+        }
+    }
+
     // ========== POSITION ==========
 
+    /// @dev returns 0 if there is no collateral
     function ltv(bytes calldata facilityData) public view override returns (uint256) {
         MarketParams memory market = decodeFacilityData(facilityData);
         Id marketId = market.id();
@@ -320,8 +357,10 @@ contract FundingMorpho is IFunding {
     }
 
     function _findFacilityIndex(bytes calldata facilityData) internal view returns (uint256) {
-        for (uint256 i = 0; i < facilities.length; i++) {
-            if (keccak256(facilities[i]) == keccak256(facilityData)) {
+        bytes32 facilityHash = keccak256(facilityData);
+        uint256 length = facilities.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (keccak256(facilities[i]) == facilityHash) {
                 return i;
             }
         }

@@ -17,7 +17,8 @@ library EventsLib {
         string symbol,
         uint256 maxSlippage,
         uint256 slippageEpochDuration,
-        uint256 shutdownSlippageDuration
+        uint256 shutdownSlippageDuration,
+        uint256 shutdownWarmup
     );
 
     // ========== ACCESS CONTROL ==========
@@ -66,7 +67,6 @@ library EventsLib {
     event SlippageAccumulated(uint256 amount, uint256 total);
     event SlippageEpochReset(uint256 newEpochStart);
     event MaxSlippageUpdated(uint256 previousMaxSlippage, uint256 newMaxSlippage);
-    event Unbox(address indexed user, uint256 shares);
     event Skim(IERC20 indexed token, address indexed recipient, uint256 amount);
 
     // ========== CONFIGURATION ==========

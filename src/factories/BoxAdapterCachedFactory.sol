@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Morpho Association, Steakhouse Financial
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import {BoxAdapterCached} from "./../BoxAdapterCached.sol";
 import {IBox} from "./../interfaces/IBox.sol";
@@ -15,7 +15,7 @@ contract BoxAdapterCachedFactory is IBoxAdapterFactory {
 
     /* FUNCTIONS */
 
-    /// @dev Returns the address of the deployed BoxAdapter.
+    /// @dev Returns the address of the deployed BoxAdapterCached.
     function createBoxAdapter(address parentVault, IBox box) external returns (IBoxAdapter) {
         BoxAdapterCached _boxAdapter = new BoxAdapterCached(parentVault, box);
         boxAdapter[parentVault][box] = _boxAdapter;

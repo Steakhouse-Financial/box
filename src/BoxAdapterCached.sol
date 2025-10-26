@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2025 Morpho Association, Steakhouse Financial
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -67,8 +67,7 @@ contract BoxAdapterCached is IBoxAdapter {
         require(msg.sender == parentVault, NotAuthorized());
 
         if (assets > 0) IERC4626(box).deposit(assets, address(this));
-        // Safe casts because Box bounds the total supply of the underlying token, and allocation is less than the
-        // max total assets of the box.
+        // Safe casts because bounded by Vault V2 which requires totalAssets to stay below ~10^35
         _updateTotalAssets();
         int256 newAllocation = totalAssets.toInt256();
         int256 oldAllocation = allocation().toInt256();
@@ -83,8 +82,7 @@ contract BoxAdapterCached is IBoxAdapter {
         require(msg.sender == parentVault, NotAuthorized());
 
         if (assets > 0) IERC4626(box).withdraw(assets, address(this), address(this));
-        // Safe casts because Box bounds the total supply of the underlying token, and allocation is less than the
-        // max total assets of the vault.
+        // Safe casts because bounded by Vault V2 which requires totalAssets to stay below ~10^35
         _updateTotalAssets();
         int256 newAllocation = totalAssets.toInt256();
         int256 oldAllocation = allocation().toInt256();

@@ -208,7 +208,7 @@ contract BoxLeverageMorphoBaseTest is Test {
             vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
             box.repay(fundingModule, facilityData, usdc, 0);
 
-            vm.expectRevert(ErrorsLib.OnlyAllocators.selector);
+            vm.expectRevert(ErrorsLib.OnlyAllocatorsOrWinddown.selector);
             box.flash(usdc, 1, "");
 
             vm.expectRevert(ErrorsLib.OnlyAllocators.selector);

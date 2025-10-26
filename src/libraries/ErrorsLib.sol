@@ -74,11 +74,12 @@ library ErrorsLib {
     error CannotSkimToken();
     error AlreadySet();
     error CannotSkimZero();
+    error SkimChangedNav();
 
     // Funding module errors
     error ExcessiveLTV();
-    error NoNavDuringFlash();
+    error NoNavDuringCache();
 
     // Flash callback errors
-    error AlreadyInFlash();
+    error ReentryNotAllowed();
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 // Copyright (c) 2025 Steakhouse Financial
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import "@morpho-blue/libraries/ConstantsLib.sol";
 import {MathLib} from "@morpho-blue/libraries/MathLib.sol";
@@ -190,6 +190,28 @@ contract FundingAave is IFunding {
 
     // ========== ACTIONS ==========
 
+    function skim(IERC20 token) external override {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+
+        uint256 navBefore = this.nav(IOracleCallback(owner));
+        uint256 balance;
+
+        if (address(token) != address(0)) {
+            // ERC-20 tokens
+            balance = token.balanceOf(address(this));
+            require(balance > 0, ErrorsLib.InvalidAmount());
+            token.safeTransfer(owner, balance);
+        } else {
+            // ETH
+            balance = address(this).balance;
+            require(balance > 0, ErrorsLib.InvalidAmount());
+            payable(owner).transfer(balance);
+        }
+
+        uint256 navAfter = this.nav(IOracleCallback(owner));
+        require(navBefore == navAfter, ErrorsLib.SkimChangedNav());
+    }
+
     /// @dev Assume caller did transfer the collateral tokens to this contract before calling
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
@@ -206,8 +228,7 @@ contract FundingAave is IFunding {
         require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
         require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
-        pool.withdraw(address(collateralToken), collateralAmount, address(this));
-        collateralToken.safeTransfer(owner, collateralAmount);
+        pool.withdraw(address(collateralToken), collateralAmount, owner);
     }
 
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
@@ -226,11 +247,33 @@ contract FundingAave is IFunding {
         require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
 
         debtToken.forceApprove(address(pool), repayAmount);
-        pool.repay(address(debtToken), repayAmount, rateMode, address(this));
+        uint256 actualRepaid = pool.repay(address(debtToken), repayAmount, rateMode, address(this));
+
+        if (actualRepaid < repayAmount) {
+            debtToken.safeTransfer(owner, repayAmount - actualRepaid);
+        }
+    }
+
+    /**
+     * @notice Executes multiple calls in a single transaction
+     * @param data Array of encoded function calls
+     * @dev Allows EOAs to execute multiple operations atomically
+     */
+    function multicall(bytes[] calldata data) external {
+        for (uint256 i = 0; i < data.length; i++) {
+            (bool success, bytes memory returnData) = address(this).delegatecall(data[i]);
+            if (!success) {
+                assembly ("memory-safe") {
+                    revert(add(32, returnData), mload(returnData))
+                }
+            }
+        }
     }
 
     // ========== POSITION ==========
 
+    /// @dev ltv can also use non whitelisted collaterals (donated)
+    /// @dev returns 0 if there is no collateral
     function ltv(bytes calldata data) external view returns (uint256) {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
@@ -255,11 +298,12 @@ contract FundingAave is IFunding {
 
     /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
     function nav(IOracleCallback oraclesProvider) external view returns (uint256) {
-        uint256 totalCollateralValue = 0;
-        uint256 totalDebtValue = 0;
+        uint256 totalCollateralValue;
+        uint256 totalDebtValue;
 
         // Calculate total collateral value
-        for (uint256 i = 0; i < collateralTokens.length; i++) {
+        uint256 collateralLength = collateralTokens.length;
+        for (uint256 i = 0; i < collateralLength; i++) {
             IERC20 collateralToken = collateralTokens[i];
             uint256 collateralBalance_ = _collateralBalance(collateralToken);
 
@@ -278,7 +322,8 @@ contract FundingAave is IFunding {
         }
 
         // Calculate total debt value
-        for (uint256 i = 0; i < debtTokens.length; i++) {
+        uint256 debtLength = debtTokens.length;
+        for (uint256 i = 0; i < debtLength; i++) {
             IERC20 debtToken = debtTokens[i];
             uint256 debtBalance_ = _debtBalance(debtToken);
 
@@ -297,13 +342,15 @@ contract FundingAave is IFunding {
         }
 
         // Return NAV = collateral - debt (floor at 0)
-        return totalCollateralValue >= totalDebtValue ? totalCollateralValue - totalDebtValue : 0;
+        if (totalCollateralValue <= totalDebtValue) return 0;
+        unchecked {
+            return totalCollateralValue - totalDebtValue;
+        }
     }
 
     function _debtBalance(IERC20 debtToken) internal view returns (uint256 balance) {
-        (, , , , , , , , , address stableDebtToken, address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
-        address aDebtToken = rateMode == 2 ? variableDebtToken : stableDebtToken;
-        return IERC20(aDebtToken).balanceOf(address(this));
+        (, , , , , , , , , , address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
+        return IERC20(variableDebtToken).balanceOf(address(this));
     }
 
     function _collateralBalance(IERC20 collateralToken) internal view returns (uint256 balance) {

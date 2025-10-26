@@ -7,7 +7,7 @@ import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 contract ERC20MockDecimals is ERC20Mock {
     uint8 private immutable _decimals;
 
-    constructor(uint8 decimals_) ERC20Mock() {
+    constructor(uint8 decimals_) {
         _decimals = decimals_;
     }
 
