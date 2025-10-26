@@ -35,9 +35,8 @@ import "@vault-v2/src/libraries/ConstantsLib.sol";
 import {RevokerFactory} from "../src/periphery/RevokerFactory.sol";
 import {Revoker} from "../src/periphery/Revoker.sol";
 import {VaultV2Helper} from "../src/periphery/VaultV2Helper.sol";
+import {DeployAragonDAO} from "./DeployAragonDAO.sol";
 
-///@dev This script deploys the necessary contracts for the Peaty product on Base.
-///@dev Default factories are hardcoded, but can be overridden using run() which will deploy fresh contracts.
 contract DeployBaseScript is Script {
     using BoxLib for IBox;
     using VaultV2Lib for VaultV2;
@@ -83,7 +82,18 @@ contract DeployBaseScript is Script {
     IERC20 cbeth = IERC20(0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22);
     IOracle cbethOracle = IOracle(0x8d5097dd48e8d8d20F2c51a6F188183FeC3E345b);
 
-    ///@dev This script deploys the necessary contracts for the Peaty product on Base.
+    address constant STEAKHOUSE_SAFE = 0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8;
+
+    function _uploadMetadataToIPFS(string memory name, string memory description) internal returns (string memory) {
+        string[] memory inputs = new string[](3);
+        inputs[0] = "script/create_dao_metadata.sh";
+        inputs[1] = name;
+        inputs[2] = description;
+
+        bytes memory result = vm.ffi(inputs);
+        return string.concat("ipfs://", _stripNewline(string(result)));
+    }
+
     function run() public {
         boxFactory = deployBoxFactory();
         boxAdapterFactory = deployBoxAdapterFactory();
@@ -398,7 +408,14 @@ contract DeployBaseScript is Script {
 
         vault.removeAllocatorInstant(address(tx.origin));
         vault.setCurator(address(curator));
-        vault.setOwner(address(owner));
+
+        // === DAO SETUP ===
+        console.log("\n=== DAO Setup Required ===");
+        console.log("1. Create Sentinel DAO at https://app.aragon.org (LockToVote)");
+        console.log("   Voting token:", address(vault));
+        console.log("2. Create Owner DAO at https://app.aragon.org (Multisig 2/2)");
+        console.log("3. Run deployPeatyTurbo_connectDAOs(vault, sentinelDao, ownerDao)");
+        console.log("\nVault deployed without DAO governance - must be configured manually");
 
         vm.stopBroadcast();
         return vault;
@@ -598,83 +615,96 @@ contract DeployBaseScript is Script {
         IVaultV2 vault = helper.create(address(usdc), bytes32("45"), "Steakhouse High Yield Instant", "bbqUSDC");
         console.log("Vault deployed at:", address(vault));
 
-        address guardianAddr = helper.createGuardian(vault);
-        console.log("Guardian deployed at:", guardianAddr);
-        helper.setGuardian(vault, guardianAddr);
-
         helper.addVaultV1(vault, address(steakusdc), true, 1_000_000_000 * 10 ** 6, 1 ether);
-
         helper.conformMorphoRegistry(vault);
-        address msig = helper.finalize(vault, 3 days, guardianAddr);
-        console.log("Msig owner deployed at:", msig);
 
-        usdc.approve(address(vault), 10);
-        vault.deposit(10, address(tx.origin));
+        // Seed vault (need shares for voting)
+        usdc.approve(address(vault), 0.01e6);
+        vault.deposit(0.01e6, tx.origin);
+        console.log("Vault seeded");
+
+        // === DAO SETUP ===
+        console.log("\n=== DAO Setup Required ===");
+        console.log("1. Create Sentinel DAO at https://app.aragon.org (LockToVote)");
+        console.log("   Voting token:", address(vault));
+        console.log("2. Create Owner DAO at https://app.aragon.org (Multisig 2/2)");
+        console.log("3. Run deploySteakUSDC_connectDAOs(vault, sentinelDao, ownerDao)");
+        console.log("\nVault deployed without DAO governance - must be configured manually");
 
         vm.stopBroadcast();
         return vault;
     }
 
+    /**
+     * @notice Deploy bbqUSDC vault with Aragon DAO governance
+     * @dev Fully automated - creates vault and DAOs in one transaction
+     */
     function deployBbqUSDC() public returns (IVaultV2) {
         vm.startBroadcast();
 
+        // === VAULT SETUP ===
         VaultV2Helper helper = new VaultV2Helper();
-
         IVaultV2 vault = helper.create(address(usdc), bytes32("45"), "Steakhouse High Yield Instant", "bbqUSDC");
-        console.log("Vault deployed at:", address(vault));
+        console.log("\n=== Vault Deployed ===");
+        console.log("Vault:", address(vault));
 
-        address guardianAddr = helper.createGuardian(vault);
-        console.log("Guardian deployed at:", guardianAddr);
-        helper.setGuardian(vault, guardianAddr);
+        // Seed vault (need shares for voting)
+        usdc.approve(address(vault), 0.01e6);
+        vault.deposit(0.01e6, tx.origin);
 
+        // Add MetaMorpho adapter
         helper.addVaultV1(vault, address(bbqusdc), true, 1_000_000_000 * 10 ** 6, 1 ether);
-
         helper.conformMorphoRegistry(vault);
-        address msig = helper.finalize(vault, 3 days, guardianAddr);
-        console.log("Msig owner deployed at:", msig);
 
-        usdc.approve(address(vault), 10);
-        vault.deposit(10, address(tx.origin));
+        // === CREATE DAOs ===
+        console.log("\n=== Creating Aragon DAOs ===");
+        DeployAragonDAO daoHelper = new DeployAragonDAO();
+
+        // Upload metadata to IPFS
+        string memory sentinelMetadata = _uploadMetadataToIPFS(
+            "bbqUSDC Sentinel DAO",
+            "Sentinel DAO for bbqUSDC vault with LockToVote governance"
+        );
+        console.log("Sentinel metadata:", sentinelMetadata);
+
+        string memory ownerMetadata = _uploadMetadataToIPFS(
+            "bbqUSDC Owner DAO",
+            "Owner DAO for bbqUSDC vault with 2/2 multisig between Sentinel and Steakhouse"
+        );
+        console.log("Owner metadata:", ownerMetadata);
+
+        // Create Sentinel DAO (LockToVote)
+        DeployAragonDAO.DAOResult memory sentinelResult = daoHelper.createSentinelDAO(
+            address(vault),
+            sentinelMetadata
+        );
+
+        // Create Owner DAO (Multisig)
+        DeployAragonDAO.DAOResult memory ownerResult = daoHelper.createOwnerDAO(
+            sentinelResult.dao,
+            STEAKHOUSE_SAFE,
+            ownerMetadata
+        );
+
+        // === CONNECT DAOs TO VAULT ===
+        console.log("\n=== Connecting DAOs to Vault ===");
+        helper.setRevoker(vault, sentinelResult.dao);
+        helper.setVaultTimelocks(vault, 3 days);
+        // Remove helper as allocator BEFORE transferring curator/ownership
+        helper.removeHelperAsAllocator(vault);
+        helper.setProductionCurator(vault);
+        helper.transferOwnership(vault, ownerResult.dao);
+
+        console.log("\n=== Deployment Complete ===");
+        console.log("Vault:", address(vault));
+        console.log("Sentinel DAO:", sentinelResult.dao);
+        console.log("LockManager:", sentinelResult.lockManager);
+        console.log("Owner DAO:", ownerResult.dao);
 
         vm.stopBroadcast();
         return vault;
     }
 
-    function deployRampUSDC() public returns (IVaultV2) {
-        vm.startBroadcast();
-
-        VaultV2Helper helper = new VaultV2Helper();
-
-        IVaultV2 vault = helper.create(address(usdc), bytes32("45"), "Ramp x Steakhouse High Yield Instant", "ramp-bbqUSDC");
-        console.log("Vault deployed at:", address(vault));
-
-        address guardianAddr = helper.createGuardian(vault);
-        console.log("Guardian deployed at:", guardianAddr);
-        helper.setGuardian(vault, guardianAddr);
-
-        helper.addVaultV1(vault, address(steakusdc), true, 1_000_000_000 * 10 ** 6, 1 ether);
-
-        // Not conforming vault helper.conformMorphoRegistry(vault);
-        address msig = helper.finalize(vault, 7 days, guardianAddr);
-        console.log("Msig owner deployed at:", msig);
-
-        usdc.approve(address(vault), 10);
-        vault.deposit(10, address(tx.origin));
-
-        vm.stopBroadcast();
-        return vault;
-    }
-
-    /// @dev Helper function to deploy a box with standardized parameters
-    /// @param asset The asset token for the box
-    /// @param name The name of the box
-    /// @param symbol The symbol of the box
-    /// @param maxSlippage Maximum slippage tolerance
-    /// @param slippageEpochDuration Duration of slippage epoch
-    /// @param shutdownSlippageDuration Duration for shutdown slippage
-    /// @param shutdownWarmup Warmup period before shutdown
-    /// @param salt Salt for deterministic deployment
-    /// @return The deployed box
     function _deployBox(
         IERC20 asset,
         string memory name,
@@ -701,14 +731,6 @@ contract DeployBaseScript is Script {
         return box;
     }
 
-    /// @dev Helper function to deploy a box with standard timing parameters
-    /// Uses: 7 days slippage epoch, 10 days shutdown slippage, 7 days shutdown warmup
-    /// @param asset The asset token for the box
-    /// @param name The name of the box
-    /// @param symbol The symbol of the box
-    /// @param maxSlippage Maximum slippage tolerance
-    /// @param salt Salt for deterministic deployment
-    /// @return The deployed box
     function _deployStandardBox(
         IERC20 asset,
         string memory name,
@@ -717,5 +739,24 @@ contract DeployBaseScript is Script {
         bytes32 salt
     ) internal returns (IBox) {
         return _deployBox(asset, name, symbol, maxSlippage, 7 days, 10 days, 7 days, salt);
+    }
+
+    function _stripNewline(string memory input) internal pure returns (string memory) {
+        bytes memory inputBytes = bytes(input);
+        if (inputBytes.length == 0) return input;
+
+        uint256 newLength = inputBytes.length;
+        if (inputBytes[inputBytes.length - 1] == 0x0a) { // \n
+            newLength--;
+        }
+        if (newLength > 0 && inputBytes[newLength - 1] == 0x0d) { // \r
+            newLength--;
+        }
+
+        bytes memory result = new bytes(newLength);
+        for (uint256 i = 0; i < newLength; i++) {
+            result[i] = inputBytes[i];
+        }
+        return string(result);
     }
 }

@@ -10,3 +10,6 @@
 [submodule "lib/morpho-blue"]
 	path = lib/morpho-blue
 	url = https://github.com/Steakhouse-Financial/morpho-blue
+[submodule "lib/osx"]
+	path = lib/osx
+	url = https://github.com/aragon/osx

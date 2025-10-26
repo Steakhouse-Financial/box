@@ -8,6 +8,12 @@
   "lib/openzeppelin-contracts": {
     "rev": "99eda2225c0246c265c902475c47ec0c6321f119"
   },
+  "lib/osx": {
+    "tag": {
+      "name": "v1.4.0",
+      "rev": "0e6600619617fd7c1dc150395c3ea333c2f04234"
+    }
+  },
   "lib/vault-v2": {
     "rev": "main"
   }
