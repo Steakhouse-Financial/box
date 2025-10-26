@@ -188,7 +188,7 @@ contract FundingMorphoTest is Test {
 
         // Repay the rest of the debt
         debtToken.transfer(address(fundingMorpho), 0.25 ether);
-        fundingMorpho.repay(facilityDataLtv80, debtToken, type(uint256).max);
+        fundingMorpho.repay(facilityDataLtv80, debtToken, fundingMorpho.debtBalance(facilityDataLtv80, debtToken));
 
         assertEq(fundingMorpho.debtBalance(facilityDataLtv80, debtToken), 0);
         assertEq(fundingMorpho.ltv(facilityDataLtv80), 0);

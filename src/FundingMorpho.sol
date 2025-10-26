@@ -223,10 +223,6 @@ contract FundingMorpho is IFunding {
 
         uint256 debtAmount = morpho.expectedBorrowAssets(market, address(this));
 
-        if (repayAmount == type(uint256).max) {
-            repayAmount = debtAmount;
-        }
-
         IERC20(market.loanToken).forceApprove(address(morpho), repayAmount);
 
         // If the amount repaid is all the debt, we convert to all shares
@@ -256,6 +252,7 @@ contract FundingMorpho is IFunding {
 
     // ========== POSITION ==========
 
+    /// @dev returns 0 if there is no collateral
     function ltv(bytes calldata facilityData) public view override returns (uint256) {
         MarketParams memory market = decodeFacilityData(facilityData);
         Id marketId = market.id();

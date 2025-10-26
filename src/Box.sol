@@ -873,6 +873,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @notice Permanently disables a function by setting infinite timelock
      * @param selector Function signature to disable
      * @dev Irreversible - function becomes permanently inaccessible
+     * @dev Does not impact previsously queued changes
      */
     function abdicateTimelock(bytes4 selector) external {
         _onlyCurator();
