@@ -287,24 +287,24 @@ contract VaultV2Helper {
         vault.setIsAllocator(address(this), false);
     }
 
-    /* ======== SENTINEL/GUARDIAN SETUP ======== */
+    /* ======== GUARDIAN SETUP ======== */
 
     /**
      * @notice Deploy Revoker and set as vault sentinel
-     * @dev Revoker connects sentinel DAO to vault for emergency actions
+     * @dev Revoker connects guardian DAO to vault for emergency actions
      * @param vault The vault to configure
-     * @param sentinel Address of Sentinel DAO (LockToVote)
+     * @param guardian Address of Guardian DAO (LockToVote)
      * @return revoker The deployed Revoker contract
      */
-    function setRevoker(IVaultV2 vault, address sentinel) public returns (address revoker) {
+    function setRevoker(IVaultV2 vault, address guardian) public returns (address revoker) {
         // Deploy Revoker
-        Revoker revokerContract = new Revoker(vault, sentinel);
+        Revoker revokerContract = new Revoker(vault, guardian);
         revoker = address(revokerContract);
 
         // Set as sentinel
         vault.setIsSentinel(revoker, true);
 
-        emit RevokerDeployed(address(vault), sentinel, revoker);
+        emit RevokerDeployed(address(vault), guardian, revoker);
     }
 
     /**
@@ -358,17 +358,12 @@ contract VaultV2Helper {
         // Execute
         IDAO(dao).execute({_callId: "", _actions: actions, _allowFailureMap: 0});
 
-
-        // Revoke Temporarily `ROOT_PERMISSION_ID` that implicitly granted to this `DaoFactory`
-        // at the create dao step `address(this)` being the initial owner of the new created DAO.
-        //dao.revoke(daoAddress, address(this), dao.ROOT_PERMISSION_ID());
-
         return dao;
     }
 
     function createOwnerDAO(
-        address sentinel,
-        address steakhouse,
+        address guardian,
+        address owner,
         string memory metadataURI
     ) public returns (address) {
 
@@ -385,7 +380,7 @@ contract VaultV2Helper {
                 versionTag: PluginSettingsTag({release: 1, build: 3}),
                 pluginSetupRepo: multisigRepo
             }),
-            data: _getMultisigData(sentinel, steakhouse)
+            data: _getMultisigData(guardian, owner)
         });
 
         (address dao, InstalledPlugin[] memory installedPlugins) = IDAOFactory(daoFactory).createDao(
@@ -460,20 +455,18 @@ contract VaultV2Helper {
         return abi.encode(params);
     }
 
-    function _getMultisigData(address sentinel, address steakhouse) internal pure returns (bytes memory) {
+    function _getMultisigData(address guardian, address owner) internal pure returns (bytes memory) {
         address[] memory members = new address[](2);
-        members[0] = sentinel;
-        members[1] = steakhouse;
+        members[0] = guardian;
+        members[1] = owner;
 
-        /*return abi.encode(
-            members,
-            false,      // onlyListed
-            uint16(2)   // minApprovals (2/2)
-        );*/
         return abi.encode(
             members,
             false,      // onlyListed
-            uint16(2)   // minApprovals (2/2)
+            uint16(2),  // minApprovals (2/2)
+            address(0), // target address
+            0,          // operation type
+            "ipfs://QmeCvj5xo55cHHqmRQhKzTMX6AYACeYG8z2DgD6g16tJ2x" // metadata
         );
     }
 
@@ -512,17 +505,7 @@ contract VaultV2Helper {
 
         // Execute
         IDAO(dao).execute({_callId: "", _actions: actions, _allowFailureMap: 0});
-        // Grant the temporary permissions.
-        // Grant Temporarily `ROOT_PERMISSION` to `pluginSetupProcessor`.
-        //dao.grant(daoAddress, address(pluginSetupProcessor), dao.ROOT_PERMISSION_ID());
 
-        // Grant Temporarily `APPLY_INSTALLATION_PERMISSION` on `pluginSetupProcessor` to this `DAOFactory`.
-        /*dao.grant(
-            address(pluginSetupProcessor),
-            address(this),
-            keccak256("APPLY_INSTALLATION_PERMISSION")
-        );
-*/
         (
             address plugin,
             IPluginSetup.PreparedSetupData memory preparedSetupData
@@ -544,8 +527,6 @@ contract VaultV2Helper {
                     keccak256(abi.encode((preparedSetupData.helpers)))
             )
         );
-            
-
         
         // Revoke Temporarily `ROOT_PERMISSION` to `pluginSetupProcessor`.
         actions[0] = IDAO.Action({
@@ -566,17 +547,6 @@ contract VaultV2Helper {
 
         // Execute
         IDAO(dao).execute({_callId: "", _actions: actions, _allowFailureMap: 0});
-
-        // Revoke the temporarily granted permissions.
-        // Revoke Temporarily `ROOT_PERMISSION` from `pluginSetupProcessor`.
-        //dao.revoke(daoAddress, address(pluginSetupProcessor), dao.ROOT_PERMISSION_ID());
-
-        // Revoke `APPLY_INSTALLATION_PERMISSION` on `pluginSetupProcessor` from this `DAOFactory` .
-        /*dao.revoke(
-            address(pluginSetupProcessor),
-            address(this),
-            keccak256("APPLY_INSTALLATION_PERMISSION")
-        );*/
 
         return plugin;   
     }

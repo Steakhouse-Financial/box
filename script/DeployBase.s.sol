@@ -51,7 +51,7 @@ contract DeployBaseScript is Script {
     BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x09EA5EafbA623D9012124E05068ab884008f32BD);
     FundingMorphoFactory fundingMorphoFactory = FundingMorphoFactory(address(0));
     FundingAaveFactory fundingAaveFactory = FundingAaveFactory(address(0));
-    VaultV2Helper vaultV2Helper = VaultV2Helper(address(0x5Ae8651Ecb21390F3825d1F75Ec73400bF7c769c));
+    VaultV2Helper vaultV2Helper = VaultV2Helper(address(0xcA2Bc90a4b3a846994fcFd1Ff3db2756B2ea62e3));
 
     address owner = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address curator = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
