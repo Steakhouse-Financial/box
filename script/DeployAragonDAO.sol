@@ -15,9 +15,29 @@ interface IERC20 {
  */
 contract DeployAragonDAO is Script {
 
-    address constant DAO_FACTORY = 0xcc602EA573a42eBeC290f33F49D4A87177ebB8d2;
-    address constant LOCKTOVOTE_REPO = 0x05ECA5ab78493Bf812052B0211a206BCBA03471B;
-    address constant MULTISIG_REPO = 0xcDC4b0BC63AEfFf3a7826A19D101406C6322A585;
+    // Base (Chain ID: 8453)
+    address constant DAO_FACTORY_BASE = 0xcc602EA573a42eBeC290f33F49D4A87177ebB8d2;
+    address constant LOCKTOVOTE_REPO_BASE = 0x05ECA5ab78493Bf812052B0211a206BCBA03471B;
+    address constant MULTISIG_REPO_BASE = 0xcDC4b0BC63AEfFf3a7826A19D101406C6322A585;
+
+    // Ethereum Mainnet (Chain ID: 1)
+    // https://github.com/aragon/osx/blob/c931aa6929c7631a01453ad4a2ba707e4849ae82/packages/artifacts/src/addresses.json#L25-L47
+    // https://github.com/aragon/app/blob/e7694505c3525c69a3137c4305691f7e440113f0/src/plugins/lockToVotePlugin/constants/lockToVotePlugin.ts#L18
+    // https://github.com/aragon/app/blob/e7694505c3525c69a3137c4305691f7e440113f0/src/plugins/multisigPlugin/constants/multisigPlugin.ts#L17
+    address constant DAO_FACTORY_MAINNET = 0x246503df057A9a85E0144b6867a828c99676128B;
+    address constant LOCKTOVOTE_REPO_MAINNET = 0x0f4FBD2951Db08B45dE16e7519699159aE1b4bb7;
+    address constant MULTISIG_REPO_MAINNET = 0x8c278e37D0817210E18A7958524b7D0a1fAA6F7b;
+
+    function _getAddresses() internal view returns (address daoFactory, address lockToVoteRepo, address multisigRepo) {
+        uint256 chainId = block.chainid;
+        if (chainId == 1) {
+            return (DAO_FACTORY_MAINNET, LOCKTOVOTE_REPO_MAINNET, MULTISIG_REPO_MAINNET);
+        } else if (chainId == 8453) {
+            return (DAO_FACTORY_BASE, LOCKTOVOTE_REPO_BASE, MULTISIG_REPO_BASE);
+        } else {
+            revert("Unsupported chain");
+        }
+    }
 
     struct DAOResult {
         address dao;
@@ -34,6 +54,8 @@ contract DeployAragonDAO is Script {
     ) public returns (DAOResult memory result) {
         console.log("Creating Sentinel DAO...");
 
+        (address daoFactory, address lockToVoteRepo,) = _getAddresses();
+
         DAOSettings memory daoSettings = DAOSettings({
             trustedForwarder: address(0),
             daoURI: metadataURI,
@@ -45,12 +67,12 @@ contract DeployAragonDAO is Script {
         pluginSettings[0] = PluginSettings({
             pluginSetupRef: PluginSetupRef({
                 versionTag: PluginSettingsTag({release: 1, build: 1}),
-                pluginSetupRepo: LOCKTOVOTE_REPO
+                pluginSetupRepo: lockToVoteRepo
             }),
             data: _getLockToVoteData(votingToken)
         });
 
-        (address dao, InstalledPlugin[] memory installedPlugins) = IDAOFactory(DAO_FACTORY).createDao(
+        (address dao, InstalledPlugin[] memory installedPlugins) = IDAOFactory(daoFactory).createDao(
             daoSettings,
             pluginSettings
         );
@@ -84,6 +106,8 @@ contract DeployAragonDAO is Script {
     ) public returns (DAOResult memory result) {
         console.log("Creating Owner DAO...");
 
+        (address daoFactory,, address multisigRepo) = _getAddresses();
+
         DAOSettings memory daoSettings = DAOSettings({
             trustedForwarder: address(0),
             daoURI: metadataURI,
@@ -95,12 +119,12 @@ contract DeployAragonDAO is Script {
         pluginSettings[0] = PluginSettings({
             pluginSetupRef: PluginSetupRef({
                 versionTag: PluginSettingsTag({release: 1, build: 2}),
-                pluginSetupRepo: MULTISIG_REPO
+                pluginSetupRepo: multisigRepo
             }),
             data: _getMultisigData(sentinel, steakhouse)
         });
 
-        (address dao, InstalledPlugin[] memory installedPlugins) = IDAOFactory(DAO_FACTORY).createDao(
+        (address dao, InstalledPlugin[] memory installedPlugins) = IDAOFactory(daoFactory).createDao(
             daoSettings,
             pluginSettings
         );
