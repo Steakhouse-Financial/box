@@ -66,11 +66,11 @@ contract VaultV2Helper {
             curator = 0x827e86072B06674a077f592A531dcE4590aDeCdB;
             allocators.push(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
             allocators.push(0xfeed46c11F57B7126a773EeC6ae9cA7aE1C03C9a);
-            vaultV2Factory = VaultV2Factory(address(0xA1D94F746dEfa1928926b84fB2596c06926C0405)); // TODO: Set mainnet factory
-            mv1AdapterFactory = MorphoVaultV1AdapterFactory(address(0xD1B8E2dee25c2b89DCD2f98448a7ce87d6F63394)); // TODO: Set mainnet adapter factory
-            daoFactory = IDAOFactory(address(0)); // TODO: Set mainnet DAO factory
-            lockToVoteRepo = address(0); // TODO: Set mainnet LockToVote repo
-            multisigRepo = address(0); // TODO: Set mainnet Multisig repo
+            vaultV2Factory = VaultV2Factory(address(0xA1D94F746dEfa1928926b84fB2596c06926C0405));
+            mv1AdapterFactory = MorphoVaultV1AdapterFactory(address(0xD1B8E2dee25c2b89DCD2f98448a7ce87d6F63394));
+            daoFactory = IDAOFactory(address(0x246503df057A9a85E0144b6867a828c99676128B));
+            lockToVoteRepo = address(0x0f4FBD2951Db08B45dE16e7519699159aE1b4bb7);
+            multisigRepo = address(0x8c278e37D0817210E18A7958524b7D0a1fAA6F7b);
         } else {
             revert("Unsupported chain");
         }
@@ -313,9 +313,9 @@ contract VaultV2Helper {
     function createGuardianDAO(IVaultV2 vault) public returns (address) {
         DAOSettings memory daoSettings = DAOSettings({
             trustedForwarder: address(0),
-            daoURI: "ipfs://QmTe4gavy3LB91hYZ9MszzD1v3wsgnVYEfwkS2SZKM46rC",
+            daoURI: "",
             subdomain: "",
-            metadata: ""
+            metadata: "ipfs://QmTke6dGx54zCEqiqok8W3YViBqz1LTt7yX7zAABvRVtvF"
         });
 
         PluginSettings[] memory pluginSettings = new PluginSettings[](0);
@@ -374,15 +374,15 @@ contract VaultV2Helper {
 
         DAOSettings memory daoSettings = DAOSettings({
             trustedForwarder: address(0),
-            daoURI: "ipfs://QmP7dhYX2HdVPQbhcu6a1oLjsWoqmwtWB5Bwk7Gajvehrb",
+            daoURI: "",
             subdomain: "",
-            metadata: ""
+            metadata: "ipfs://QmP7dhYX2HdVPQbhcu6a1oLjsWoqmwtWB5Bwk7Gajvehrb"
         });
 
         PluginSettings[] memory pluginSettings = new PluginSettings[](1);
         pluginSettings[0] = PluginSettings({
             pluginSetupRef: PluginSetupRef({
-                versionTag: PluginSettingsTag({release: 1, build: 2}),
+                versionTag: PluginSettingsTag({release: 1, build: 3}),
                 pluginSetupRepo: multisigRepo
             }),
             data: _getMultisigData(sentinel, steakhouse)
@@ -465,7 +465,11 @@ contract VaultV2Helper {
         members[0] = sentinel;
         members[1] = steakhouse;
 
-        // MultisigSettings struct: {bool onlyListed, uint16 minApprovals}
+        /*return abi.encode(
+            members,
+            false,      // onlyListed
+            uint16(2)   // minApprovals (2/2)
+        );*/
         return abi.encode(
             members,
             false,      // onlyListed

@@ -51,7 +51,7 @@ contract DeployBaseScript is Script {
     BoxAdapterCachedFactory boxAdapterCachedFactory = BoxAdapterCachedFactory(0x09EA5EafbA623D9012124E05068ab884008f32BD);
     FundingMorphoFactory fundingMorphoFactory = FundingMorphoFactory(address(0));
     FundingAaveFactory fundingAaveFactory = FundingAaveFactory(address(0));
-    VaultV2Helper vaultV2Helper = VaultV2Helper(address(0xfa714Dd1194cE35F3f50032846A088F863B66bB5));
+    VaultV2Helper vaultV2Helper = VaultV2Helper(address(0x5Ae8651Ecb21390F3825d1F75Ec73400bF7c769c));
 
     address owner = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
     address curator = address(0x0000aeB716a0DF7A9A1AAd119b772644Bc089dA8);
@@ -629,14 +629,14 @@ contract DeployBaseScript is Script {
     function deploySteakUSDC() public returns (IVaultV2) {
         vm.startBroadcast();
 
-        IVaultV2 vault = vaultV2Helper.createV1WrapperCompliant(address(usdc), 0xc1bc0acb1fdceb86f0b153e5403920b676d2c732c5dbab750e17afd584b27753, "Steakhouse Prime Instant", "steakUSDC", address(steakusdc));
+        IVaultV2 vault = vaultV2Helper.createV1WrapperCompliant(address(usdc), 0xc1bc0acb1fdceb86f1b153e5403920b676d2c732c5dbab750e17afd584b27753, "Steakhouse Prime Instant", "steakUSDC", address(steakusdc));
         console.log("\n=== Vault Deployed ===");
         console.log("Vault:", address(vault));
 
 
         // Seed vault (need shares for voting)
-        usdc.approve(address(vault), 0.01e6);
-        vault.deposit(0.01e6, tx.origin);
+    //    usdc.approve(address(vault), 0.01e6);
+    //    vault.deposit(0.01e6, tx.origin);
 
 
         vm.stopBroadcast();
