@@ -989,7 +989,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         }
         _requireNonZeroAddress(address(oracle));
         _requireIsToken(token);
-        require(oracles[token] != oracle, ErrorsLib.InvalidValue());
+        _requireNotEqualAddress(address(oracles[token]), address(oracle));
 
         oracles[token] = oracle;
 
