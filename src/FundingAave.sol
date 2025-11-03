@@ -86,6 +86,18 @@ contract FundingAave is IFunding {
 
     // interestRateMode: 1 = Stable, 2 = Variable (Aave v3 constant)
 
+    /**
+     * @notice Allows the contract to receive native currency
+     * @dev Required for skimming native currency back to the Box
+     */
+    receive() external payable {}
+
+    /**
+     * @notice Fallback function to receive native currency
+     * @dev Required for skimming native currency back to the Box
+     */
+    fallback() external payable {}
+
     constructor(address _owner, IPool _pool, uint8 _eMode) {
         owner = _owner;
         pool = _pool;

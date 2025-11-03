@@ -121,6 +121,18 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== CONSTRUCTOR ==========
 
     /**
+     * @notice Allows the contract to receive native currency
+     * @dev Required for skimming native currency from funding modules
+     */
+    receive() external payable {}
+
+    /**
+     * @notice Fallback function to receive native currency
+     * @dev Required for skimming native currency from funding modules
+     */
+    fallback() external payable {}
+
+    /**
      * @notice Initializes the Box vault
      * @param _asset Base currency token (e.g., USDC)
      * @param _owner Initial owner address

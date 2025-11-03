@@ -31,6 +31,18 @@ contract FundingMorpho is IFunding {
 
     // ========== INITIALIZATION ==========
 
+    /**
+     * @notice Allows the contract to receive native currency
+     * @dev Required for skimming native currency back to the Box
+     */
+    receive() external payable {}
+
+    /**
+     * @notice Fallback function to receive native currency
+     * @dev Required for skimming native currency back to the Box
+     */
+    fallback() external payable {}
+
     constructor(address owner_, address morpho_, uint256 lltvCap_) {
         require(owner_ != address(0), ErrorsLib.InvalidAddress());
         require(morpho_ != address(0), ErrorsLib.InvalidAddress());

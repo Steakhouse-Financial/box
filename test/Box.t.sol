@@ -602,6 +602,45 @@ contract BoxTest is Test {
         vm.stopPrank();
     }
 
+    function testSkimNativeETH() public {
+        // Send ETH to the Box contract (simulating it receiving ETH from external source)
+        uint256 amount = 5 ether;
+        vm.deal(address(box), amount);
+        assertEq(address(box).balance, amount);
+
+        // Set a skim recipient (use a proper address, not a precompile)
+        address skimRecipient = address(0x1234);
+        vm.prank(owner);
+        box.setSkimRecipient(skimRecipient);
+
+        uint256 recipientBalanceBefore = skimRecipient.balance;
+
+        // Skim ETH (address(0) represents native currency)
+        vm.prank(skimRecipient);
+        box.skim(IERC20(address(0)));
+
+        assertEq(address(box).balance, 0, "Box should have no ETH left");
+        assertEq(skimRecipient.balance, recipientBalanceBefore + amount, "Recipient should receive ETH");
+    }
+
+    function testReceiveNativeETH() public {
+        // This test verifies that the Box can receive native ETH
+        // (e.g., from a funding module that sends ETH back)
+        uint256 amount = 2 ether;
+
+        uint256 balanceBefore = address(box).balance;
+
+        // Send ETH to Box from an external address (simulating funding module)
+        address sender = address(0x9999);
+        vm.deal(sender, amount);
+
+        vm.prank(sender);
+        (bool success, ) = address(box).call{value: amount}("");
+        assertTrue(success, "ETH transfer should succeed");
+
+        assertEq(address(box).balance, balanceBefore + amount, "Box should receive ETH");
+    }
+
     /////////////////////////////
     /// BASIC ERC4626 TESTS
     /////////////////////////////
