@@ -130,7 +130,8 @@ contract FundingAave is IFunding {
     }
 
     function isFacility(bytes calldata facilityData) public view override returns (bool) {
-        for (uint i = 0; i < facilities.length; i++) {
+        uint256 length = facilities.length;
+        for (uint i = 0; i < length; i++) {
             if (keccak256(facilities[i]) == keccak256(facilityData)) {
                 return true;
             }
@@ -159,7 +160,8 @@ contract FundingAave is IFunding {
     }
 
     function isCollateralToken(IERC20 collateralToken) public view override returns (bool) {
-        for (uint i = 0; i < collateralTokens.length; i++) {
+        uint256 length = collateralTokens.length;
+        for (uint i = 0; i < length; i++) {
             if (address(collateralTokens[i]) == address(collateralToken)) {
                 return true;
             }
@@ -188,7 +190,8 @@ contract FundingAave is IFunding {
     }
 
     function isDebtToken(IERC20 debtToken) public view override returns (bool) {
-        for (uint i = 0; i < debtTokens.length; i++) {
+        uint256 length = debtTokens.length;
+        for (uint i = 0; i < length; i++) {
             if (address(debtTokens[i]) == address(debtToken)) {
                 return true;
             }
@@ -272,7 +275,8 @@ contract FundingAave is IFunding {
      * @dev Allows EOAs to execute multiple operations atomically
      */
     function multicall(bytes[] calldata data) external {
-        for (uint256 i = 0; i < data.length; i++) {
+        uint256 length = data.length;
+        for (uint256 i = 0; i < length; i++) {
             (bool success, bytes memory returnData) = address(this).delegatecall(data[i]);
             if (!success) {
                 assembly ("memory-safe") {
@@ -377,7 +381,8 @@ contract FundingAave is IFunding {
     }
 
     function _findFacilityIndex(bytes calldata facilityData) internal view returns (uint256) {
-        for (uint256 i = 0; i < facilities.length; i++) {
+        uint256 length = facilities.length;
+        for (uint256 i = 0; i < length; i++) {
             if (keccak256(facilities[i]) == keccak256(facilityData)) {
                 return i;
             }
@@ -386,7 +391,8 @@ contract FundingAave is IFunding {
     }
 
     function _findCollateralTokenIndex(IERC20 collateralToken) internal view returns (uint256) {
-        for (uint256 i = 0; i < collateralTokens.length; i++) {
+        uint256 length = collateralTokens.length;
+        for (uint256 i = 0; i < length; i++) {
             if (collateralTokens[i] == collateralToken) {
                 return i;
             }
@@ -395,7 +401,8 @@ contract FundingAave is IFunding {
     }
 
     function _findDebtTokenIndex(IERC20 debtToken) internal view returns (uint256) {
-        for (uint256 i = 0; i < debtTokens.length; i++) {
+        uint256 length = debtTokens.length;
+        for (uint256 i = 0; i < length; i++) {
             if (debtTokens[i] == debtToken) {
                 return i;
             }

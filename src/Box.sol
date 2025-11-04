@@ -874,7 +874,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         uint256 currentTimelock = timelock[selector];
         require(currentTimelock != TIMELOCK_DISABLED, ErrorsLib.InvalidTimelock());
         require(newDuration < currentTimelock, ErrorsLib.TimelockIncrease());
-        require(newDuration <= TIMELOCK_CAP, ErrorsLib.InvalidTimelock());
 
         timelock[selector] = newDuration;
 
