@@ -31,6 +31,18 @@ contract FundingMorpho is IFunding {
 
     // ========== INITIALIZATION ==========
 
+    /**
+     * @notice Allows the contract to receive native currency
+     * @dev Required for skimming native currency back to the Box
+     */
+    receive() external payable {}
+
+    /**
+     * @notice Fallback function to receive native currency
+     * @dev Required for skimming native currency back to the Box
+     */
+    fallback() external payable {}
+
     constructor(address owner_, address morpho_, uint256 lltvCap_) {
         require(owner_ != address(0), ErrorsLib.InvalidAddress());
         require(morpho_ != address(0), ErrorsLib.InvalidAddress());
@@ -68,7 +80,8 @@ contract FundingMorpho is IFunding {
     }
 
     function isFacility(bytes calldata facilityData) public view override returns (bool) {
-        for (uint i = 0; i < facilities.length; i++) {
+        uint256 length = facilities.length;
+        for (uint i = 0; i < length; i++) {
             if (keccak256(facilities[i]) == keccak256(facilityData)) {
                 return true;
             }
@@ -92,7 +105,8 @@ contract FundingMorpho is IFunding {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_collateralBalance(collateralToken) == 0, ErrorsLib.CannotRemove());
 
-        for (uint i = 0; i < facilities.length; i++) {
+        uint256 length = facilities.length;
+        for (uint i = 0; i < length; i++) {
             MarketParams memory market = decodeFacilityData(facilities[i]);
             require(address(market.collateralToken) != address(collateralToken), ErrorsLib.CannotRemove());
         }
@@ -103,7 +117,8 @@ contract FundingMorpho is IFunding {
     }
 
     function isCollateralToken(IERC20 collateralToken) public view override returns (bool) {
-        for (uint i = 0; i < collateralTokens.length; i++) {
+        uint256 length = collateralTokens.length;
+        for (uint i = 0; i < length; i++) {
             if (address(collateralTokens[i]) == address(collateralToken)) {
                 return true;
             }
@@ -127,7 +142,8 @@ contract FundingMorpho is IFunding {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_debtBalance(debtToken) == 0, ErrorsLib.CannotRemove());
 
-        for (uint i = 0; i < facilities.length; i++) {
+        uint256 length = facilities.length;
+        for (uint i = 0; i < length; i++) {
             MarketParams memory market = decodeFacilityData(facilities[i]);
             require(address(market.loanToken) != address(debtToken), ErrorsLib.CannotRemove());
         }
@@ -138,7 +154,8 @@ contract FundingMorpho is IFunding {
     }
 
     function isDebtToken(IERC20 debtToken) public view override returns (bool) {
-        for (uint i = 0; i < debtTokens.length; i++) {
+        uint256 length = debtTokens.length;
+        for (uint i = 0; i < length; i++) {
             if (address(debtTokens[i]) == address(debtToken)) {
                 return true;
             }
@@ -240,7 +257,8 @@ contract FundingMorpho is IFunding {
      * @dev Allows EOAs to execute multiple operations atomically
      */
     function multicall(bytes[] calldata data) external {
-        for (uint256 i = 0; i < data.length; i++) {
+        uint256 length = data.length;
+        for (uint256 i = 0; i < length; i++) {
             (bool success, bytes memory returnData) = address(this).delegatecall(data[i]);
             if (!success) {
                 assembly ("memory-safe") {
@@ -286,7 +304,8 @@ contract FundingMorpho is IFunding {
     /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
     function nav(IOracleCallback oraclesProvider) external view returns (uint256) {
         uint256 nav_ = 0;
-        for (uint256 i = 0; i < facilities.length; i++) {
+        uint256 length = facilities.length;
+        for (uint256 i = 0; i < length; i++) {
             uint256 facilityNav = 0;
             MarketParams memory market = decodeFacilityData(facilities[i]);
             uint256 collateralBalance_ = morpho.collateral(market.id(), address(this));
@@ -333,7 +352,8 @@ contract FundingMorpho is IFunding {
 
     // ========== Internal functions ==========
     function _debtBalance(IERC20 debtToken) internal view returns (uint256 balance) {
-        for (uint256 i = 0; i < facilities.length; i++) {
+        uint256 length = facilities.length;
+        for (uint256 i = 0; i < length; i++) {
             MarketParams memory market = decodeFacilityData(facilities[i]);
             if (address(debtToken) == market.loanToken) {
                 balance += morpho.expectedBorrowAssets(market, address(this));
@@ -342,7 +362,8 @@ contract FundingMorpho is IFunding {
     }
 
     function _collateralBalance(IERC20 collateralToken) internal view returns (uint256 balance) {
-        for (uint256 i = 0; i < facilities.length; i++) {
+        uint256 length = facilities.length;
+        for (uint256 i = 0; i < length; i++) {
             MarketParams memory market = decodeFacilityData(facilities[i]);
             if (address(collateralToken) == market.collateralToken) {
                 balance += morpho.collateral(market.id(), address(this));
@@ -368,7 +389,8 @@ contract FundingMorpho is IFunding {
     }
 
     function _findCollateralTokenIndex(IERC20 collateralToken) internal view returns (uint256) {
-        for (uint256 i = 0; i < collateralTokens.length; i++) {
+        uint256 length = collateralTokens.length;
+        for (uint256 i = 0; i < length; i++) {
             if (collateralTokens[i] == collateralToken) {
                 return i;
             }
@@ -377,7 +399,8 @@ contract FundingMorpho is IFunding {
     }
 
     function _findDebtTokenIndex(IERC20 debtToken) internal view returns (uint256) {
-        for (uint256 i = 0; i < debtTokens.length; i++) {
+        uint256 length = debtTokens.length;
+        for (uint256 i = 0; i < length; i++) {
             if (debtTokens[i] == debtToken) {
                 return i;
             }
