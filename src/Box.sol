@@ -267,6 +267,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @dev Internal helper for deposit and mint to reduce bytecode duplication
     function _depositMint(uint256 assets, uint256 shares, address receiver) internal {
+        require(_cachedNavDepth == 0, ErrorsLib.ReentryNotAllowed());
         _onlyFeeder();
         _requireNotShutdown();
         _requireNonZeroAddress(receiver);
@@ -325,6 +326,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @dev Internal helper for withdraw and redeem to reduce bytecode duplication
     function _withdrawRedeem(uint256 assets, uint256 shares, address receiver, address owner_) internal {
+        require(_cachedNavDepth == 0, ErrorsLib.ReentryNotAllowed());
         _requireNonZeroAddress(receiver);
 
         if (msg.sender != owner_) {

@@ -201,6 +201,47 @@ contract ReadOnlyReentrancySwapper is ISwapper {
     }
 }
 
+// Malicious flash callback that attempts to deposit/withdraw during flash
+contract MaliciousFlashCallback {
+    using SafeERC20 for IERC20;
+    IBox public immutable box;
+    IERC20 public immutable asset;
+    uint256 public scenario;
+    uint256 public constant DEPOSIT = 0;
+    uint256 public constant MINT = 1;
+    uint256 public constant WITHDRAW = 2;
+    uint256 public constant REDEEM = 3;
+
+    constructor(IBox _box, IERC20 _asset) {
+        box = _box;
+        asset = _asset;
+    }
+
+    function setScenario(uint256 _scenario) external {
+        scenario = _scenario;
+    }
+
+    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata) external {
+        require(msg.sender == address(box), "Only Box can call");
+
+        if (scenario == DEPOSIT) {
+            // Attempt to deposit during flash
+            IERC20(asset).safeIncreaseAllowance(address(box), 100e18);
+            box.deposit(100e18, address(this));
+        } else if (scenario == MINT) {
+            // Attempt to mint during flash
+            IERC20(asset).safeIncreaseAllowance(address(box), 100e18);
+            box.mint(100e18, address(this));
+        } else if (scenario == WITHDRAW) {
+            // Attempt to withdraw during flash
+            box.withdraw(10e18, address(this), address(this));
+        } else if (scenario == REDEEM) {
+            // Attempt to redeem during flash
+            box.redeem(10e18, address(this), address(this));
+        }
+    }
+}
+
 // Mock funding module for testing debt scenarios
 contract MockFunding is IFunding {
     using SafeERC20 for IERC20;
@@ -1706,6 +1747,155 @@ contract BoxTest is Test {
         vm.expectRevert(ErrorsLib.TokenNotWhitelisted.selector);
         box.flash(token3, 10e18, "");
         vm.stopPrank();
+    }
+
+    function testFlashCannotDepositDuringCallback() public {
+        // Setup: Deposit initial funds and make malicious callback a feeder
+        asset.mint(address(feeder), 100e18);
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Create malicious callback and give it allocator and feeder roles
+        MaliciousFlashCallback maliciousCallback = new MaliciousFlashCallback(box, asset);
+
+        vm.prank(curator);
+        box.setIsAllocator(address(maliciousCallback), true);
+
+        vm.prank(curator);
+        box.submit(abi.encodeWithSelector(IBox.setIsFeeder.selector, address(maliciousCallback), true));
+        vm.warp(block.timestamp + 1);
+        vm.prank(curator);
+        box.setIsFeeder(address(maliciousCallback), true);
+
+        // Fund the callback with assets to deposit
+        asset.mint(address(maliciousCallback), 100e18);
+
+        // Flash the asset and attempt to deposit during callback
+        asset.mint(address(maliciousCallback), 50e18);
+        maliciousCallback.setScenario(0); // DEPOSIT
+
+        vm.prank(address(maliciousCallback));
+        asset.approve(address(box), 50e18);
+
+        vm.expectRevert(ErrorsLib.ReentryNotAllowed.selector);
+        vm.prank(address(maliciousCallback));
+        box.flash(asset, 50e18, "");
+    }
+
+    function testFlashCannotMintDuringCallback() public {
+        // Setup: Deposit initial funds
+        asset.mint(address(feeder), 100e18);
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Create malicious callback and give it allocator and feeder roles
+        MaliciousFlashCallback maliciousCallback = new MaliciousFlashCallback(box, asset);
+
+        vm.prank(curator);
+        box.setIsAllocator(address(maliciousCallback), true);
+
+        vm.prank(curator);
+        box.submit(abi.encodeWithSelector(IBox.setIsFeeder.selector, address(maliciousCallback), true));
+        vm.warp(block.timestamp + 1);
+        vm.prank(curator);
+        box.setIsFeeder(address(maliciousCallback), true);
+
+        // Fund the callback with assets to mint
+        asset.mint(address(maliciousCallback), 150e18);
+
+        // Flash the asset and attempt to mint during callback
+        maliciousCallback.setScenario(1); // MINT
+
+        vm.prank(address(maliciousCallback));
+        asset.approve(address(box), 150e18);
+
+        vm.expectRevert(ErrorsLib.ReentryNotAllowed.selector);
+        vm.prank(address(maliciousCallback));
+        box.flash(asset, 50e18, "");
+    }
+
+    function testFlashCannotWithdrawDuringCallback() public {
+        // Setup: Deposit initial funds
+        asset.mint(address(feeder), 100e18);
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Create malicious callback with shares
+        MaliciousFlashCallback maliciousCallback = new MaliciousFlashCallback(box, asset);
+
+        // Give callback some shares
+        asset.mint(address(maliciousCallback), 100e18);
+        vm.prank(curator);
+        box.submit(abi.encodeWithSelector(IBox.setIsFeeder.selector, address(maliciousCallback), true));
+        vm.warp(block.timestamp + 1);
+        vm.prank(curator);
+        box.setIsFeeder(address(maliciousCallback), true);
+
+        vm.startPrank(address(maliciousCallback));
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, address(maliciousCallback));
+        vm.stopPrank();
+
+        // Give callback allocator role
+        vm.prank(curator);
+        box.setIsAllocator(address(maliciousCallback), true);
+
+        // Flash and attempt to withdraw during callback
+        asset.mint(address(maliciousCallback), 50e18);
+        maliciousCallback.setScenario(2); // WITHDRAW
+
+        vm.prank(address(maliciousCallback));
+        asset.approve(address(box), 50e18);
+
+        vm.expectRevert(ErrorsLib.ReentryNotAllowed.selector);
+        vm.prank(address(maliciousCallback));
+        box.flash(asset, 50e18, "");
+    }
+
+    function testFlashCannotRedeemDuringCallback() public {
+        // Setup: Deposit initial funds
+        asset.mint(address(feeder), 100e18);
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Create malicious callback with shares
+        MaliciousFlashCallback maliciousCallback = new MaliciousFlashCallback(box, asset);
+
+        // Give callback some shares
+        asset.mint(address(maliciousCallback), 100e18);
+        vm.prank(curator);
+        box.submit(abi.encodeWithSelector(IBox.setIsFeeder.selector, address(maliciousCallback), true));
+        vm.warp(block.timestamp + 1);
+        vm.prank(curator);
+        box.setIsFeeder(address(maliciousCallback), true);
+
+        vm.startPrank(address(maliciousCallback));
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, address(maliciousCallback));
+        vm.stopPrank();
+
+        // Give callback allocator role
+        vm.prank(curator);
+        box.setIsAllocator(address(maliciousCallback), true);
+
+        // Flash and attempt to redeem during callback
+        asset.mint(address(maliciousCallback), 50e18);
+        maliciousCallback.setScenario(3); // REDEEM
+
+        vm.prank(address(maliciousCallback));
+        asset.approve(address(box), 50e18);
+
+        vm.expectRevert(ErrorsLib.ReentryNotAllowed.selector);
+        vm.prank(address(maliciousCallback));
+        box.flash(asset, 50e18, "");
     }
 
     /////////////////////////////
