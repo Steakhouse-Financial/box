@@ -11,11 +11,12 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {MathLib} from "./../lib/morpho-blue/src/libraries/MathLib.sol";
-import {IFunding, IOracleCallback} from "./interfaces/IFunding.sol";
+import {FundingBase} from "./FundingBase.sol";
+import {IOracleCallback} from "./interfaces/IFunding.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ErrorsLib} from "./libraries/ErrorsLib.sol";
 
-contract FundingMorpho is IFunding {
+contract FundingMorpho is FundingBase {
     using SafeERC20 for IERC20;
     using MarketParamsLib for MarketParams;
     using MorphoBalancesLib for IMorpho;
@@ -24,41 +25,19 @@ contract FundingMorpho is IFunding {
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    address public immutable owner;
     IMorpho public immutable morpho;
     uint256 public immutable lltvCap; // Maximum LTV/LTTV ration in 18 decimals, e.g. 80e16 for 80%
 
-    EnumerableSet.Bytes32Set internal facilitiesSet;
     mapping(bytes32 => bytes) public facilityDataMap; // hash => facility data
-    EnumerableSet.AddressSet internal collateralTokensSet;
-    EnumerableSet.AddressSet internal debtTokensSet;
 
-    // ========== INITIALIZATION ==========
-
-    /**
-     * @notice Allows the contract to receive native currency
-     * @dev Required for skimming native currency back to the Box
-     */
-    receive() external payable {}
-
-    /**
-     * @notice Fallback function to receive native currency
-     * @dev Required for skimming native currency back to the Box
-     */
-    fallback() external payable {}
-
-    constructor(address owner_, address morpho_, uint256 lltvCap_) {
-        require(owner_ != address(0), ErrorsLib.InvalidAddress());
+    constructor(address owner_, address morpho_, uint256 lltvCap_) FundingBase(owner_) {
         require(morpho_ != address(0), ErrorsLib.InvalidAddress());
         require(lltvCap_ <= 100e16, ErrorsLib.InvalidValue()); // Max 100%
         require(lltvCap_ > 0, ErrorsLib.InvalidValue()); // Min above 0%
 
-        owner = owner_;
         morpho = IMorpho(morpho_);
         lltvCap = lltvCap_;
     }
-
-    // ========== IFunding implementations ==========
 
     // ========== ADMIN ==========
 
@@ -84,23 +63,9 @@ contract FundingMorpho is IFunding {
         delete facilityDataMap[facilityHash];
     }
 
-    function isFacility(bytes calldata facilityData) public view override returns (bool) {
-        bytes32 facilityHash = keccak256(facilityData);
-        return facilitiesSet.contains(facilityHash);
-    }
-
-    function facilitiesLength() external view returns (uint256) {
-        return facilitiesSet.length();
-    }
-
     function facilities(uint256 index) external view returns (bytes memory) {
         bytes32 facilityHash = facilitiesSet.at(index);
         return facilityDataMap[facilityHash];
-    }
-
-    function addCollateralToken(IERC20 collateralToken) external override {
-        require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(collateralTokensSet.add(address(collateralToken)), ErrorsLib.AlreadyWhitelisted());
     }
 
     /// @dev Before being able to remove a collateral, no facility should reference it and the balance should be 0
@@ -118,23 +83,6 @@ contract FundingMorpho is IFunding {
         require(collateralTokensSet.remove(address(collateralToken)), ErrorsLib.NotWhitelisted());
     }
 
-    function isCollateralToken(IERC20 collateralToken) public view override returns (bool) {
-        return collateralTokensSet.contains(address(collateralToken));
-    }
-
-    function collateralTokensLength() external view returns (uint256) {
-        return collateralTokensSet.length();
-    }
-
-    function collateralTokens(uint256 index) external view returns (IERC20) {
-        return IERC20(collateralTokensSet.at(index));
-    }
-
-    function addDebtToken(IERC20 debtToken) external override {
-        require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(debtTokensSet.add(address(debtToken)), ErrorsLib.AlreadyWhitelisted());
-    }
-
     /// @dev Before being able to remove a debt, no facility should reference it and the balance should be 0
     function removeDebtToken(IERC20 debtToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
@@ -150,40 +98,7 @@ contract FundingMorpho is IFunding {
         require(debtTokensSet.remove(address(debtToken)), ErrorsLib.NotWhitelisted());
     }
 
-    function isDebtToken(IERC20 debtToken) public view override returns (bool) {
-        return debtTokensSet.contains(address(debtToken));
-    }
-
-    function debtTokensLength() external view returns (uint256) {
-        return debtTokensSet.length();
-    }
-
-    function debtTokens(uint256 index) external view returns (IERC20) {
-        return IERC20(debtTokensSet.at(index));
-    }
-
     // ========== ACTIONS ==========
-    function skim(IERC20 token) external override {
-        require(msg.sender == owner, ErrorsLib.OnlyOwner());
-
-        uint256 navBefore = nav(IOracleCallback(owner));
-        uint256 balance;
-
-        if (address(token) != address(0)) {
-            // ERC-20 tokens
-            balance = token.balanceOf(address(this));
-            require(balance > 0, ErrorsLib.InvalidAmount());
-            token.safeTransfer(owner, balance);
-        } else {
-            // ETH
-            balance = address(this).balance;
-            require(balance > 0, ErrorsLib.InvalidAmount());
-            payable(owner).transfer(balance);
-        }
-
-        uint256 navAfter = nav(IOracleCallback(owner));
-        require(navBefore == navAfter, ErrorsLib.SkimChangedNav());
-    }
 
     /// @dev Assume caller did transfer the collateral tokens to this contract before calling
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
@@ -246,23 +161,6 @@ contract FundingMorpho is IFunding {
         }
     }
 
-    /**
-     * @notice Executes multiple calls in a single transaction
-     * @param data Array of encoded function calls
-     * @dev Allows EOAs to execute multiple operations atomically
-     */
-    function multicall(bytes[] calldata data) external {
-        uint256 length = data.length;
-        for (uint256 i = 0; i < length; i++) {
-            (bool success, bytes memory returnData) = address(this).delegatecall(data[i]);
-            if (!success) {
-                assembly ("memory-safe") {
-                    revert(add(32, returnData), mload(returnData))
-                }
-            }
-        }
-    }
-
     // ========== POSITION ==========
 
     /// @dev returns 0 if there is no collateral
@@ -289,16 +187,8 @@ contract FundingMorpho is IFunding {
         return morpho.collateral(market.id(), address(this));
     }
 
-    function debtBalance(IERC20 debtToken) external view override returns (uint256) {
-        return _debtBalance(debtToken);
-    }
-
-    function collateralBalance(IERC20 collateralToken) external view override returns (uint256) {
-        return _collateralBalance(collateralToken);
-    }
-
     /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
-    function nav(IOracleCallback oraclesProvider) public view returns (uint256) {
+    function nav(IOracleCallback oraclesProvider) public view override returns (uint256) {
         uint256 nav_ = 0;
         uint256 length = facilitiesSet.length();
         for (uint256 i = 0; i < length; i++) {
@@ -348,7 +238,7 @@ contract FundingMorpho is IFunding {
     }
 
     // ========== Internal functions ==========
-    function _debtBalance(IERC20 debtToken) internal view returns (uint256 balance) {
+    function _debtBalance(IERC20 debtToken) internal view override returns (uint256 balance) {
         uint256 length = facilitiesSet.length();
         for (uint256 i = 0; i < length; i++) {
             bytes32 facilityHash = facilitiesSet.at(i);
@@ -359,7 +249,7 @@ contract FundingMorpho is IFunding {
         }
     }
 
-    function _collateralBalance(IERC20 collateralToken) internal view returns (uint256 balance) {
+    function _collateralBalance(IERC20 collateralToken) internal view override returns (uint256 balance) {
         uint256 length = facilitiesSet.length();
         for (uint256 i = 0; i < length; i++) {
             bytes32 facilityHash = facilitiesSet.at(i);
@@ -370,41 +260,9 @@ contract FundingMorpho is IFunding {
         }
     }
 
-    function _isFacilityUsed(bytes calldata facilityData) internal view returns (bool) {
+    function _isFacilityUsed(bytes calldata facilityData) internal view override returns (bool) {
         MarketParams memory market = decodeFacilityData(facilityData);
         Position memory position = morpho.position(market.id(), address(this));
         return position.collateral > 0 || position.borrowShares > 0;
-    }
-
-    // ========== ENUMERABLE SET GETTERS ==========
-
-    /// @notice Get all facility hashes as an array
-    function facilitiesArray() external view returns (bytes32[] memory) {
-        uint256 length = facilitiesSet.length();
-        bytes32[] memory allFacilities = new bytes32[](length);
-        for (uint256 i = 0; i < length; i++) {
-            allFacilities[i] = facilitiesSet.at(i);
-        }
-        return allFacilities;
-    }
-
-    /// @notice Get all collateral token addresses as an array
-    function collateralTokensArray() external view returns (address[] memory) {
-        uint256 length = collateralTokensSet.length();
-        address[] memory allTokens = new address[](length);
-        for (uint256 i = 0; i < length; i++) {
-            allTokens[i] = collateralTokensSet.at(i);
-        }
-        return allTokens;
-    }
-
-    /// @notice Get all debt token addresses as an array
-    function debtTokensArray() external view returns (address[] memory) {
-        uint256 length = debtTokensSet.length();
-        address[] memory allTokens = new address[](length);
-        for (uint256 i = 0; i < length; i++) {
-            allTokens[i] = debtTokensSet.at(i);
-        }
-        return allTokens;
     }
 }

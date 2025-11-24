@@ -8,7 +8,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {IFunding, IOracleCallback} from "./interfaces/IFunding.sol";
+import {FundingBase} from "./FundingBase.sol";
+import {IOracleCallback} from "./interfaces/IFunding.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ErrorsLib} from "./libraries/ErrorsLib.sol";
 
@@ -69,7 +70,7 @@ interface IScaledBalanceToken {
     function scaledBalanceOf(address user) external view returns (uint256);
 }
 
-contract FundingAave is IFunding {
+contract FundingAave is FundingBase {
     using SafeERC20 for IERC20;
     using MathLib for uint256;
     using Math for uint256;
@@ -78,39 +79,17 @@ contract FundingAave is IFunding {
 
     uint256 internal constant RAY = 1e27;
 
-    address public immutable owner;
     IPool public immutable pool;
     uint256 public immutable rateMode = 2; // 1 = Stable, 2 = Variable (Aave v3 constant)
     uint8 public immutable eMode; // 0 = no e-mode
 
-    EnumerableSet.Bytes32Set internal facilitiesSet;
-    EnumerableSet.AddressSet internal collateralTokensSet;
-    EnumerableSet.AddressSet internal debtTokensSet;
-
-    // interestRateMode: 1 = Stable, 2 = Variable (Aave v3 constant)
-
-    /**
-     * @notice Allows the contract to receive native currency
-     * @dev Required for skimming native currency back to the Box
-     */
-    receive() external payable {}
-
-    /**
-     * @notice Fallback function to receive native currency
-     * @dev Required for skimming native currency back to the Box
-     */
-    fallback() external payable {}
-
-    constructor(address _owner, IPool _pool, uint8 _eMode) {
-        owner = _owner;
+    constructor(address _owner, IPool _pool, uint8 _eMode) FundingBase(_owner) {
         pool = _pool;
         eMode = _eMode;
         if (pool.getUserEMode(address(this)) != eMode) {
             pool.setUserEMode(eMode);
         }
     }
-
-    // ========== IFunding implementations ==========
 
     // ========== ADMIN ==========
 
@@ -131,23 +110,9 @@ contract FundingAave is IFunding {
         require(facilitiesSet.remove(facilityHash), ErrorsLib.NotWhitelisted());
     }
 
-    function isFacility(bytes calldata facilityData) public view override returns (bool) {
-        bytes32 facilityHash = keccak256(facilityData);
-        return facilitiesSet.contains(facilityHash);
-    }
-
-    function facilitiesLength() external view returns (uint256) {
-        return facilitiesSet.length();
-    }
-
     function facilities(uint256 index) external view returns (bytes memory) {
         // For FundingAave, facilities are always empty bytes, so we return empty bytes
         return "";
-    }
-
-    function addCollateralToken(IERC20 collateralToken) external override {
-        require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(collateralTokensSet.add(address(collateralToken)), ErrorsLib.AlreadyWhitelisted());
     }
 
     function removeCollateralToken(IERC20 collateralToken) external override {
@@ -156,64 +121,13 @@ contract FundingAave is IFunding {
         require(collateralTokensSet.remove(address(collateralToken)), ErrorsLib.NotWhitelisted());
     }
 
-    function isCollateralToken(IERC20 collateralToken) public view override returns (bool) {
-        return collateralTokensSet.contains(address(collateralToken));
-    }
-
-    function collateralTokensLength() external view returns (uint256) {
-        return collateralTokensSet.length();
-    }
-
-    function collateralTokens(uint256 index) external view returns (IERC20) {
-        return IERC20(collateralTokensSet.at(index));
-    }
-
-    function addDebtToken(IERC20 debtToken) external override {
-        require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(debtTokensSet.add(address(debtToken)), ErrorsLib.AlreadyWhitelisted());
-    }
-
     function removeDebtToken(IERC20 debtToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_debtBalance(debtToken) == 0, ErrorsLib.CannotRemove());
         require(debtTokensSet.remove(address(debtToken)), ErrorsLib.NotWhitelisted());
     }
 
-    function isDebtToken(IERC20 debtToken) public view override returns (bool) {
-        return debtTokensSet.contains(address(debtToken));
-    }
-
-    function debtTokensLength() external view returns (uint256) {
-        return debtTokensSet.length();
-    }
-
-    function debtTokens(uint256 index) external view returns (IERC20) {
-        return IERC20(debtTokensSet.at(index));
-    }
-
     // ========== ACTIONS ==========
-
-    function skim(IERC20 token) external override {
-        require(msg.sender == owner, ErrorsLib.OnlyOwner());
-
-        uint256 navBefore = nav(IOracleCallback(owner));
-        uint256 balance;
-
-        if (address(token) != address(0)) {
-            // ERC-20 tokens
-            balance = token.balanceOf(address(this));
-            require(balance > 0, ErrorsLib.InvalidAmount());
-            token.safeTransfer(owner, balance);
-        } else {
-            // ETH
-            balance = address(this).balance;
-            require(balance > 0, ErrorsLib.InvalidAmount());
-            payable(owner).transfer(balance);
-        }
-
-        uint256 navAfter = nav(IOracleCallback(owner));
-        require(navBefore == navAfter, ErrorsLib.SkimChangedNav());
-    }
 
     /// @dev Assume caller did transfer the collateral tokens to this contract before calling
     function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
@@ -257,23 +171,6 @@ contract FundingAave is IFunding {
         }
     }
 
-    /**
-     * @notice Executes multiple calls in a single transaction
-     * @param data Array of encoded function calls
-     * @dev Allows EOAs to execute multiple operations atomically
-     */
-    function multicall(bytes[] calldata data) external {
-        uint256 length = data.length;
-        for (uint256 i = 0; i < length; i++) {
-            (bool success, bytes memory returnData) = address(this).delegatecall(data[i]);
-            if (!success) {
-                assembly ("memory-safe") {
-                    revert(add(32, returnData), mload(returnData))
-                }
-            }
-        }
-    }
-
     // ========== POSITION ==========
 
     /// @dev ltv can also use non whitelisted collaterals (donated)
@@ -292,16 +189,8 @@ contract FundingAave is IFunding {
         return _collateralBalance(collateralToken);
     }
 
-    function debtBalance(IERC20 debtToken) external view override returns (uint256) {
-        return _debtBalance(debtToken);
-    }
-
-    function collateralBalance(IERC20 collateralToken) external view override returns (uint256) {
-        return _collateralBalance(collateralToken);
-    }
-
     /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
-    function nav(IOracleCallback oraclesProvider) public view returns (uint256) {
+    function nav(IOracleCallback oraclesProvider) public view override returns (uint256) {
         uint256 totalCollateralValue;
         uint256 totalDebtValue;
         address asset = oraclesProvider.asset();
@@ -353,51 +242,19 @@ contract FundingAave is IFunding {
         }
     }
 
-    function _debtBalance(IERC20 debtToken) internal view returns (uint256 balance) {
+    function _debtBalance(IERC20 debtToken) internal view override returns (uint256 balance) {
         (, , , , , , , , , , address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
         return IERC20(variableDebtToken).balanceOf(address(this));
     }
 
-    function _collateralBalance(IERC20 collateralToken) internal view returns (uint256 balance) {
+    function _collateralBalance(IERC20 collateralToken) internal view override returns (uint256 balance) {
         (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(address(collateralToken));
         return IERC20(aTokenAddress).balanceOf(address(this));
     }
 
-    function _isFacilityUsed(bytes calldata facilityData) internal view returns (bool) {
+    function _isFacilityUsed(bytes calldata facilityData) internal view override returns (bool) {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
         return totalCollateralBase > 0 || totalDebtBase > 0;
-    }
-
-    // ========== ENUMERABLE SET GETTERS ==========
-
-    /// @notice Get all facility hashes as an array
-    function facilitiesArray() external view returns (bytes32[] memory) {
-        uint256 length = facilitiesSet.length();
-        bytes32[] memory allFacilities = new bytes32[](length);
-        for (uint256 i = 0; i < length; i++) {
-            allFacilities[i] = facilitiesSet.at(i);
-        }
-        return allFacilities;
-    }
-
-    /// @notice Get all collateral token addresses as an array
-    function collateralTokensArray() external view returns (address[] memory) {
-        uint256 length = collateralTokensSet.length();
-        address[] memory allTokens = new address[](length);
-        for (uint256 i = 0; i < length; i++) {
-            allTokens[i] = collateralTokensSet.at(i);
-        }
-        return allTokens;
-    }
-
-    /// @notice Get all debt token addresses as an array
-    function debtTokensArray() external view returns (address[] memory) {
-        uint256 length = debtTokensSet.length();
-        address[] memory allTokens = new address[](length);
-        for (uint256 i = 0; i < length; i++) {
-            allTokens[i] = debtTokensSet.at(i);
-        }
-        return allTokens;
     }
 }
