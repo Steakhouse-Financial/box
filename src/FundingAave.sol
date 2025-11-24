@@ -7,6 +7,7 @@ import {MathLib} from "@morpho-blue/libraries/MathLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IFunding, IOracleCallback} from "./interfaces/IFunding.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ErrorsLib} from "./libraries/ErrorsLib.sol";
@@ -72,6 +73,8 @@ contract FundingAave is IFunding {
     using SafeERC20 for IERC20;
     using MathLib for uint256;
     using Math for uint256;
+    using EnumerableSet for EnumerableSet.Bytes32Set;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     uint256 internal constant RAY = 1e27;
 
@@ -80,9 +83,9 @@ contract FundingAave is IFunding {
     uint256 public immutable rateMode = 2; // 1 = Stable, 2 = Variable (Aave v3 constant)
     uint8 public immutable eMode; // 0 = no e-mode
 
-    bytes[] public facilities;
-    IERC20[] public collateralTokens;
-    IERC20[] public debtTokens;
+    EnumerableSet.Bytes32Set private _facilitiesSet;
+    EnumerableSet.AddressSet private _collateralTokensSet;
+    EnumerableSet.AddressSet private _debtTokensSet;
 
     // interestRateMode: 1 = Stable, 2 = Variable (Aave v3 constant)
 
@@ -114,93 +117,78 @@ contract FundingAave is IFunding {
     /// @dev FundingAave always expect "" as facilityData
     function addFacility(bytes calldata facilityData) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(!isFacility(facilityData), ErrorsLib.AlreadyWhitelisted());
         require(facilityData.length == 0, ErrorsLib.InvalidValue());
 
-        facilities.push(facilityData);
+        bytes32 facilityHash = keccak256(facilityData);
+        require(_facilitiesSet.add(facilityHash), ErrorsLib.AlreadyWhitelisted());
     }
 
     function removeFacility(bytes calldata facilityData) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(!_isFacilityUsed(facilityData), ErrorsLib.CannotRemove());
 
-        uint256 index = _findFacilityIndex(facilityData);
-        facilities[index] = facilities[facilities.length - 1];
-        facilities.pop();
+        bytes32 facilityHash = keccak256(facilityData);
+        require(_facilitiesSet.remove(facilityHash), ErrorsLib.NotWhitelisted());
     }
 
     function isFacility(bytes calldata facilityData) public view override returns (bool) {
-        uint256 length = facilities.length;
-        for (uint i = 0; i < length; i++) {
-            if (keccak256(facilities[i]) == keccak256(facilityData)) {
-                return true;
-            }
-        }
-        return false;
+        bytes32 facilityHash = keccak256(facilityData);
+        return _facilitiesSet.contains(facilityHash);
     }
 
     function facilitiesLength() external view returns (uint256) {
-        return facilities.length;
+        return _facilitiesSet.length();
+    }
+
+    function facilities(uint256 index) external view returns (bytes memory) {
+        // For FundingAave, facilities are always empty bytes, so we return empty bytes
+        return "";
     }
 
     function addCollateralToken(IERC20 collateralToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(!isCollateralToken(collateralToken), ErrorsLib.AlreadyWhitelisted());
-
-        collateralTokens.push(collateralToken);
+        require(_collateralTokensSet.add(address(collateralToken)), ErrorsLib.AlreadyWhitelisted());
     }
 
     function removeCollateralToken(IERC20 collateralToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_collateralBalance(collateralToken) == 0, ErrorsLib.CannotRemove());
-
-        uint256 index = _findCollateralTokenIndex(collateralToken);
-        collateralTokens[index] = collateralTokens[collateralTokens.length - 1];
-        collateralTokens.pop();
+        require(_collateralTokensSet.remove(address(collateralToken)), ErrorsLib.NotWhitelisted());
     }
 
     function isCollateralToken(IERC20 collateralToken) public view override returns (bool) {
-        uint256 length = collateralTokens.length;
-        for (uint i = 0; i < length; i++) {
-            if (address(collateralTokens[i]) == address(collateralToken)) {
-                return true;
-            }
-        }
-        return false;
+        return _collateralTokensSet.contains(address(collateralToken));
     }
 
     function collateralTokensLength() external view returns (uint256) {
-        return collateralTokens.length;
+        return _collateralTokensSet.length();
+    }
+
+    function collateralTokens(uint256 index) external view returns (IERC20) {
+        return IERC20(_collateralTokensSet.at(index));
     }
 
     function addDebtToken(IERC20 debtToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(!isDebtToken(debtToken), ErrorsLib.AlreadyWhitelisted());
-
-        debtTokens.push(debtToken);
+        require(_debtTokensSet.add(address(debtToken)), ErrorsLib.AlreadyWhitelisted());
     }
 
     function removeDebtToken(IERC20 debtToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_debtBalance(debtToken) == 0, ErrorsLib.CannotRemove());
-
-        uint256 index = _findDebtTokenIndex(debtToken);
-        debtTokens[index] = debtTokens[debtTokens.length - 1];
-        debtTokens.pop();
+        require(_debtTokensSet.remove(address(debtToken)), ErrorsLib.NotWhitelisted());
     }
 
     function isDebtToken(IERC20 debtToken) public view override returns (bool) {
-        uint256 length = debtTokens.length;
-        for (uint i = 0; i < length; i++) {
-            if (address(debtTokens[i]) == address(debtToken)) {
-                return true;
-            }
-        }
-        return false;
+        return _debtTokensSet.contains(address(debtToken));
     }
 
     function debtTokensLength() external view returns (uint256) {
-        return debtTokens.length;
+        return _debtTokensSet.length();
+    }
+
+    function debtTokens(uint256 index) external view returns (IERC20) {
+        return IERC20(_debtTokensSet.at(index));
     }
 
     // ========== ACTIONS ==========
@@ -318,9 +306,9 @@ contract FundingAave is IFunding {
         uint256 totalDebtValue;
 
         // Calculate total collateral value
-        uint256 collateralLength = collateralTokens.length;
+        uint256 collateralLength = _collateralTokensSet.length();
         for (uint256 i = 0; i < collateralLength; i++) {
-            IERC20 collateralToken = collateralTokens[i];
+            IERC20 collateralToken = IERC20(_collateralTokensSet.at(i));
             uint256 collateralBalance_ = _collateralBalance(collateralToken);
 
             if (collateralBalance_ > 0) {
@@ -338,9 +326,9 @@ contract FundingAave is IFunding {
         }
 
         // Calculate total debt value
-        uint256 debtLength = debtTokens.length;
+        uint256 debtLength = _debtTokensSet.length();
         for (uint256 i = 0; i < debtLength; i++) {
-            IERC20 debtToken = debtTokens[i];
+            IERC20 debtToken = IERC20(_debtTokensSet.at(i));
             uint256 debtBalance_ = _debtBalance(debtToken);
 
             if (debtBalance_ > 0) {
@@ -378,35 +366,5 @@ contract FundingAave is IFunding {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
         return totalCollateralBase > 0 || totalDebtBase > 0;
-    }
-
-    function _findFacilityIndex(bytes calldata facilityData) internal view returns (uint256) {
-        uint256 length = facilities.length;
-        for (uint256 i = 0; i < length; i++) {
-            if (keccak256(facilities[i]) == keccak256(facilityData)) {
-                return i;
-            }
-        }
-        revert ErrorsLib.NotWhitelisted();
-    }
-
-    function _findCollateralTokenIndex(IERC20 collateralToken) internal view returns (uint256) {
-        uint256 length = collateralTokens.length;
-        for (uint256 i = 0; i < length; i++) {
-            if (collateralTokens[i] == collateralToken) {
-                return i;
-            }
-        }
-        revert ErrorsLib.NotWhitelisted();
-    }
-
-    function _findDebtTokenIndex(IERC20 debtToken) internal view returns (uint256) {
-        uint256 length = debtTokens.length;
-        for (uint256 i = 0; i < length; i++) {
-            if (debtTokens[i] == debtToken) {
-                return i;
-            }
-        }
-        revert ErrorsLib.NotWhitelisted();
     }
 }
