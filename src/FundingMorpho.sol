@@ -377,18 +377,8 @@ contract FundingMorpho is IFunding {
 
     // ========== ENUMERABLE SET GETTERS ==========
 
-    /// @notice Check if a facility hash exists in the set
-    function facilitiesSetContains(bytes32 facilityHash) external view returns (bool) {
-        return facilitiesSet.contains(facilityHash);
-    }
-
-    /// @notice Get facility hash at a specific index
-    function facilitiesSetAt(uint256 index) external view returns (bytes32) {
-        return facilitiesSet.at(index);
-    }
-
-    /// @notice Get all facility hashes
-    function getAllFacilities() external view returns (bytes32[] memory) {
+    /// @notice Get all facility hashes as an array
+    function facilitiesArray() external view returns (bytes32[] memory) {
         uint256 length = facilitiesSet.length();
         bytes32[] memory allFacilities = new bytes32[](length);
         for (uint256 i = 0; i < length; i++) {
@@ -397,24 +387,8 @@ contract FundingMorpho is IFunding {
         return allFacilities;
     }
 
-    /// @notice Get all facility data entries
-    function getAllFacilitiesData() external view returns (bytes[] memory) {
-        uint256 length = facilitiesSet.length();
-        bytes[] memory allData = new bytes[](length);
-        for (uint256 i = 0; i < length; i++) {
-            bytes32 facilityHash = facilitiesSet.at(i);
-            allData[i] = facilityDataMap[facilityHash];
-        }
-        return allData;
-    }
-
-    /// @notice Get collateral token at a specific index
-    function collateralTokensSetAt(uint256 index) external view returns (address) {
-        return collateralTokensSet.at(index);
-    }
-
-    /// @notice Get all collateral token addresses
-    function getAllCollateralTokens() external view returns (address[] memory) {
+    /// @notice Get all collateral token addresses as an array
+    function collateralTokensArray() external view returns (address[] memory) {
         uint256 length = collateralTokensSet.length();
         address[] memory allTokens = new address[](length);
         for (uint256 i = 0; i < length; i++) {
@@ -423,13 +397,8 @@ contract FundingMorpho is IFunding {
         return allTokens;
     }
 
-    /// @notice Get debt token at a specific index
-    function debtTokensSetAt(uint256 index) external view returns (address) {
-        return debtTokensSet.at(index);
-    }
-
-    /// @notice Get all debt token addresses
-    function getAllDebtTokens() external view returns (address[] memory) {
+    /// @notice Get all debt token addresses as an array
+    function debtTokensArray() external view returns (address[] memory) {
         uint256 length = debtTokensSet.length();
         address[] memory allTokens = new address[](length);
         for (uint256 i = 0; i < length; i++) {
