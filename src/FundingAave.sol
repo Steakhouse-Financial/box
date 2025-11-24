@@ -145,58 +145,6 @@ contract FundingAave is IFunding {
         return "";
     }
 
-    // ========== ENUMERABLE SET GETTERS ==========
-
-    /// @notice Check if a facility hash exists in the set
-    function facilitiesSetContains(bytes32 facilityHash) external view returns (bool) {
-        return facilitiesSet.contains(facilityHash);
-    }
-
-    /// @notice Get facility hash at a specific index
-    function facilitiesSetAt(uint256 index) external view returns (bytes32) {
-        return facilitiesSet.at(index);
-    }
-
-    /// @notice Get all facility hashes
-    function getAllFacilities() external view returns (bytes32[] memory) {
-        uint256 length = facilitiesSet.length();
-        bytes32[] memory allFacilities = new bytes32[](length);
-        for (uint256 i = 0; i < length; i++) {
-            allFacilities[i] = facilitiesSet.at(i);
-        }
-        return allFacilities;
-    }
-
-    /// @notice Get collateral token at a specific index
-    function collateralTokensSetAt(uint256 index) external view returns (address) {
-        return collateralTokensSet.at(index);
-    }
-
-    /// @notice Get all collateral token addresses
-    function getAllCollateralTokens() external view returns (address[] memory) {
-        uint256 length = collateralTokensSet.length();
-        address[] memory allTokens = new address[](length);
-        for (uint256 i = 0; i < length; i++) {
-            allTokens[i] = collateralTokensSet.at(i);
-        }
-        return allTokens;
-    }
-
-    /// @notice Get debt token at a specific index
-    function debtTokensSetAt(uint256 index) external view returns (address) {
-        return debtTokensSet.at(index);
-    }
-
-    /// @notice Get all debt token addresses
-    function getAllDebtTokens() external view returns (address[] memory) {
-        uint256 length = debtTokensSet.length();
-        address[] memory allTokens = new address[](length);
-        for (uint256 i = 0; i < length; i++) {
-            allTokens[i] = debtTokensSet.at(i);
-        }
-        return allTokens;
-    }
-
     function addCollateralToken(IERC20 collateralToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(collateralTokensSet.add(address(collateralToken)), ErrorsLib.AlreadyWhitelisted());
@@ -418,5 +366,57 @@ contract FundingAave is IFunding {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
         return totalCollateralBase > 0 || totalDebtBase > 0;
+    }
+
+    // ========== ENUMERABLE SET GETTERS ==========
+
+    /// @notice Check if a facility hash exists in the set
+    function facilitiesSetContains(bytes32 facilityHash) external view returns (bool) {
+        return facilitiesSet.contains(facilityHash);
+    }
+
+    /// @notice Get facility hash at a specific index
+    function facilitiesSetAt(uint256 index) external view returns (bytes32) {
+        return facilitiesSet.at(index);
+    }
+
+    /// @notice Get all facility hashes
+    function getAllFacilities() external view returns (bytes32[] memory) {
+        uint256 length = facilitiesSet.length();
+        bytes32[] memory allFacilities = new bytes32[](length);
+        for (uint256 i = 0; i < length; i++) {
+            allFacilities[i] = facilitiesSet.at(i);
+        }
+        return allFacilities;
+    }
+
+    /// @notice Get collateral token at a specific index
+    function collateralTokensSetAt(uint256 index) external view returns (address) {
+        return collateralTokensSet.at(index);
+    }
+
+    /// @notice Get all collateral token addresses
+    function getAllCollateralTokens() external view returns (address[] memory) {
+        uint256 length = collateralTokensSet.length();
+        address[] memory allTokens = new address[](length);
+        for (uint256 i = 0; i < length; i++) {
+            allTokens[i] = collateralTokensSet.at(i);
+        }
+        return allTokens;
+    }
+
+    /// @notice Get debt token at a specific index
+    function debtTokensSetAt(uint256 index) external view returns (address) {
+        return debtTokensSet.at(index);
+    }
+
+    /// @notice Get all debt token addresses
+    function getAllDebtTokens() external view returns (address[] memory) {
+        uint256 length = debtTokensSet.length();
+        address[] memory allTokens = new address[](length);
+        for (uint256 i = 0; i < length; i++) {
+            allTokens[i] = debtTokensSet.at(i);
+        }
+        return allTokens;
     }
 }
