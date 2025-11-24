@@ -406,8 +406,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             uint256 debtAmount = _debtBalance(token);
             uint256 existingBalance = token.balanceOf(address(this));
             uint256 neededTokens = debtAmount > existingBalance ? debtAmount - existingBalance : 0;
-            uint256 neededValue = neededTokens.mulDiv(oraclePrice, ORACLE_PRECISION);
-            uint256 maxAllocation = neededValue.mulDiv(PRECISION, PRECISION - slippageTolerance);
+            uint256 neededValue = neededTokens.mulDiv(oraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
+            uint256 maxAllocation = neededValue.mulDiv(PRECISION, PRECISION - slippageTolerance, Math.Rounding.Ceil);
             require(assetsAmount <= maxAllocation, ErrorsLib.InvalidAmount());
         }
 
@@ -415,7 +415,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         (uint256 assetsSpent, uint256 tokensReceived) = _executeSwap(IERC20(asset), token, assetsAmount, swapper, data);
 
         // Calculate and validate slippage
-        uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oraclePrice);
+        uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oraclePrice, Math.Rounding.Ceil);
         uint256 minTokens = _calculateMinAmount(expectedTokens, slippageTolerance);
         require(tokensReceived >= minTokens, ErrorsLib.AllocationTooExpensive());
 
@@ -423,7 +423,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Track slippage if we are not in winddown and have positive slippage
         if (!winddown && tokensReceived < expectedTokens) {
-            uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION);
+            uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
         }
 
@@ -463,7 +463,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         (uint256 tokensSpent, uint256 assetsReceived) = _executeSwap(token, IERC20(asset), tokensAmount, swapper, data);
 
         // Calculate and validate slippage
-        uint256 expectedAssets = tokensAmount.mulDiv(oraclePrice, ORACLE_PRECISION);
+        uint256 expectedAssets = tokensAmount.mulDiv(oraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
         uint256 minAssets = _calculateMinAmount(expectedAssets, slippageTolerance);
         require(assetsReceived >= minAssets, ErrorsLib.TokenSaleNotGeneratingEnoughAssets());
 
@@ -514,8 +514,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         (uint256 fromSpent, uint256 toReceived) = _executeSwap(from, to, tokensAmount, swapper, data);
 
         // Calculate expected amounts and validate slippage
-        uint256 fromValue = tokensAmount.mulDiv(fromOraclePrice, ORACLE_PRECISION);
-        uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOraclePrice);
+        uint256 fromValue = tokensAmount.mulDiv(fromOraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
+        uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOraclePrice, Math.Rounding.Ceil);
         uint256 minToTokens = _calculateMinAmount(expectedToTokens, maxSlippage);
         require(toReceived >= minToTokens, ErrorsLib.ReallocationSlippageTooHigh());
 
@@ -524,7 +524,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage if we have positive slippage
         // Note: No winddown check needed as reallocate cannot be called during winddown
         if (toReceived < expectedToTokens) {
-            uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION);
+            uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
         }
 
@@ -1358,8 +1358,17 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @return slippagePct Slippage as a percentage scaled by PRECISION
      */
     function _calculateSlippagePct(uint256 expectedAmount, uint256 actualAmount) internal pure returns (int256 slippagePct) {
+        if (expectedAmount == 0) return 0;
+
         int256 slippage = expectedAmount.toInt256() - actualAmount.toInt256();
-        slippagePct = expectedAmount == 0 ? int256(0) : (slippage * PRECISION.toInt256()) / expectedAmount.toInt256();
+        // Round up when calculating slippage to be conservative
+        if (slippage >= 0) {
+            // Positive slippage (loss): round up
+            slippagePct = int256(uint256(slippage).mulDiv(PRECISION, expectedAmount, Math.Rounding.Ceil));
+        } else {
+            // Negative slippage (gain): round down (more conservative)
+            slippagePct = -int256(uint256(-slippage).mulDiv(PRECISION, expectedAmount, Math.Rounding.Floor));
+        }
     }
 
     /**

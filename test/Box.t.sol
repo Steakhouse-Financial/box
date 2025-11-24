@@ -22,6 +22,7 @@ import {Morpho} from "@morpho-blue/Morpho.sol";
 import {IrmMock} from "@morpho-blue/mocks/IrmMock.sol";
 import {OracleMock} from "@morpho-blue/mocks/OracleMock.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {EventsLib} from "../src/libraries/EventsLib.sol";
 
 contract MockOracle is IOracle {
@@ -2739,9 +2740,9 @@ contract BoxTest is Test {
         oracle1.setPrice(1.1e36); // 1 token = 1.1 assets, so we expect 45.45 tokens for 50 assets
 
         // Expect event with negative slippage percentage (positive performance)
-        // Expected: 45.45e18 tokens (50 / 1.1), Actual: 50e18 tokens
+        // Expected: 45.454545454545454546 tokens (50 / 1.1, rounded up), Actual: 50e18 tokens
         vm.expectEmit(true, true, true, true);
-        emit Allocation(token1, 50e18, 45454545454545454545, 50e18, -0.1e18, swapper, ""); // -10% slippage
+        emit Allocation(token1, 50e18, 45454545454545454546, 50e18, -99999999999999999, swapper, ""); // ~-10% slippage
 
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
@@ -2788,9 +2789,9 @@ contract BoxTest is Test {
         oracle2.setPrice(1.1e36); // 1 token2 = 1.1 assets, so we expect ~22.73 token2 for 25 token1
 
         // Expect event with negative slippage percentage (positive performance)
-        // Expected: 22.727e18 token2 (25 * 1 / 1.1), Actual: 25e18 token2
+        // Expected: 22.727272727272727273 token2 (25 * 1 / 1.1, rounded up), Actual: 25e18 token2
         vm.expectEmit(true, true, true, true, address(box));
-        emit Reallocation(token1, token2, 25e18, 22727272727272727272, 25e18, -0.1e18, swapper, ""); // -10% slippage
+        emit Reallocation(token1, token2, 25e18, 22727272727272727273, 25e18, -99999999999999999, swapper, ""); // ~-10% slippage
 
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, swapper, "");
@@ -3424,8 +3425,10 @@ contract BoxTest is Test {
         // oraclePrice = 1e36 (price scaled by ORACLE_PRECISION = 1e36)
         // debtValue in assets = debtBalance * oraclePrice / ORACLE_PRECISION = 100e18 * 1e36 / 1e36 = 100e18
         // maxAllocation = debtValue * PRECISION / (PRECISION - slippageTolerance)
-        uint256 debtValue = 100e18; // 100 tokens worth 100 assets at 1:1 price
-        uint256 maxAllocation = (debtValue * PRECISION) / (PRECISION - slippageTolerance);
+        // Note: Contract rounds up both neededValue and maxAllocation, so we must do the same
+        uint256 neededTokens = 100e18; // debtBalance
+        uint256 neededValue = Math.mulDiv(neededTokens, 1e36, ORACLE_PRECISION, Math.Rounding.Ceil);
+        uint256 maxAllocation = Math.mulDiv(neededValue, PRECISION, PRECISION - slippageTolerance, Math.Rounding.Ceil);
 
         // Try to allocate more than allowed - should fail
         vm.prank(nonAuthorized);
