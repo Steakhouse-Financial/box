@@ -28,10 +28,10 @@ contract FundingMorpho is IFunding {
     IMorpho public immutable morpho;
     uint256 public immutable lltvCap; // Maximum LTV/LTTV ration in 18 decimals, e.g. 80e16 for 80%
 
-    EnumerableSet.Bytes32Set private _facilitiesSet;
-    mapping(bytes32 => bytes) private _facilityData; // hash => facility data
-    EnumerableSet.AddressSet private _collateralTokensSet;
-    EnumerableSet.AddressSet private _debtTokensSet;
+    EnumerableSet.Bytes32Set internal facilitiesSet;
+    mapping(bytes32 => bytes) public facilityDataMap; // hash => facility data
+    EnumerableSet.AddressSet internal collateralTokensSet;
+    EnumerableSet.AddressSet internal debtTokensSet;
 
     // ========== INITIALIZATION ==========
 
@@ -71,8 +71,8 @@ contract FundingMorpho is IFunding {
         require(isDebtToken(IERC20(market.loanToken)), ErrorsLib.TokenNotWhitelisted());
 
         bytes32 facilityHash = keccak256(facilityData);
-        require(_facilitiesSet.add(facilityHash), ErrorsLib.AlreadyWhitelisted());
-        _facilityData[facilityHash] = facilityData;
+        require(facilitiesSet.add(facilityHash), ErrorsLib.AlreadyWhitelisted());
+        facilityDataMap[facilityHash] = facilityData;
     }
 
     function removeFacility(bytes calldata facilityData) external override {
@@ -80,27 +80,27 @@ contract FundingMorpho is IFunding {
         require(!_isFacilityUsed(facilityData), ErrorsLib.CannotRemove());
 
         bytes32 facilityHash = keccak256(facilityData);
-        require(_facilitiesSet.remove(facilityHash), ErrorsLib.NotWhitelisted());
-        delete _facilityData[facilityHash];
+        require(facilitiesSet.remove(facilityHash), ErrorsLib.NotWhitelisted());
+        delete facilityDataMap[facilityHash];
     }
 
     function isFacility(bytes calldata facilityData) public view override returns (bool) {
         bytes32 facilityHash = keccak256(facilityData);
-        return _facilitiesSet.contains(facilityHash);
+        return facilitiesSet.contains(facilityHash);
     }
 
     function facilitiesLength() external view returns (uint256) {
-        return _facilitiesSet.length();
+        return facilitiesSet.length();
     }
 
     function facilities(uint256 index) external view returns (bytes memory) {
-        bytes32 facilityHash = _facilitiesSet.at(index);
-        return _facilityData[facilityHash];
+        bytes32 facilityHash = facilitiesSet.at(index);
+        return facilityDataMap[facilityHash];
     }
 
     function addCollateralToken(IERC20 collateralToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(_collateralTokensSet.add(address(collateralToken)), ErrorsLib.AlreadyWhitelisted());
+        require(collateralTokensSet.add(address(collateralToken)), ErrorsLib.AlreadyWhitelisted());
     }
 
     /// @dev Before being able to remove a collateral, no facility should reference it and the balance should be 0
@@ -108,31 +108,31 @@ contract FundingMorpho is IFunding {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_collateralBalance(collateralToken) == 0, ErrorsLib.CannotRemove());
 
-        uint256 length = _facilitiesSet.length();
+        uint256 length = facilitiesSet.length();
         for (uint i = 0; i < length; i++) {
-            bytes32 facilityHash = _facilitiesSet.at(i);
-            MarketParams memory market = decodeFacilityData(_facilityData[facilityHash]);
+            bytes32 facilityHash = facilitiesSet.at(i);
+            MarketParams memory market = decodeFacilityData(facilityDataMap[facilityHash]);
             require(address(market.collateralToken) != address(collateralToken), ErrorsLib.CannotRemove());
         }
 
-        require(_collateralTokensSet.remove(address(collateralToken)), ErrorsLib.NotWhitelisted());
+        require(collateralTokensSet.remove(address(collateralToken)), ErrorsLib.NotWhitelisted());
     }
 
     function isCollateralToken(IERC20 collateralToken) public view override returns (bool) {
-        return _collateralTokensSet.contains(address(collateralToken));
+        return collateralTokensSet.contains(address(collateralToken));
     }
 
     function collateralTokensLength() external view returns (uint256) {
-        return _collateralTokensSet.length();
+        return collateralTokensSet.length();
     }
 
     function collateralTokens(uint256 index) external view returns (IERC20) {
-        return IERC20(_collateralTokensSet.at(index));
+        return IERC20(collateralTokensSet.at(index));
     }
 
     function addDebtToken(IERC20 debtToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
-        require(_debtTokensSet.add(address(debtToken)), ErrorsLib.AlreadyWhitelisted());
+        require(debtTokensSet.add(address(debtToken)), ErrorsLib.AlreadyWhitelisted());
     }
 
     /// @dev Before being able to remove a debt, no facility should reference it and the balance should be 0
@@ -140,26 +140,26 @@ contract FundingMorpho is IFunding {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_debtBalance(debtToken) == 0, ErrorsLib.CannotRemove());
 
-        uint256 length = _facilitiesSet.length();
+        uint256 length = facilitiesSet.length();
         for (uint i = 0; i < length; i++) {
-            bytes32 facilityHash = _facilitiesSet.at(i);
-            MarketParams memory market = decodeFacilityData(_facilityData[facilityHash]);
+            bytes32 facilityHash = facilitiesSet.at(i);
+            MarketParams memory market = decodeFacilityData(facilityDataMap[facilityHash]);
             require(address(market.loanToken) != address(debtToken), ErrorsLib.CannotRemove());
         }
 
-        require(_debtTokensSet.remove(address(debtToken)), ErrorsLib.NotWhitelisted());
+        require(debtTokensSet.remove(address(debtToken)), ErrorsLib.NotWhitelisted());
     }
 
     function isDebtToken(IERC20 debtToken) public view override returns (bool) {
-        return _debtTokensSet.contains(address(debtToken));
+        return debtTokensSet.contains(address(debtToken));
     }
 
     function debtTokensLength() external view returns (uint256) {
-        return _debtTokensSet.length();
+        return debtTokensSet.length();
     }
 
     function debtTokens(uint256 index) external view returns (IERC20) {
-        return IERC20(_debtTokensSet.at(index));
+        return IERC20(debtTokensSet.at(index));
     }
 
     // ========== ACTIONS ==========
@@ -299,11 +299,11 @@ contract FundingMorpho is IFunding {
     /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
     function nav(IOracleCallback oraclesProvider) external view returns (uint256) {
         uint256 nav_ = 0;
-        uint256 length = _facilitiesSet.length();
+        uint256 length = facilitiesSet.length();
         for (uint256 i = 0; i < length; i++) {
             uint256 facilityNav = 0;
-            bytes32 facilityHash = _facilitiesSet.at(i);
-            MarketParams memory market = decodeFacilityData(_facilityData[facilityHash]);
+            bytes32 facilityHash = facilitiesSet.at(i);
+            MarketParams memory market = decodeFacilityData(facilityDataMap[facilityHash]);
             uint256 collateralBalance_ = morpho.collateral(market.id(), address(this));
 
             if (collateralBalance_ == 0) continue; // No debt if no collateral
@@ -348,10 +348,10 @@ contract FundingMorpho is IFunding {
 
     // ========== Internal functions ==========
     function _debtBalance(IERC20 debtToken) internal view returns (uint256 balance) {
-        uint256 length = _facilitiesSet.length();
+        uint256 length = facilitiesSet.length();
         for (uint256 i = 0; i < length; i++) {
-            bytes32 facilityHash = _facilitiesSet.at(i);
-            MarketParams memory market = decodeFacilityData(_facilityData[facilityHash]);
+            bytes32 facilityHash = facilitiesSet.at(i);
+            MarketParams memory market = decodeFacilityData(facilityDataMap[facilityHash]);
             if (address(debtToken) == market.loanToken) {
                 balance += morpho.expectedBorrowAssets(market, address(this));
             }
@@ -359,10 +359,10 @@ contract FundingMorpho is IFunding {
     }
 
     function _collateralBalance(IERC20 collateralToken) internal view returns (uint256 balance) {
-        uint256 length = _facilitiesSet.length();
+        uint256 length = facilitiesSet.length();
         for (uint256 i = 0; i < length; i++) {
-            bytes32 facilityHash = _facilitiesSet.at(i);
-            MarketParams memory market = decodeFacilityData(_facilityData[facilityHash]);
+            bytes32 facilityHash = facilitiesSet.at(i);
+            MarketParams memory market = decodeFacilityData(facilityDataMap[facilityHash]);
             if (address(collateralToken) == market.collateralToken) {
                 balance += morpho.collateral(market.id(), address(this));
             }
