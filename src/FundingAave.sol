@@ -304,6 +304,7 @@ contract FundingAave is IFunding {
     function nav(IOracleCallback oraclesProvider) public view returns (uint256) {
         uint256 totalCollateralValue;
         uint256 totalDebtValue;
+        address asset = oraclesProvider.asset();
 
         // Calculate total collateral value
         uint256 collateralLength = collateralTokensSet.length();
@@ -312,7 +313,7 @@ contract FundingAave is IFunding {
             uint256 collateralBalance_ = _collateralBalance(collateralToken);
 
             if (collateralBalance_ > 0) {
-                if (address(collateralToken) == oraclesProvider.asset()) {
+                if (address(collateralToken) == asset) {
                     totalCollateralValue += collateralBalance_;
                 } else {
                     IOracle oracle = oraclesProvider.oracles(collateralToken);
@@ -332,7 +333,7 @@ contract FundingAave is IFunding {
             uint256 debtBalance_ = _debtBalance(debtToken);
 
             if (debtBalance_ > 0) {
-                if (address(debtToken) == oraclesProvider.asset()) {
+                if (address(debtToken) == asset) {
                     totalDebtValue += debtBalance_;
                 } else {
                     IOracle oracle = oraclesProvider.oracles(debtToken);
