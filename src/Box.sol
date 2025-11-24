@@ -369,7 +369,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             // ETH
             balance = address(this).balance;
             require(balance > 0, ErrorsLib.CannotSkimZero());
-            payable(skimRecipient).transfer(balance);
+            (bool ok, ) = skimRecipient.call{value: balance}("");
+            require(ok, ErrorsLib.TransferFailed());
         }
 
         emit EventsLib.Skim(token, skimRecipient, balance);

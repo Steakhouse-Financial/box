@@ -75,6 +75,7 @@ library ErrorsLib {
     error AlreadySet();
     error CannotSkimZero();
     error SkimChangedNav();
+    error TransferFailed();
 
     // Funding module errors
     error ExcessiveLTV();
