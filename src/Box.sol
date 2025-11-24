@@ -1417,11 +1417,10 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         for (uint256 i; i < length; i++) {
             IERC20 token = tokens[i];
             IOracle oracle = oracles[token];
-            if (address(oracle) != address(0)) {
-                uint256 tokenBalance = token.balanceOf(address(this));
-                if (tokenBalance > 0) {
-                    nav += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
-                }
+            require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
+            uint256 tokenBalance = token.balanceOf(address(this));
+            if (tokenBalance > 0) {
+                nav += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
             }
         }
         // Loop over funding sources

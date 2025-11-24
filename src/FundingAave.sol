@@ -206,11 +206,10 @@ contract FundingAave is FundingBase {
                     totalCollateralValue += collateralBalance_;
                 } else {
                     IOracle oracle = oraclesProvider.oracles(collateralToken);
-                    if (address(oracle) != address(0)) {
-                        uint256 price = oracle.price();
-                        uint256 value = collateralBalance_.mulDivDown(price, ORACLE_PRICE_SCALE);
-                        totalCollateralValue += value;
-                    }
+                    require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
+                    uint256 price = oracle.price();
+                    uint256 value = collateralBalance_.mulDivDown(price, ORACLE_PRICE_SCALE);
+                    totalCollateralValue += value;
                 }
             }
         }
@@ -226,11 +225,10 @@ contract FundingAave is FundingBase {
                     totalDebtValue += debtBalance_;
                 } else {
                     IOracle oracle = oraclesProvider.oracles(debtToken);
-                    if (address(oracle) != address(0)) {
-                        uint256 price = oracle.price();
-                        uint256 value = debtBalance_.mulDivDown(price, ORACLE_PRICE_SCALE);
-                        totalDebtValue += value;
-                    }
+                    require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
+                    uint256 price = oracle.price();
+                    uint256 value = debtBalance_.mulDivDown(price, ORACLE_PRICE_SCALE);
+                    totalDebtValue += value;
                 }
             }
         }

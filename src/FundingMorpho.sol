@@ -170,7 +170,8 @@ contract FundingMorpho is FundingBase {
         uint256 borrowedAssets = morpho.expectedBorrowAssets(market, address(this));
         uint256 collateralAmount = morpho.collateral(marketId, address(this));
         if (collateralAmount == 0) return 0;
-        uint256 collateralPrice = (market.oracle == address(0)) ? 0 : IOracle(market.oracle).price();
+        require(market.oracle != address(0), ErrorsLib.NoOracleForToken());
+        uint256 collateralPrice = IOracle(market.oracle).price();
         uint256 collateralValue = collateralAmount.mulDivDown(collateralPrice, ORACLE_PRICE_SCALE);
         return (collateralValue == 0) ? 0 : borrowedAssets.wDivUp(collateralValue);
     }
@@ -204,9 +205,8 @@ contract FundingMorpho is FundingBase {
                 facilityNav += collateralBalance_;
             } else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.collateralToken));
-                if (address(oracle) != address(0)) {
-                    facilityNav += collateralBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
-                }
+                require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
+                facilityNav += collateralBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
             }
 
             uint256 debtBalance_ = morpho.expectedBorrowAssets(market, address(this));
@@ -215,10 +215,9 @@ contract FundingMorpho is FundingBase {
                 facilityNav = (facilityNav > debtBalance_) ? facilityNav - debtBalance_ : 0;
             } else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.loanToken));
-                if (address(oracle) != address(0)) {
-                    uint256 value = debtBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
-                    facilityNav = (facilityNav > value) ? facilityNav - value : 0;
-                }
+                require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
+                uint256 value = debtBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
+                facilityNav = (facilityNav > value) ? facilityNav - value : 0;
             }
 
             nav_ += facilityNav;
