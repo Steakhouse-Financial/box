@@ -196,7 +196,7 @@ contract FundingAave is IFunding {
     function skim(IERC20 token) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
 
-        uint256 navBefore = this.nav(IOracleCallback(owner));
+        uint256 navBefore = nav(IOracleCallback(owner));
         uint256 balance;
 
         if (address(token) != address(0)) {
@@ -211,7 +211,7 @@ contract FundingAave is IFunding {
             payable(owner).transfer(balance);
         }
 
-        uint256 navAfter = this.nav(IOracleCallback(owner));
+        uint256 navAfter = nav(IOracleCallback(owner));
         require(navBefore == navAfter, ErrorsLib.SkimChangedNav());
     }
 
@@ -301,7 +301,7 @@ contract FundingAave is IFunding {
     }
 
     /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
-    function nav(IOracleCallback oraclesProvider) external view returns (uint256) {
+    function nav(IOracleCallback oraclesProvider) public view returns (uint256) {
         uint256 totalCollateralValue;
         uint256 totalDebtValue;
 
