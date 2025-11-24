@@ -271,6 +271,7 @@ contract FundingMorpho is IFunding {
         Id marketId = market.id();
         uint256 borrowedAssets = morpho.expectedBorrowAssets(market, address(this));
         uint256 collateralAmount = morpho.collateral(marketId, address(this));
+        if (collateralAmount == 0) return 0;
         uint256 collateralPrice = (market.oracle == address(0)) ? 0 : IOracle(market.oracle).price();
         uint256 collateralValue = collateralAmount.mulDivDown(collateralPrice, ORACLE_PRICE_SCALE);
         return (collateralValue == 0) ? 0 : borrowedAssets.wDivUp(collateralValue);
