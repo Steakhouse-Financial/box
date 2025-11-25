@@ -647,7 +647,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param flashToken Token to flash loan
      * @param flashAmount Amount to provide temporarily
      * @param data Custom data passed to the callback
-     * @dev Caller must implement IBoxFlashCallback and return tokens within same transaction
+     * @dev Caller must implement IBoxFlashCallback; the Box returns the tokens within the same transaction
      * @dev NAV is cached during flash to prevent manipulation
      */
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
@@ -1297,7 +1297,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @dev Checks if token or asset is whitelisted
+     * @dev Checks if token is whitelisted or is the base asset
      */
     function _requireIsTokenOrAsset(IERC20 token) internal view {
         require(isTokenOrAsset(token), ErrorsLib.TokenNotWhitelisted());
