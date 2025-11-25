@@ -66,8 +66,8 @@ library ErrorsLib {
     error TimelockNotExpired();
     error DataNotTimelocked();
     error InvalidTimelock();
-    error TimelockDecrease();
-    error TimelockIncrease();
+    error TimelockNotIncreasing();
+    error TimelockNotDecreasing();
 
     // Skim errors
     error CannotSkimAsset();
@@ -80,6 +80,7 @@ library ErrorsLib {
     // Funding module errors
     error ExcessiveLTV();
     error NoNavDuringCache();
+    error InvalidFacilityData();
 
     // Flash callback errors
     error ReentryNotAllowed();

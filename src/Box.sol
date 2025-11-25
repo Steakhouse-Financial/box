@@ -858,7 +858,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function increaseTimelock(bytes4 selector, uint256 newDuration) external {
         _onlyCurator();
         require(newDuration <= TIMELOCK_CAP, ErrorsLib.InvalidTimelock());
-        require(newDuration > timelock[selector], ErrorsLib.TimelockDecrease());
+        require(newDuration > timelock[selector], ErrorsLib.TimelockNotIncreasing());
 
         timelock[selector] = newDuration;
 
@@ -876,7 +876,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _onlyCurator();
         uint256 currentTimelock = timelock[selector];
         require(currentTimelock != TIMELOCK_DISABLED, ErrorsLib.InvalidTimelock());
-        require(newDuration < currentTimelock, ErrorsLib.TimelockIncrease());
+        require(newDuration < currentTimelock, ErrorsLib.TimelockNotDecreasing());
 
         timelock[selector] = newDuration;
 

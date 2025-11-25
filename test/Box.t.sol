@@ -2183,7 +2183,7 @@ contract BoxTest is Test {
         vm.warp(1 days + 1);
 
         // Then the issue is that we can't decrease from 1 day to 2 days
-        vm.expectRevert(ErrorsLib.TimelockIncrease.selector);
+        vm.expectRevert(ErrorsLib.TimelockNotDecreasing.selector);
         box.decreaseTimelock(box.setGuardian.selector, 2 days);
 
         vm.expectEmit(true, true, true, true);
@@ -2191,7 +2191,7 @@ contract BoxTest is Test {
         box.revoke(data);
 
         // Can't increase from 1 day to 0 days (no timelock needed)
-        vm.expectRevert(ErrorsLib.TimelockDecrease.selector);
+        vm.expectRevert(ErrorsLib.TimelockNotIncreasing.selector);
         box.increaseTimelock(box.setGuardian.selector, 0 days);
 
         data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setGuardian.selector, 0 days);
