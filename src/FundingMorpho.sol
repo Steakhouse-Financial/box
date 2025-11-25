@@ -228,6 +228,8 @@ contract FundingMorpho is FundingBase {
     // ========== Other exposed view functions ==========
 
     function decodeFacilityData(bytes memory facilityData) public pure returns (MarketParams memory market) {
+        // MarketParams has 4 addresses (32 bytes each) + 1 uint256 (32 bytes) = 160 bytes
+        require(facilityData.length == 160, ErrorsLib.InvalidFacilityData());
         (MarketParams memory marketParams) = abi.decode(facilityData, (MarketParams));
         return (marketParams);
     }
