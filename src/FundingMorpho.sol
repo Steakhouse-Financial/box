@@ -205,7 +205,6 @@ contract FundingMorpho is FundingBase {
                 facilityNav += collateralBalance_;
             } else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.collateralToken));
-                require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
                 facilityNav += collateralBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
             }
 
@@ -215,7 +214,6 @@ contract FundingMorpho is FundingBase {
                 facilityNav = (facilityNav > debtBalance_) ? facilityNav - debtBalance_ : 0;
             } else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.loanToken));
-                require(address(oracle) != address(0), ErrorsLib.NoOracleForToken());
                 uint256 value = debtBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
                 facilityNav = (facilityNav > value) ? facilityNav - value : 0;
             }
