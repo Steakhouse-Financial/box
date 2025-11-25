@@ -987,6 +987,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             require(block.timestamp >= shutdownTime + shutdownWarmup + shutdownSlippageDuration, ErrorsLib.NotAllowed());
             _onlyGuardian();
         } else {
+            _onlyCurator();
             timelocked();
         }
         _requireNonZeroAddress(address(oracle));

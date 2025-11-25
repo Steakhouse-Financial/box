@@ -2030,12 +2030,14 @@ contract BoxTest is Test {
     function testWinddownAccess() public {
         vm.startPrank(guardian);
 
-        vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
+        // Guardian cannot change oracle - only curator can (before winddown)
+        vm.expectRevert(ErrorsLib.OnlyCurator.selector);
         box.changeTokenOracle(token1, oracle3);
 
         box.shutdown();
 
-        vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
+        // Still only curator can change oracle (after shutdown but before winddown)
+        vm.expectRevert(ErrorsLib.OnlyCurator.selector);
         box.changeTokenOracle(token1, oracle3);
 
         vm.warp(block.timestamp + box.shutdownWarmup());
