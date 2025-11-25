@@ -271,8 +271,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _onlyFeeder();
         _requireNotShutdown();
         _requireNonZeroAddress(receiver);
-        // Prevent donation attack: if no shares exist but assets do, someone donated to grief depositors
-        require(totalSupply() > 0 || totalAssets() == 0, ErrorsLib.DonationAttack());
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
         _mint(receiver, shares);
