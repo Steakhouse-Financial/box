@@ -25,13 +25,8 @@ library ErrorsLib {
     error OnlyBox();
     error OnlyPool();
     error OnlyThisContract();
-    error InvalidOwner();
     error CannotDuringShutdown();
     error CannotDuringWinddown();
-
-    // Deposit/Mint errors
-    error CannotDepositZero();
-    error CannotMintZero();
 
     // Withdraw/Redeem errors
     error InsufficientShares();
@@ -70,9 +65,7 @@ library ErrorsLib {
     error TimelockNotDecreasing();
 
     // Skim errors
-    error CannotSkimAsset();
     error CannotSkimToken();
-    error AlreadySet();
     error CannotSkimZero();
     error SkimChangedNav();
     error TransferFailed();

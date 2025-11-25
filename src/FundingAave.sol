@@ -77,8 +77,6 @@ contract FundingAave is FundingBase {
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    uint256 internal constant RAY = 1e27;
-
     IPool public immutable pool;
     uint256 public immutable rateMode = 2; // 1 = Stable, 2 = Variable (Aave v3 constant)
     uint8 public immutable eMode; // 0 = no e-mode
