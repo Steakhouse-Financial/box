@@ -45,7 +45,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== IMMUTABLE STATE ==========
 
     /// @notice Base currency token (e.g., USDC)
-    address public immutable asset;
+    address public immutable override asset;
 
     /// @notice Number of decimals for the vault shares (normalized to 18 for assets with fewer decimals)
     uint8 private immutable _decimals;

@@ -4,7 +4,7 @@ pragma solidity >=0.8.0;
 
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IFunding} from "./IFunding.sol";
+import {IFunding, IOracleCallback} from "./IFunding.sol";
 import {IOracle} from "./IOracle.sol";
 import {ISwapper} from "./ISwapper.sol";
 
@@ -13,11 +13,11 @@ interface IBoxFlashCallback {
     function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external;
 }
 
-interface IBox is IERC4626 {
+interface IBox is IERC4626, IOracleCallback {
     /* FUNCTIONS */
 
     // ========== STATE FUNCTIONS ==========
-    function asset() external view returns (address);
+    function asset() external view override(IERC4626, IOracleCallback) returns (address);
     function slippageEpochDuration() external view returns (uint256);
     function shutdownSlippageDuration() external view returns (uint256);
     function shutdownWarmup() external view returns (uint256);
@@ -37,6 +37,7 @@ interface IBox is IERC4626 {
 
     // ========== INVESTMENT MANAGEMENT ==========
     function skim(IERC20 token) external;
+    function skimFunding(IFunding fundingModule, IERC20 token) external;
     function allocate(
         IERC20 token,
         uint256 assetsAmount,
@@ -65,6 +66,9 @@ interface IBox is IERC4626 {
 
     // ========== COMPLEX FUNDING OPERATIONS WITH FLASHLOAN AND SWAPPER ==========
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external;
+
+    // ========== BATCHING ==========
+    function multicall(bytes[] calldata data) external;
 
     // ========== EMERGENCY ==========
     function shutdown() external;
