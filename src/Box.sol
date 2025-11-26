@@ -143,6 +143,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param _slippageEpochDuration Duration for which slippage is measured
      * @param _shutdownSlippageDuration When shutdown duration for slippage allowance to widen
      * @param _shutdownWarmup Duration between shutdown and wind-down phase
+     * @dev To mitigate donation attacks, make an initial "dead" deposit after deployment
+     *      (e.g., deposit a small amount and transfer the shares to address(0xdead)).
      */
     constructor(
         address _asset,
@@ -809,6 +811,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @notice Submits a function call to the timelock queue
      * @param data Encoded function call to be executed after delay
      * @dev Delay duration depends on the function selector
+     * @dev WARNING: Timelock periods are 0 by default. Users and the box owner should ensure that
+     *      sufficiently long timelock periods are set for all critical functions (especially setGuardian)
+     *      to allow the guardian time to react if the curator is compromised.
      */
     function submit(bytes calldata data) external {
         _onlyCurator();
