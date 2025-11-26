@@ -128,7 +128,7 @@ contract FundingAave is FundingBase {
     // ========== ACTIONS ==========
 
     /// @dev Assume caller did transfer the collateral tokens to this contract before calling
-    function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
+    function pledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
         require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
@@ -138,7 +138,7 @@ contract FundingAave is FundingBase {
         pool.setUserUseReserveAsCollateral(address(collateralToken), true);
     }
 
-    function depledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external {
+    function depledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
         require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
@@ -146,7 +146,7 @@ contract FundingAave is FundingBase {
         pool.withdraw(address(collateralToken), collateralAmount, owner);
     }
 
-    function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external {
+    function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
         require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
@@ -156,7 +156,7 @@ contract FundingAave is FundingBase {
     }
 
     /// @dev Assume caller did transfer the debt tokens to this contract before calling
-    function repay(bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external {
+    function repay(bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
         require(isDebtToken(debtToken), ErrorsLib.TokenNotWhitelisted());
@@ -173,17 +173,17 @@ contract FundingAave is FundingBase {
 
     /// @dev ltv can also use non whitelisted collaterals (donated)
     /// @dev returns 0 if there is no collateral
-    function ltv(bytes calldata data) external view returns (uint256) {
+    function ltv(bytes calldata data) external view override returns (uint256) {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
         return totalCollateralBase == 0 ? 0 : totalDebtBase.wDivUp(totalCollateralBase);
     }
 
-    function debtBalance(bytes calldata facilityData, IERC20 debtToken) public view returns (uint256) {
+    function debtBalance(bytes calldata facilityData, IERC20 debtToken) external view override returns (uint256) {
         return _debtBalance(debtToken);
     }
 
-    function collateralBalance(bytes calldata facilityData, IERC20 collateralToken) external view returns (uint256) {
+    function collateralBalance(bytes calldata facilityData, IERC20 collateralToken) external view override returns (uint256) {
         return _collateralBalance(collateralToken);
     }
 
