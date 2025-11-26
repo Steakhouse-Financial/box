@@ -8,10 +8,6 @@ import {IBoxAdapter} from "./../interfaces/IBoxAdapter.sol";
 import {IBoxAdapterFactory} from "./../interfaces/IBoxAdapterFactory.sol";
 
 contract BoxAdapterCachedFactory is IBoxAdapterFactory {
-    /* ERRORS */
-
-    error AdapterAlreadyExists();
-
     /* STORAGE */
 
     mapping(address parentVault => mapping(IBox box => IBoxAdapter)) public boxAdapter;
@@ -20,9 +16,9 @@ contract BoxAdapterCachedFactory is IBoxAdapterFactory {
     /* FUNCTIONS */
 
     /// @dev Returns the address of the deployed BoxAdapterCached.
+    /// @dev Uses CREATE2 with fixed salt to prevent duplicate adapters for the same (parentVault, box) pair.
     function createBoxAdapter(address parentVault, IBox box) external returns (IBoxAdapter) {
-        require(address(boxAdapter[parentVault][box]) == address(0), AdapterAlreadyExists());
-        BoxAdapterCached _boxAdapter = new BoxAdapterCached(parentVault, box);
+        BoxAdapterCached _boxAdapter = new BoxAdapterCached{salt: bytes32(0)}(parentVault, box);
         boxAdapter[parentVault][box] = _boxAdapter;
         isBoxAdapter[address(_boxAdapter)] = true;
         emit CreateBoxAdapter(parentVault, address(box), _boxAdapter);
