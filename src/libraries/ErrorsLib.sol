@@ -63,6 +63,7 @@ library ErrorsLib {
     error InvalidTimelock();
     error TimelockNotIncreasing();
     error TimelockNotDecreasing();
+    error FunctionDisabled();
 
     // Skim errors
     error CannotSkimToken();

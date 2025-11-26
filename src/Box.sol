@@ -817,6 +817,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         bytes4 selector = bytes4(data);
         uint256 delay = selector == IBox.decreaseTimelock.selector ? timelock[bytes4(data[4:8])] : timelock[selector];
+        require(delay != TIMELOCK_DISABLED, ErrorsLib.FunctionDisabled());
         executableAt[data] = block.timestamp + delay;
 
         emit EventsLib.TimelockSubmitted(selector, data, executableAt[data], msg.sender);
