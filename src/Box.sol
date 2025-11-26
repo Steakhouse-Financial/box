@@ -31,7 +31,7 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @dev During flash operations there is no totalAssets() calculation possible to avoid NAV based attacks
  * @dev There is no protection against ERC4626 inflation attacks, as deposits are controlled via the isFeeder role.
  * @dev Users shouldn't be able to deposited directly or indirectly to a Box.
- * @dev The Box uses forceApprove with 0 value, making it incompatible with BNB chain
+ * @dev The Box uses forceApprove with 0 value, making it incompatible with the BNB ERC-20 token (reverts on zero-value approvals)
  * @dev Token removal can be stopped by sending dust amount of tokens. Can be fixed by deallocating then removing the token atomically
  * @dev The epoch-based slippage protection is relative to Box total assets, but a bad allocator can deposit all parent Vault V2
  * @dev fund into one Box to temporarily inflate its total asset and extract more value than expected.
