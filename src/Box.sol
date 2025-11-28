@@ -31,7 +31,7 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @dev During flash operations there is no totalAssets() calculation possible to avoid NAV based attacks
  * @dev There is no protection against ERC4626 inflation attacks, as deposits are controlled via the isFeeder role.
  * @dev Users shouldn't be able to deposited directly or indirectly to a Box.
- * @dev The Box uses forceApprove with 0 value, making it incompatible with BNB chain
+ * @dev The Box uses forceApprove with 0 value, making it incompatible with the BNB ERC-20 token (reverts on zero-value approvals)
  * @dev Token removal can be stopped by sending dust amount of tokens. Can be fixed by deallocating then removing the token atomically
  * @dev The epoch-based slippage protection is relative to Box total assets, but a bad allocator can deposit all parent Vault V2
  * @dev fund into one Box to temporarily inflate its total asset and extract more value than expected.
@@ -45,7 +45,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== IMMUTABLE STATE ==========
 
     /// @notice Base currency token (e.g., USDC)
-    address public immutable asset;
+    address public immutable override asset;
 
     /// @notice Number of decimals for the vault shares (normalized to 18 for assets with fewer decimals)
     uint8 private immutable _decimals;
@@ -143,6 +143,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param _slippageEpochDuration Duration for which slippage is measured
      * @param _shutdownSlippageDuration When shutdown duration for slippage allowance to widen
      * @param _shutdownWarmup Duration between shutdown and wind-down phase
+     * @dev To mitigate donation attacks, make an initial "dead" deposit after deployment
+     *      (e.g., deposit a small amount and transfer the shares to address(0xdead)).
      */
     constructor(
         address _asset,
@@ -267,6 +269,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @dev Internal helper for deposit and mint to reduce bytecode duplication
     function _depositMint(uint256 assets, uint256 shares, address receiver) internal {
+        require(_cachedNavDepth == 0, ErrorsLib.ReentryNotAllowed());
         _onlyFeeder();
         _requireNotShutdown();
         _requireNonZeroAddress(receiver);
@@ -325,6 +328,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /// @dev Internal helper for withdraw and redeem to reduce bytecode duplication
     function _withdrawRedeem(uint256 assets, uint256 shares, address receiver, address owner_) internal {
+        require(_cachedNavDepth == 0, ErrorsLib.ReentryNotAllowed());
         _requireNonZeroAddress(receiver);
 
         if (msg.sender != owner_) {
@@ -367,7 +371,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             // ETH
             balance = address(this).balance;
             require(balance > 0, ErrorsLib.CannotSkimZero());
-            payable(skimRecipient).transfer(balance);
+            (bool ok, ) = skimRecipient.call{value: balance}("");
+            require(ok, ErrorsLib.TransferFailed());
         }
 
         emit EventsLib.Skim(token, skimRecipient, balance);
@@ -404,8 +409,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             uint256 debtAmount = _debtBalance(token);
             uint256 existingBalance = token.balanceOf(address(this));
             uint256 neededTokens = debtAmount > existingBalance ? debtAmount - existingBalance : 0;
-            uint256 neededValue = neededTokens.mulDiv(oraclePrice, ORACLE_PRECISION);
-            uint256 maxAllocation = neededValue.mulDiv(PRECISION, PRECISION - slippageTolerance);
+            uint256 neededValue = neededTokens.mulDiv(oraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
+            uint256 maxAllocation = neededValue.mulDiv(PRECISION, PRECISION - slippageTolerance, Math.Rounding.Ceil);
             require(assetsAmount <= maxAllocation, ErrorsLib.InvalidAmount());
         }
 
@@ -413,7 +418,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         (uint256 assetsSpent, uint256 tokensReceived) = _executeSwap(IERC20(asset), token, assetsAmount, swapper, data);
 
         // Calculate and validate slippage
-        uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oraclePrice);
+        uint256 expectedTokens = assetsAmount.mulDiv(ORACLE_PRECISION, oraclePrice, Math.Rounding.Ceil);
         uint256 minTokens = _calculateMinAmount(expectedTokens, slippageTolerance);
         require(tokensReceived >= minTokens, ErrorsLib.AllocationTooExpensive());
 
@@ -421,7 +426,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Track slippage if we are not in winddown and have positive slippage
         if (!winddown && tokensReceived < expectedTokens) {
-            uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION);
+            uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
         }
 
@@ -461,7 +466,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         (uint256 tokensSpent, uint256 assetsReceived) = _executeSwap(token, IERC20(asset), tokensAmount, swapper, data);
 
         // Calculate and validate slippage
-        uint256 expectedAssets = tokensAmount.mulDiv(oraclePrice, ORACLE_PRECISION);
+        uint256 expectedAssets = tokensAmount.mulDiv(oraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
         uint256 minAssets = _calculateMinAmount(expectedAssets, slippageTolerance);
         require(assetsReceived >= minAssets, ErrorsLib.TokenSaleNotGeneratingEnoughAssets());
 
@@ -512,8 +517,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         (uint256 fromSpent, uint256 toReceived) = _executeSwap(from, to, tokensAmount, swapper, data);
 
         // Calculate expected amounts and validate slippage
-        uint256 fromValue = tokensAmount.mulDiv(fromOraclePrice, ORACLE_PRECISION);
-        uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOraclePrice);
+        uint256 fromValue = tokensAmount.mulDiv(fromOraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
+        uint256 expectedToTokens = fromValue.mulDiv(ORACLE_PRECISION, toOraclePrice, Math.Rounding.Ceil);
         uint256 minToTokens = _calculateMinAmount(expectedToTokens, maxSlippage);
         require(toReceived >= minToTokens, ErrorsLib.ReallocationSlippageTooHigh());
 
@@ -522,7 +527,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage if we have positive slippage
         // Note: No winddown check needed as reallocate cannot be called during winddown
         if (toReceived < expectedToTokens) {
-            uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION);
+            uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
             _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
         }
 
@@ -644,7 +649,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param flashToken Token to flash loan
      * @param flashAmount Amount to provide temporarily
      * @param data Custom data passed to the callback
-     * @dev Caller must implement IBoxFlashCallback and return tokens within same transaction
+     * @dev Caller must implement IBoxFlashCallback; the Box returns the tokens within the same transaction
      * @dev NAV is cached during flash to prevent manipulation
      */
     function flash(IERC20 flashToken, uint256 flashAmount, bytes calldata data) external {
@@ -806,6 +811,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @notice Submits a function call to the timelock queue
      * @param data Encoded function call to be executed after delay
      * @dev Delay duration depends on the function selector
+     * @dev WARNING: Timelock periods are 0 by default. Users and the box owner should ensure that
+     *      sufficiently long timelock periods are set for all critical functions (especially setGuardian)
+     *      to allow the guardian time to react if the curator is compromised.
      */
     function submit(bytes calldata data) external {
         _onlyCurator();
@@ -814,6 +822,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         bytes4 selector = bytes4(data);
         uint256 delay = selector == IBox.decreaseTimelock.selector ? timelock[bytes4(data[4:8])] : timelock[selector];
+        require(delay != TIMELOCK_DISABLED, ErrorsLib.FunctionDisabled());
         executableAt[data] = block.timestamp + delay;
 
         emit EventsLib.TimelockSubmitted(selector, data, executableAt[data], msg.sender);
@@ -855,7 +864,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     function increaseTimelock(bytes4 selector, uint256 newDuration) external {
         _onlyCurator();
         require(newDuration <= TIMELOCK_CAP, ErrorsLib.InvalidTimelock());
-        require(newDuration > timelock[selector], ErrorsLib.TimelockDecrease());
+        require(newDuration > timelock[selector], ErrorsLib.TimelockNotIncreasing());
 
         timelock[selector] = newDuration;
 
@@ -873,7 +882,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _onlyCurator();
         uint256 currentTimelock = timelock[selector];
         require(currentTimelock != TIMELOCK_DISABLED, ErrorsLib.InvalidTimelock());
-        require(newDuration < currentTimelock, ErrorsLib.TimelockIncrease());
+        require(newDuration < currentTimelock, ErrorsLib.TimelockNotDecreasing());
 
         timelock[selector] = newDuration;
 
@@ -984,6 +993,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
             require(block.timestamp >= shutdownTime + shutdownWarmup + shutdownSlippageDuration, ErrorsLib.NotAllowed());
             _onlyGuardian();
         } else {
+            _onlyCurator();
             timelocked();
         }
         _requireNonZeroAddress(address(oracle));
@@ -1293,7 +1303,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @dev Checks if token or asset is whitelisted
+     * @dev Checks if token is whitelisted or is the base asset
      */
     function _requireIsTokenOrAsset(IERC20 token) internal view {
         require(isTokenOrAsset(token), ErrorsLib.TokenNotWhitelisted());
@@ -1356,8 +1366,17 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @return slippagePct Slippage as a percentage scaled by PRECISION
      */
     function _calculateSlippagePct(uint256 expectedAmount, uint256 actualAmount) internal pure returns (int256 slippagePct) {
+        if (expectedAmount == 0) return 0;
+
         int256 slippage = expectedAmount.toInt256() - actualAmount.toInt256();
-        slippagePct = expectedAmount == 0 ? int256(0) : (slippage * PRECISION.toInt256()) / expectedAmount.toInt256();
+        // Round up when calculating slippage to be conservative
+        if (slippage >= 0) {
+            // Positive slippage (loss): round up
+            slippagePct = int256(uint256(slippage).mulDiv(PRECISION, expectedAmount, Math.Rounding.Ceil));
+        } else {
+            // Negative slippage (gain): round down (more conservative)
+            slippagePct = -int256(uint256(-slippage).mulDiv(PRECISION, expectedAmount, Math.Rounding.Floor));
+        }
     }
 
     /**
@@ -1405,11 +1424,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         for (uint256 i; i < length; i++) {
             IERC20 token = tokens[i];
             IOracle oracle = oracles[token];
-            if (address(oracle) != address(0)) {
-                uint256 tokenBalance = token.balanceOf(address(this));
-                if (tokenBalance > 0) {
-                    nav += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
-                }
+            uint256 tokenBalance = token.balanceOf(address(this));
+            if (tokenBalance > 0) {
+                nav += tokenBalance.mulDiv(oracle.price(), ORACLE_PRECISION);
             }
         }
         // Loop over funding sources

@@ -16,8 +16,9 @@ contract BoxAdapterFactory is IBoxAdapterFactory {
     /* FUNCTIONS */
 
     /// @dev Returns the address of the deployed BoxAdapter.
+    /// @dev Uses CREATE2 with fixed salt to prevent duplicate adapters for the same (parentVault, box) pair.
     function createBoxAdapter(address parentVault, IBox box) external returns (IBoxAdapter) {
-        BoxAdapter _boxAdapter = new BoxAdapter(parentVault, box);
+        BoxAdapter _boxAdapter = new BoxAdapter{salt: bytes32(0)}(parentVault, box);
         boxAdapter[parentVault][box] = _boxAdapter;
         isBoxAdapter[address(_boxAdapter)] = true;
         emit CreateBoxAdapter(parentVault, address(box), _boxAdapter);

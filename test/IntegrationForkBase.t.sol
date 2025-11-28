@@ -643,50 +643,50 @@ contract IntegrationForkBaseTest is Test {
         assertEq(box2.accumulatedSlippage(), 0, "Before the start, accumulated slippage should be 0");
 
         vm.expectEmit(true, true, true, true);
-        emit EventsLib.SlippageAccumulated(430489300000000, 430489300000000);
+        emit EventsLib.SlippageAccumulated(430489400000000, 430489400000000); // Updated due to rounding up
         vm.expectEmit(true, true, true, true);
         emit EventsLib.Allocation(
             IERC20(ptusr25sep),
             USDC_AMOUNT,
-            10102799289212086350341,
+            10102799289212086350342, // Rounded up from 10102799289212086350341
             10098450142215613367131,
-            430489300239495,
+            430489300239496, // Updated slippage percentage due to rounding
             ISwapper(swapper),
             ""
         );
         box2.allocate(ptusr25sep, USDC_AMOUNT, swapper, "");
 
         assertEq(box2.totalAssets(), 9995695106, "Total asset after allocate doesn't match");
-        assertEq(box2.accumulatedSlippage(), 430489300000000, "Accumulated slippage after allocate doesn't match");
+        assertEq(box2.accumulatedSlippage(), 430489400000000, "Accumulated slippage after allocate doesn't match"); // Updated due to rounding up
 
         vm.expectEmit(true, true, true, true);
-        emit EventsLib.SlippageAccumulated(463855584912436, 894344884912436);
+        emit EventsLib.SlippageAccumulated(463855684955504, 894345084955504); // Updated due to rounding up
         vm.expectEmit(true, true, true, true);
         emit EventsLib.Deallocation(
             IERC20(ptusr25sep),
             ptusr25sep.balanceOf(address(box2)),
-            9995695106, // expected assets
+            9995695107, // expected assets (rounded up)
             9991058547, // actual assets
-            463855584912435,
+            463855684909098, // Updated slippage percentage due to rounding
             ISwapper(swapper),
             ""
         );
         box2.deallocate(ptusr25sep, ptusr25sep.balanceOf(address(box2)), swapper, "");
 
         assertEq(box2.totalAssets(), 9991058547, "Total asset after deallocate doesn't match");
-        assertEq(box2.accumulatedSlippage(), 894344884912436, "Accumulated slippage after deallocate doesn't match");
+        assertEq(box2.accumulatedSlippage(), 894345084955504, "Accumulated slippage after deallocate doesn't match"); // Updated due to rounding up
 
         vm.warp(block.timestamp + 8 days);
 
-        assertEq(box2.accumulatedSlippage(), 894344884912436, "Slippage doesn't change just by passage of time");
+        assertEq(box2.accumulatedSlippage(), 894345084955504, "Slippage doesn't change just by passage of time"); // Updated due to rounding up
 
         vm.expectEmit(true, true, true, true);
         // August 22th, 2025 (8 days after August 14th)
         emit EventsLib.SlippageEpochReset(1755868569);
         vm.expectEmit(true, true, true, true);
-        emit EventsLib.SlippageAccumulated(64150860190130, 64150860190130);
+        emit EventsLib.SlippageAccumulated(64150960279625, 64150960279625); // Updated due to rounding up
         box2.allocate(ptusr25sep, USDC_AMOUNT / 2, swapper, "");
-        assertEq(box2.accumulatedSlippage(), 64150860190130, "Slippage reset");
+        assertEq(box2.accumulatedSlippage(), 64150960279625, "Slippage reset"); // Updated due to rounding up
 
         vm.stopPrank();
     }

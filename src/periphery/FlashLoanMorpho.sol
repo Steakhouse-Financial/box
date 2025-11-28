@@ -130,7 +130,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
 
             // Deleverage: repay debt, withdraw collateral, swap collateral to loan tokens
             if (loanAmount == type(uint256).max) {
-                loanAmount = fundingModule.debtBalance(loanToken);
+                loanAmount = fundingModule.debtBalance(facilityData, loanToken);
             }
 
             // The Box already has the flash loan tokens, use them to repay debt
@@ -157,10 +157,10 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
 
             // Refinance: repay old debt, withdraw collateral, pledge to new module, borrow from new module
             if (loanAmount == type(uint256).max) {
-                loanAmount = fundingModule.debtBalance(loanToken);
+                loanAmount = fundingModule.debtBalance(facilityData, loanToken);
             }
             if (collateralAmount == type(uint256).max) {
-                collateralAmount = fundingModule.collateralBalance(collateralToken);
+                collateralAmount = fundingModule.collateralBalance(facilityData, collateralToken);
             }
 
             // Repay the old debt
@@ -225,7 +225,7 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
         _box = address(box);
 
         if (loanAmount == type(uint256).max) {
-            loanAmount = fundingModule.debtBalance(loanToken);
+            loanAmount = fundingModule.debtBalance(facilityData, loanToken);
         }
 
         bytes4 operation = FlashLoanMorpho.deleverage.selector;
@@ -261,10 +261,10 @@ contract FlashLoanMorpho is IMorphoFlashLoanCallback, IBoxFlashCallback {
         _box = address(box);
 
         if (loanAmount == type(uint256).max) {
-            loanAmount = fromFundingModule.debtBalance(loanToken);
+            loanAmount = fromFundingModule.debtBalance(fromFacilityData, loanToken);
         }
         if (collateralAmount == type(uint256).max) {
-            collateralAmount = fromFundingModule.collateralBalance(collateralToken);
+            collateralAmount = fromFundingModule.collateralBalance(fromFacilityData, collateralToken);
         }
 
         bytes4 operation = FlashLoanMorpho.refinance.selector;

@@ -22,6 +22,7 @@ import {Morpho} from "@morpho-blue/Morpho.sol";
 import {IrmMock} from "@morpho-blue/mocks/IrmMock.sol";
 import {OracleMock} from "@morpho-blue/mocks/OracleMock.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {EventsLib} from "../src/libraries/EventsLib.sol";
 
 contract MockOracle is IOracle {
@@ -198,6 +199,47 @@ contract ReadOnlyReentrancySwapper is ISwapper {
         // Return assets based on oracle price
         uint256 outputAmount = (amountIn * oracle.price()) / ORACLE_PRECISION;
         output.safeTransfer(msg.sender, outputAmount);
+    }
+}
+
+// Malicious flash callback that attempts to deposit/withdraw during flash
+contract MaliciousFlashCallback {
+    using SafeERC20 for IERC20;
+    IBox public immutable box;
+    IERC20 public immutable asset;
+    uint256 public scenario;
+    uint256 public constant DEPOSIT = 0;
+    uint256 public constant MINT = 1;
+    uint256 public constant WITHDRAW = 2;
+    uint256 public constant REDEEM = 3;
+
+    constructor(IBox _box, IERC20 _asset) {
+        box = _box;
+        asset = _asset;
+    }
+
+    function setScenario(uint256 _scenario) external {
+        scenario = _scenario;
+    }
+
+    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata) external {
+        require(msg.sender == address(box), "Only Box can call");
+
+        if (scenario == DEPOSIT) {
+            // Attempt to deposit during flash
+            IERC20(asset).safeIncreaseAllowance(address(box), 100e18);
+            box.deposit(100e18, address(this));
+        } else if (scenario == MINT) {
+            // Attempt to mint during flash
+            IERC20(asset).safeIncreaseAllowance(address(box), 100e18);
+            box.mint(100e18, address(this));
+        } else if (scenario == WITHDRAW) {
+            // Attempt to withdraw during flash
+            box.withdraw(10e18, address(this), address(this));
+        } else if (scenario == REDEEM) {
+            // Attempt to redeem during flash
+            box.redeem(10e18, address(this), address(this));
+        }
     }
 }
 
@@ -1708,6 +1750,155 @@ contract BoxTest is Test {
         vm.stopPrank();
     }
 
+    function testFlashCannotDepositDuringCallback() public {
+        // Setup: Deposit initial funds and make malicious callback a feeder
+        asset.mint(address(feeder), 100e18);
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Create malicious callback and give it allocator and feeder roles
+        MaliciousFlashCallback maliciousCallback = new MaliciousFlashCallback(box, asset);
+
+        vm.prank(curator);
+        box.setIsAllocator(address(maliciousCallback), true);
+
+        vm.prank(curator);
+        box.submit(abi.encodeWithSelector(IBox.setIsFeeder.selector, address(maliciousCallback), true));
+        vm.warp(block.timestamp + 1);
+        vm.prank(curator);
+        box.setIsFeeder(address(maliciousCallback), true);
+
+        // Fund the callback with assets to deposit
+        asset.mint(address(maliciousCallback), 100e18);
+
+        // Flash the asset and attempt to deposit during callback
+        asset.mint(address(maliciousCallback), 50e18);
+        maliciousCallback.setScenario(0); // DEPOSIT
+
+        vm.prank(address(maliciousCallback));
+        asset.approve(address(box), 50e18);
+
+        vm.expectRevert(ErrorsLib.ReentryNotAllowed.selector);
+        vm.prank(address(maliciousCallback));
+        box.flash(asset, 50e18, "");
+    }
+
+    function testFlashCannotMintDuringCallback() public {
+        // Setup: Deposit initial funds
+        asset.mint(address(feeder), 100e18);
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Create malicious callback and give it allocator and feeder roles
+        MaliciousFlashCallback maliciousCallback = new MaliciousFlashCallback(box, asset);
+
+        vm.prank(curator);
+        box.setIsAllocator(address(maliciousCallback), true);
+
+        vm.prank(curator);
+        box.submit(abi.encodeWithSelector(IBox.setIsFeeder.selector, address(maliciousCallback), true));
+        vm.warp(block.timestamp + 1);
+        vm.prank(curator);
+        box.setIsFeeder(address(maliciousCallback), true);
+
+        // Fund the callback with assets to mint
+        asset.mint(address(maliciousCallback), 150e18);
+
+        // Flash the asset and attempt to mint during callback
+        maliciousCallback.setScenario(1); // MINT
+
+        vm.prank(address(maliciousCallback));
+        asset.approve(address(box), 150e18);
+
+        vm.expectRevert(ErrorsLib.ReentryNotAllowed.selector);
+        vm.prank(address(maliciousCallback));
+        box.flash(asset, 50e18, "");
+    }
+
+    function testFlashCannotWithdrawDuringCallback() public {
+        // Setup: Deposit initial funds
+        asset.mint(address(feeder), 100e18);
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Create malicious callback with shares
+        MaliciousFlashCallback maliciousCallback = new MaliciousFlashCallback(box, asset);
+
+        // Give callback some shares
+        asset.mint(address(maliciousCallback), 100e18);
+        vm.prank(curator);
+        box.submit(abi.encodeWithSelector(IBox.setIsFeeder.selector, address(maliciousCallback), true));
+        vm.warp(block.timestamp + 1);
+        vm.prank(curator);
+        box.setIsFeeder(address(maliciousCallback), true);
+
+        vm.startPrank(address(maliciousCallback));
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, address(maliciousCallback));
+        vm.stopPrank();
+
+        // Give callback allocator role
+        vm.prank(curator);
+        box.setIsAllocator(address(maliciousCallback), true);
+
+        // Flash and attempt to withdraw during callback
+        asset.mint(address(maliciousCallback), 50e18);
+        maliciousCallback.setScenario(2); // WITHDRAW
+
+        vm.prank(address(maliciousCallback));
+        asset.approve(address(box), 50e18);
+
+        vm.expectRevert(ErrorsLib.ReentryNotAllowed.selector);
+        vm.prank(address(maliciousCallback));
+        box.flash(asset, 50e18, "");
+    }
+
+    function testFlashCannotRedeemDuringCallback() public {
+        // Setup: Deposit initial funds
+        asset.mint(address(feeder), 100e18);
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        // Create malicious callback with shares
+        MaliciousFlashCallback maliciousCallback = new MaliciousFlashCallback(box, asset);
+
+        // Give callback some shares
+        asset.mint(address(maliciousCallback), 100e18);
+        vm.prank(curator);
+        box.submit(abi.encodeWithSelector(IBox.setIsFeeder.selector, address(maliciousCallback), true));
+        vm.warp(block.timestamp + 1);
+        vm.prank(curator);
+        box.setIsFeeder(address(maliciousCallback), true);
+
+        vm.startPrank(address(maliciousCallback));
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, address(maliciousCallback));
+        vm.stopPrank();
+
+        // Give callback allocator role
+        vm.prank(curator);
+        box.setIsAllocator(address(maliciousCallback), true);
+
+        // Flash and attempt to redeem during callback
+        asset.mint(address(maliciousCallback), 50e18);
+        maliciousCallback.setScenario(3); // REDEEM
+
+        vm.prank(address(maliciousCallback));
+        asset.approve(address(box), 50e18);
+
+        vm.expectRevert(ErrorsLib.ReentryNotAllowed.selector);
+        vm.prank(address(maliciousCallback));
+        box.flash(asset, 50e18, "");
+    }
+
     /////////////////////////////
     /// SHUTDOWN TESTS
     /////////////////////////////
@@ -1839,12 +2030,14 @@ contract BoxTest is Test {
     function testWinddownAccess() public {
         vm.startPrank(guardian);
 
-        vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
+        // Guardian cannot change oracle - only curator can (before winddown)
+        vm.expectRevert(ErrorsLib.OnlyCurator.selector);
         box.changeTokenOracle(token1, oracle3);
 
         box.shutdown();
 
-        vm.expectRevert(ErrorsLib.DataNotTimelocked.selector);
+        // Still only curator can change oracle (after shutdown but before winddown)
+        vm.expectRevert(ErrorsLib.OnlyCurator.selector);
         box.changeTokenOracle(token1, oracle3);
 
         vm.warp(block.timestamp + box.shutdownWarmup());
@@ -1992,7 +2185,7 @@ contract BoxTest is Test {
         vm.warp(1 days + 1);
 
         // Then the issue is that we can't decrease from 1 day to 2 days
-        vm.expectRevert(ErrorsLib.TimelockIncrease.selector);
+        vm.expectRevert(ErrorsLib.TimelockNotDecreasing.selector);
         box.decreaseTimelock(box.setGuardian.selector, 2 days);
 
         vm.expectEmit(true, true, true, true);
@@ -2000,7 +2193,7 @@ contract BoxTest is Test {
         box.revoke(data);
 
         // Can't increase from 1 day to 0 days (no timelock needed)
-        vm.expectRevert(ErrorsLib.TimelockDecrease.selector);
+        vm.expectRevert(ErrorsLib.TimelockNotIncreasing.selector);
         box.increaseTimelock(box.setGuardian.selector, 0 days);
 
         data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setGuardian.selector, 0 days);
@@ -2549,9 +2742,9 @@ contract BoxTest is Test {
         oracle1.setPrice(1.1e36); // 1 token = 1.1 assets, so we expect 45.45 tokens for 50 assets
 
         // Expect event with negative slippage percentage (positive performance)
-        // Expected: 45.45e18 tokens (50 / 1.1), Actual: 50e18 tokens
+        // Expected: 45.454545454545454546 tokens (50 / 1.1, rounded up), Actual: 50e18 tokens
         vm.expectEmit(true, true, true, true);
-        emit Allocation(token1, 50e18, 45454545454545454545, 50e18, -0.1e18, swapper, ""); // -10% slippage
+        emit Allocation(token1, 50e18, 45454545454545454546, 50e18, -99999999999999999, swapper, ""); // ~-10% slippage
 
         vm.prank(allocator);
         box.allocate(token1, 50e18, swapper, "");
@@ -2598,9 +2791,9 @@ contract BoxTest is Test {
         oracle2.setPrice(1.1e36); // 1 token2 = 1.1 assets, so we expect ~22.73 token2 for 25 token1
 
         // Expect event with negative slippage percentage (positive performance)
-        // Expected: 22.727e18 token2 (25 * 1 / 1.1), Actual: 25e18 token2
+        // Expected: 22.727272727272727273 token2 (25 * 1 / 1.1, rounded up), Actual: 25e18 token2
         vm.expectEmit(true, true, true, true, address(box));
-        emit Reallocation(token1, token2, 25e18, 22727272727272727272, 25e18, -0.1e18, swapper, ""); // -10% slippage
+        emit Reallocation(token1, token2, 25e18, 22727272727272727273, 25e18, -99999999999999999, swapper, ""); // ~-10% slippage
 
         vm.prank(allocator);
         box.reallocate(token1, token2, 25e18, swapper, "");
@@ -3234,8 +3427,10 @@ contract BoxTest is Test {
         // oraclePrice = 1e36 (price scaled by ORACLE_PRECISION = 1e36)
         // debtValue in assets = debtBalance * oraclePrice / ORACLE_PRECISION = 100e18 * 1e36 / 1e36 = 100e18
         // maxAllocation = debtValue * PRECISION / (PRECISION - slippageTolerance)
-        uint256 debtValue = 100e18; // 100 tokens worth 100 assets at 1:1 price
-        uint256 maxAllocation = (debtValue * PRECISION) / (PRECISION - slippageTolerance);
+        // Note: Contract rounds up both neededValue and maxAllocation, so we must do the same
+        uint256 neededTokens = 100e18; // debtBalance
+        uint256 neededValue = Math.mulDiv(neededTokens, 1e36, ORACLE_PRECISION, Math.Rounding.Ceil);
+        uint256 maxAllocation = Math.mulDiv(neededValue, PRECISION, PRECISION - slippageTolerance, Math.Rounding.Ceil);
 
         // Try to allocate more than allowed - should fail
         vm.prank(nonAuthorized);

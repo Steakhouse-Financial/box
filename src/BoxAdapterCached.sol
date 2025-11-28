@@ -68,8 +68,8 @@ contract BoxAdapterCached is IBoxAdapter {
 
         if (assets > 0) IERC4626(box).deposit(assets, address(this));
         // Safe casts because bounded by Vault V2 which requires totalAssets to stay below ~10^35
-        _updateTotalAssets();
-        int256 newAllocation = totalAssets.toInt256();
+        uint256 newTotalAssets = _updateTotalAssets();
+        int256 newAllocation = newTotalAssets.toInt256();
         int256 oldAllocation = allocation().toInt256();
 
         return (ids(), newAllocation - oldAllocation);
@@ -83,8 +83,8 @@ contract BoxAdapterCached is IBoxAdapter {
 
         if (assets > 0) IERC4626(box).withdraw(assets, address(this), address(this));
         // Safe casts because bounded by Vault V2 which requires totalAssets to stay below ~10^35
-        _updateTotalAssets();
-        int256 newAllocation = totalAssets.toInt256();
+        uint256 newTotalAssets = _updateTotalAssets();
+        int256 newAllocation = newTotalAssets.toInt256();
         int256 oldAllocation = allocation().toInt256();
 
         return (ids(), newAllocation - oldAllocation);
@@ -116,13 +116,14 @@ contract BoxAdapterCached is IBoxAdapter {
         );
 
         uint256 oldTotalAssets = totalAssets;
-        _updateTotalAssets();
-        emit UpdateTotalAsset(oldTotalAssets, totalAssets);
+        uint256 newTotalAssets = _updateTotalAssets();
+        emit UpdateTotalAsset(oldTotalAssets, newTotalAssets);
     }
 
-    function _updateTotalAssets() internal {
+    function _updateTotalAssets() internal returns (uint256) {
         totalAssets = box.previewRedeem(box.balanceOf(address(this)));
         totalAssetsTimestamp = block.timestamp;
+        return totalAssets;
     }
 
     function adapterData() external view returns (bytes memory) {

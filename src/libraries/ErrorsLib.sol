@@ -25,13 +25,8 @@ library ErrorsLib {
     error OnlyBox();
     error OnlyPool();
     error OnlyThisContract();
-    error InvalidOwner();
     error CannotDuringShutdown();
     error CannotDuringWinddown();
-
-    // Deposit/Mint errors
-    error CannotDepositZero();
-    error CannotMintZero();
 
     // Withdraw/Redeem errors
     error InsufficientShares();
@@ -66,19 +61,20 @@ library ErrorsLib {
     error TimelockNotExpired();
     error DataNotTimelocked();
     error InvalidTimelock();
-    error TimelockDecrease();
-    error TimelockIncrease();
+    error TimelockNotIncreasing();
+    error TimelockNotDecreasing();
+    error FunctionDisabled();
 
     // Skim errors
-    error CannotSkimAsset();
     error CannotSkimToken();
-    error AlreadySet();
     error CannotSkimZero();
     error SkimChangedNav();
+    error TransferFailed();
 
     // Funding module errors
     error ExcessiveLTV();
     error NoNavDuringCache();
+    error InvalidFacilityData();
 
     // Flash callback errors
     error ReentryNotAllowed();
