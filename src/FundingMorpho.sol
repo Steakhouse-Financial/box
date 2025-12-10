@@ -191,6 +191,7 @@ contract FundingMorpho is FundingBase {
     /// @dev The NAV for a given lending market can be negative but there is no recourse so it can be floored to 0.
     function nav(IOracleCallback oraclesProvider) public view override returns (uint256) {
         uint256 nav_ = 0;
+        address asset = oraclesProvider.asset();
         uint256 length = facilitiesSet.length();
         for (uint256 i = 0; i < length; i++) {
             uint256 facilityNav = 0;
@@ -200,7 +201,7 @@ contract FundingMorpho is FundingBase {
 
             if (collateralBalance_ == 0) continue; // No debt if no collateral
 
-            if (market.collateralToken == oraclesProvider.asset()) {
+            if (market.collateralToken == asset) {
                 // RIs are considered to have a price of ORACLE_PRECISION
                 facilityNav += collateralBalance_;
             } else {
@@ -210,11 +211,11 @@ contract FundingMorpho is FundingBase {
 
             uint256 debtBalance_ = morpho.expectedBorrowAssets(market, address(this));
 
-            if (market.loanToken == oraclesProvider.asset()) {
+            if (market.loanToken == asset) {
                 facilityNav = (facilityNav > debtBalance_) ? facilityNav - debtBalance_ : 0;
             } else {
                 IOracle oracle = oraclesProvider.oracles(IERC20(market.loanToken));
-                uint256 value = debtBalance_.mulDivDown(oracle.price(), ORACLE_PRICE_SCALE);
+                uint256 value = debtBalance_.mulDivUp(oracle.price(), ORACLE_PRICE_SCALE);
                 facilityNav = (facilityNav > value) ? facilityNav - value : 0;
             }
 
