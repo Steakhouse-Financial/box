@@ -223,7 +223,7 @@ contract FundingAave is FundingBase {
                 } else {
                     IOracle oracle = oraclesProvider.oracles(debtToken);
                     uint256 price = oracle.price();
-                    uint256 value = debtBalance_.mulDivDown(price, ORACLE_PRICE_SCALE);
+                    uint256 value = debtBalance_.mulDivUp(price, ORACLE_PRICE_SCALE);
                     totalDebtValue += value;
                 }
             }
