@@ -15,12 +15,14 @@ import {IVaultV2} from "../lib/vault-v2/src/interfaces/IVaultV2.sol";
 import {MathLib} from "../lib/vault-v2/src/libraries/MathLib.sol";
 
 import {Box} from "../src/Box.sol";
+import {IBox, IBoxFlashCallback} from "../src/interfaces/IBox.sol";
 import {IBoxAdapter} from "../src/interfaces/IBoxAdapter.sol";
 import {BoxAdapterCached} from "../src/BoxAdapterCached.sol";
 import {IBoxAdapterFactory} from "../src/interfaces/IBoxAdapterFactory.sol";
 import {BoxAdapterCachedFactory} from "../src/factories/BoxAdapterCachedFactory.sol";
 import {BoxLib} from "../src/periphery/BoxLib.sol";
 import {MAX_SHUTDOWN_WARMUP} from "../src/libraries/Constants.sol";
+import {ErrorsLib} from "../src/libraries/ErrorsLib.sol";
 
 contract BoxAdapterCachedTest is Test {
     using MathLib for uint256;
@@ -352,6 +354,67 @@ contract BoxAdapterCachedTest is Test {
         vm.expectRevert(IBoxAdapter.NotAuthorized.selector);
         BoxAdapterCached(address(adapter)).updateTotalAssets();
         vm.stopPrank();
+    }
+
+    /// @notice Test that VaultV2 forceDeallocate during a flash operation is prevented
+    /// @dev This tests the attack scenario where an attacker could:
+    ///      1. Call flash() on the Box - which caches NAV with flash tokens temporarily in Box
+    ///      2. In the callback, trigger forceDeallocate on VaultV2 -> BoxAdapterCached.deallocate -> Box.withdraw
+    ///      3. The inflated cached NAV would give more shares than deserved
+    ///      Solution: Box.withdraw reverts with ReentryNotAllowed during flash operations
+    function testFlashWithVaultV2WithdrawRevertsReentryNotAllowed() public {
+        uint256 depositAmount = 1000e18;
+
+        // Setup: deposit some assets through the adapter
+        deal(address(asset), address(adapter), depositAmount);
+        parentVault.allocateMocked(address(adapter), hex"", depositAmount);
+
+        // Create a malicious flash callback that tries to withdraw via adapter during flash
+        MaliciousVaultV2FlashCallback maliciousCallback = new MaliciousVaultV2FlashCallback(
+            box,
+            IERC20OZ(address(asset)),
+            parentVault,
+            adapter
+        );
+
+        // Make the malicious callback an allocator so it can call flash
+        vm.prank(owner);
+        box.setIsAllocator(address(maliciousCallback), true);
+
+        // Give the callback some asset tokens for the flash operation
+        deal(address(asset), address(maliciousCallback), 100e18);
+
+        // The flash callback will attempt to deallocate from VaultV2 during flash
+        // This should revert with ReentryNotAllowed because Box.withdraw is blocked during flash
+        vm.expectRevert(ErrorsLib.ReentryNotAllowed.selector);
+        vm.prank(address(maliciousCallback));
+        maliciousCallback.executeFlashAttack(100e18);
+    }
+}
+
+/// @notice Malicious flash callback that attempts to deallocate from VaultV2 during a Box flash operation
+contract MaliciousVaultV2FlashCallback is IBoxFlashCallback {
+    IBox public immutable box;
+    IERC20OZ public immutable asset;
+    VaultV2Mock public immutable parentVault;
+    IBoxAdapter public immutable adapter;
+
+    constructor(Box _box, IERC20OZ _asset, VaultV2Mock _parentVault, IBoxAdapter _adapter) {
+        box = IBox(address(_box));
+        asset = _asset;
+        parentVault = _parentVault;
+        adapter = _adapter;
+    }
+
+    function executeFlashAttack(uint256 flashAmount) external {
+        asset.approve(address(box), flashAmount);
+        box.flash(IERC20OZ(address(asset)), flashAmount, "");
+    }
+
+    function onBoxFlash(IERC20OZ, uint256, bytes calldata) external override {
+        // During flash, try to deallocate from VaultV2 which would call Box.withdraw
+        // This simulates the attack scenario described in the audit
+        parentVault.deallocateMocked(address(adapter), hex"", 100e18);
     }
 }
 
