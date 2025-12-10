@@ -120,10 +120,10 @@ contract BoxAdapterCached is IBoxAdapter {
         emit UpdateTotalAsset(oldTotalAssets, newTotalAssets);
     }
 
-    function _updateTotalAssets() internal returns (uint256) {
-        totalAssets = box.previewRedeem(box.balanceOf(address(this)));
+    function _updateTotalAssets() internal returns (uint256 newTotalAssets) {
+        newTotalAssets = box.previewRedeem(box.balanceOf(address(this)));
+        totalAssets = newTotalAssets;
         totalAssetsTimestamp = block.timestamp;
-        return totalAssets;
     }
 
     function adapterData() external view returns (bytes memory) {
