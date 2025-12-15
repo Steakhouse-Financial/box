@@ -10,7 +10,6 @@ import {IBox} from "./interfaces/IBox.sol";
 import {IBoxAdapter} from "./interfaces/IBoxAdapter.sol";
 
 contract BoxAdapter is IBoxAdapter {
-
     /* IMMUTABLES */
 
     address public immutable factory;

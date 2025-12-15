@@ -109,7 +109,9 @@ contract FundingAave is FundingBase {
     }
 
     function facilities(uint256 index) external view returns (bytes memory) {
-        // For FundingAave, facilities are always empty bytes, so we return empty bytes
+        // Validate index to be consistent with FundingMorpho behavior (reverts on invalid index)
+        facilitiesSet.at(index);
+        // For FundingAave, facilities are always empty bytes
         return "";
     }
 
@@ -223,7 +225,7 @@ contract FundingAave is FundingBase {
                 } else {
                     IOracle oracle = oraclesProvider.oracles(debtToken);
                     uint256 price = oracle.price();
-                    uint256 value = debtBalance_.mulDivDown(price, ORACLE_PRICE_SCALE);
+                    uint256 value = debtBalance_.mulDivUp(price, ORACLE_PRICE_SCALE);
                     totalDebtValue += value;
                 }
             }
