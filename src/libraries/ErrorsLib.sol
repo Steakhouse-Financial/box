@@ -69,7 +69,6 @@ library ErrorsLib {
     error CannotSkimToken();
     error CannotSkimZero();
     error SkimChangedNav();
-    error TransferFailed();
 
     // Funding module errors
     error ExcessiveLTV();

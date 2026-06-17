@@ -121,18 +121,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     // ========== CONSTRUCTOR ==========
 
     /**
-     * @notice Allows the contract to receive native currency
-     * @dev Required for skimming native currency from funding modules
-     */
-    receive() external payable {}
-
-    /**
-     * @notice Fallback function to receive native currency
-     * @dev Required for skimming native currency from funding modules
-     */
-    fallback() external payable {}
-
-    /**
      * @notice Initializes the Box vault
      * @param _asset Base currency token (e.g., USDC)
      * @param _owner Initial owner address
@@ -360,20 +348,9 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         _requireNotEqualAddress(address(token), asset);
         require(!isToken(token), ErrorsLib.CannotSkimToken());
 
-        uint256 balance;
-
-        if (address(token) != address(0)) {
-            // ERC-20 tokens
-            balance = token.balanceOf(address(this));
-            require(balance > 0, ErrorsLib.CannotSkimZero());
-            token.safeTransfer(skimRecipient, balance);
-        } else {
-            // ETH
-            balance = address(this).balance;
-            require(balance > 0, ErrorsLib.CannotSkimZero());
-            (bool ok, ) = skimRecipient.call{value: balance}("");
-            require(ok, ErrorsLib.TransferFailed());
-        }
+        uint256 balance = token.balanceOf(address(this));
+        require(balance > 0, ErrorsLib.CannotSkimZero());
+        token.safeTransfer(skimRecipient, balance);
 
         emit EventsLib.Skim(token, skimRecipient, balance);
     }
