@@ -10,7 +10,7 @@ import {MorphoLib} from "@morpho-blue/libraries/periphery/MorphoLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {MathLib} from "./../lib/morpho-blue/src/libraries/MathLib.sol";
+import {MathLib} from "@morpho-blue/libraries/MathLib.sol";
 import {FundingBase} from "./FundingBase.sol";
 import {IOracleCallback} from "./interfaces/IFunding.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
