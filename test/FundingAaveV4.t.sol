@@ -115,7 +115,7 @@ abstract contract FundingAaveV4Fixture is Test {
 
 contract FundingAaveV4Test is FundingAaveV4Fixture {
     /////////////////////////////
-    /// CONSTRUCTOR (VAL-AAVE4-001..003)
+    /// CONSTRUCTOR
     /////////////////////////////
 
     function testConstructorStoresConfig() public view {
@@ -230,7 +230,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// ACCESS CONTROL (VAL-AAVE4-005)
+    /// ACCESS CONTROL
     /////////////////////////////
 
     function _ownerGatedCalls() internal view returns (bytes[] memory calls) {
@@ -285,7 +285,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// FACILITY (VAL-AAVE4-006)
+    /// FACILITY
     /////////////////////////////
 
     function testAddFacilityOnlyEmpty() public {
@@ -321,7 +321,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// ACTION VALIDATION (VAL-AAVE4-007)
+    /// ACTION VALIDATION
     /////////////////////////////
 
     function testActionsRejectUnregisteredFacility() public {
@@ -404,7 +404,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// TOKEN REGISTRATION (VAL-AAVE4-008, 009)
+    /// TOKEN REGISTRATION
     /////////////////////////////
 
     function testAddCollateralTokenValidation() public {
@@ -473,7 +473,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// PLEDGE (VAL-AAVE4-010)
+    /// PLEDGE
     /////////////////////////////
 
     function testPledgeSuppliesAndEnablesCollateral() public {
@@ -503,7 +503,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// DEPLEDGE / BORROW DELIVERY (VAL-AAVE4-011)
+    /// DEPLEDGE / BORROW DELIVERY
     /////////////////////////////
 
     function testDepledgeDeliversExactAmountToOwner() public {
@@ -571,7 +571,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// REPAY (VAL-AAVE4-012, 013)
+    /// REPAY
     /////////////////////////////
 
     function testPartialRepayWithPremium() public {
@@ -639,7 +639,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// BALANCE VIEWS (VAL-AAVE4-014, 015)
+    /// BALANCE VIEWS
     /////////////////////////////
 
     function testViewsReturnZeroForUnknownTokens() public {
@@ -718,7 +718,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// NAV (VAL-AAVE4-016, 017)
+    /// NAV
     /////////////////////////////
 
     uint256 internal constant PRICE_A = 1_234_567_890_123_456_789_012_345_678_901_234_567; // ~1.23e36
@@ -829,7 +829,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// SKIM (VAL-AAVE4-018)
+    /// SKIM
     /////////////////////////////
 
     function testSkimIdleTokensKeepsNav() public {
@@ -858,7 +858,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// LTV (VAL-AAVE4-019)
+    /// LTV
     /////////////////////////////
 
     function testLtvZeroWithoutDebt() public {
@@ -907,7 +907,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// GUARD AFTER BORROW (VAL-AAVE4-020)
+    /// GUARD AFTER BORROW
     /////////////////////////////
 
     // With 100e18 collA pledged (CF 80%, price 1) and B wei of debtB (price 1): HF = 8e37 / B.
@@ -1001,7 +1001,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// GUARD AFTER DEPLEDGE (VAL-AAVE4-021)
+    /// GUARD AFTER DEPLEDGE
     /////////////////////////////
 
     // 100e18 collA, 60e18 debt, cap 0.8: HF = (100e18 - X) / 75 => X <= 6.25e18
@@ -1038,7 +1038,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// GUARD NEVER BLOCKS PLEDGE / REPAY (VAL-AAVE4-022)
+    /// GUARD NEVER BLOCKS PLEDGE / REPAY
     /////////////////////////////
 
     function testPledgeAndRepayNotBlockedOutsideCapAfterPriceDrop() public {
@@ -1086,7 +1086,7 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
-    /// REMOVAL (VAL-AAVE4-023)
+    /// REMOVAL
     /////////////////////////////
 
     function _assertFacilityBlocked(FundingAaveV4 m) internal {

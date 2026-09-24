@@ -149,7 +149,7 @@ contract FundingFactoriesFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-012: FUNDING MORPHO FACTORY
+    /// FUNDING MORPHO FACTORY
     /////////////////////////////
 
     function _assertMorphoModule(FundingMorpho module, address owner_, address morpho_, uint256 cap) internal view {
@@ -203,7 +203,7 @@ contract FundingFactoriesFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-012: FUNDING AAVE (V3) FACTORY
+    /// FUNDING AAVE (V3) FACTORY
     /////////////////////////////
 
     function _assertAaveModule(FundingAave module, address owner_, uint8 eMode) internal view {
@@ -255,7 +255,7 @@ contract FundingFactoriesFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-012: FUNDING AAVE V4 FACTORY
+    /// FUNDING AAVE V4 FACTORY
     /////////////////////////////
 
     function _assertAaveV4Module(FundingAaveV4 module, address owner_, uint256[] memory ids, uint256 cap) internal view {
@@ -342,7 +342,7 @@ contract FundingFactoriesFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-012: MODULES OWNED BY A BOX
+    /// MODULES OWNED BY A BOX
     /////////////////////////////
 
     function testFuzz_ModulesOwnedByABoxCanBeAdded(uint256 cap, uint8 eMode, uint256 seed, address stranger) public {

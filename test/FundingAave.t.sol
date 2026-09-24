@@ -127,7 +127,7 @@ contract FundingAaveTest is Test {
         assertTrue(strategy != address(0), "strategy is non-zero for unlisted assets");
     }
 
-    // ========== UNKNOWN-TOKEN VIEWS (VAL-AAVE3-001) ==========
+    // ========== UNKNOWN-TOKEN VIEWS ==========
 
     function testUnknownTokenViewsReturnZeroOnEmptyModule() public view {
         _assertUnknownTokenViewsAreZero();
@@ -176,7 +176,7 @@ contract FundingAaveTest is Test {
         assertEq(module.debtBalance(halfListed), 9, "variable debt token set");
     }
 
-    // ========== ADD COLLATERAL TOKEN (VAL-AAVE3-002) ==========
+    // ========== ADD COLLATERAL TOKEN ==========
 
     function testAddCollateralTokenRejectsUnlistedReserve() public {
         IERC20[] memory tokens = _unknownTokens();
@@ -224,7 +224,7 @@ contract FundingAaveTest is Test {
         assertTrue(module.isCollateralToken(halfListed), "only the aToken field matters");
     }
 
-    // ========== ADD DEBT TOKEN (VAL-AAVE3-003) ==========
+    // ========== ADD DEBT TOKEN ==========
 
     function testAddDebtTokenRejectsUnlistedReserve() public {
         IERC20[] memory tokens = _unknownTokens();
@@ -272,7 +272,7 @@ contract FundingAaveTest is Test {
         assertTrue(module.isDebtToken(halfListed), "only the variable debt token field matters");
     }
 
-    // ========== NAV (VAL-AAVE3-005) ==========
+    // ========== NAV ==========
 
     function testNavZeroWithRegisteredTokensAndNoPosition() public {
         _registerAll();
@@ -411,7 +411,7 @@ contract FundingAaveBoxTest is Test {
         assertTrue(box.isFunding(module), "module still attached");
     }
 
-    // ========== BRICK SCENARIO (VAL-AAVE3-004) ==========
+    // ========== BRICK SCENARIO ==========
 
     function testUnlistedBoxTokenCannotBeAddedToFundingAave() public {
         vm.startPrank(curator);
@@ -437,7 +437,7 @@ contract FundingAaveBoxTest is Test {
         assertFalse(box.isFunding(module), "module removed");
     }
 
-    // ========== BOX NAV (VAL-AAVE3-005) ==========
+    // ========== BOX NAV ==========
 
     function testTotalAssetsWithRegisteredListedTokens() public {
         vm.startPrank(curator);
@@ -460,7 +460,7 @@ contract FundingAaveBoxTest is Test {
         assertEq(box.totalAssets(), 100e18, "borrowing does not move totalAssets");
     }
 
-    // ========== WINDDOWN DEALLOCATE (VAL-AAVE3-006) ==========
+    // ========== WINDDOWN DEALLOCATE ==========
 
     function testWinddownDeallocateWithEmptyFundingAave() public {
         _attach(false);

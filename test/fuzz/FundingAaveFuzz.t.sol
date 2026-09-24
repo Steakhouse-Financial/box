@@ -160,7 +160,7 @@ contract FundingAaveFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-006: ROUND TRIP THROUGH THE BOX
+    /// ROUND TRIP THROUGH THE BOX
     /////////////////////////////
 
     struct RoundTrip {
@@ -247,7 +247,7 @@ contract FundingAaveFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-007: NAV ROUNDING
+    /// NAV ROUNDING
     /////////////////////////////
 
     struct NavCase {
@@ -317,7 +317,7 @@ contract FundingAaveFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-009: ONLY "" IS A FACILITY
+    /// ONLY "" IS A FACILITY
     /////////////////////////////
 
     function testFuzz_OnlyEmptyFacilityDataIsAccepted(bytes memory fd, uint256 c, uint256 b, uint256 interest, uint256 amount) public {
@@ -382,7 +382,7 @@ contract FundingAaveFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-010: ONLY THE OWNER
+    /// ONLY THE OWNER
     /////////////////////////////
 
     function _ownerGatedCalls(bytes memory fd, IERC20 token, uint256 amount) internal pure returns (bytes[] memory calls) {
@@ -470,7 +470,7 @@ contract FundingAaveFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-011: UNLISTED TOKENS READ AS 0
+    /// UNLISTED TOKENS READ AS 0
     /////////////////////////////
 
     function _assertViewsZero(IERC20 token, bytes memory fd, string memory label) internal view {

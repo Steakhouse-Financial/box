@@ -84,11 +84,14 @@ Notice that a Box holder don't need to be a `feeder` to redeem and transfer a Bo
 ## Funding Modules
 
 The curator can add modular funding integrations (`IFunding`).  
-Supported modules: **Morpho Blue** and **Aave v3**.  
+Supported modules: **Morpho Blue**, **Aave v3** and **Aave v4**.  
 
 - Each module instance belongs to a single Box (constructor parameter).  
 - Only whitelisted tokens from the parent Box can be used as collateral/debt.  
 - Only empty modules (no facilities, collateral, or debt tokens) can be added.  
+- Modules are chain-agnostic: every protocol address (pool, Spoke) is a constructor argument, so a module can be deployed on any chain where its protocol is deployed. Each module has a factory in `src/factories/` that records the modules it created (`isFundingX`) and emits a creation event.  
+- `nav` values positions with the Box oracles (collateral rounded down, debt rounded up, floored at 0 because there is no recourse beyond the collateral) and ignores tokens held idle by the module. `ltv` uses the protocol's own pricing and is only used by the module's post-action guard.  
+- Views never revert for tokens or `facilityData` the module does not know (they return 0), so a winddown `deallocate` cannot be blocked by an attached module.  
 
 ### Morpho Module
 - `facilityData` encodes Morpho Blue market parameters.  
@@ -98,6 +101,18 @@ Supported modules: **Morpho Blue** and **Aave v3**.
 ### Aave Module
 - `facilityData` is always empty (`""`).  
 - Each module is tied to an Aave pool address and a given `eMode` parameter.  
+- `debtBalance` / `collateralBalance` return 0 for tokens that are not listed on the Aave pool (instead of reverting).  
+- `addCollateralToken` / `addDebtToken` only accept listed Aave reserves (non-zero aToken / variable debt token), so an unlisted token can no longer make `nav` revert.  
+
+### Aave v4 Module (`FundingAaveV4`)
+- One module instance = one position (the module address) on one Aave v4 Spoke. Use one module per Spoke.  
+- `facilityData` is always empty (`""`); any other value is rejected.  
+- Constructor / factory: `createFundingAaveV4(owner, spoke, reserveIds, lltvCap)`.  
+  - `reserveIds`: the Spoke reserves the module may use. Their underlying tokens must be pairwise distinct: when a Spoke lists the same token several times (reserves backed by different Hubs), this list selects which reserve the token uses.  
+  - `lltvCap`: fraction (1e18 = 100%) of the Spoke's own borrowing limit the module may use, in `(0, 1e18]`.  
+- A collateral token must be the underlying of a configured reserve with a non-zero collateral factor; a debt token must be the underlying of a configured borrowable reserve.  
+- `pledge` supplies and enables the reserve as collateral. `borrow` and `depledge` deliver exactly the requested amount to the Box and are followed by a health guard: `healthFactor >= ceil(1e36 / lltvCap)`, i.e. `ltv <= avgCollateralFactor * lltvCap / 1e18` (Aave v4 lets a position borrow down to a health factor of exactly 1).  
+- `debtBalance` includes the Aave v4 premium debt, so repaying `debtBalance` closes the debt with no dust; unused tokens are returned to the Box.  
 
 ## Arbitrage Protection
 
