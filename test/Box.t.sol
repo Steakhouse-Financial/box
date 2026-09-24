@@ -538,6 +538,8 @@ contract BoxTest is Test {
         bytes32 salt
     ) public {
         vm.assume(asset_ != address(0));
+        // Mocking decimals() on the console or cheatcode address fails, and the fuzzer finds them in its dictionary
+        assumeNotForgeAddress(asset_);
         vm.assume(owner_ != address(0));
         vm.assume(curator_ != address(0));
         vm.assume(maxSlippage_ <= MAX_SLIPPAGE_LIMIT);
