@@ -369,6 +369,51 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertEq(tight.debtBalance(tightFd, USDC), units0 + units1, "debt = units sold into the two bids");
     }
 
+    /// @dev Control for the 6% scenario: the same staging order on the 8% facility takes the tick-4204 bid first, so
+    ///      the skip above is caused by the APR bound alone
+    function testRealOffersTick4204TakenUnderLooserBound() public {
+        OfferFill[] memory real = _realFills();
+        OfferFill[] memory fills = new OfferFill[](4);
+        fills[0] = real[3];
+        fills[1] = real[0];
+        fills[2] = real[1];
+        fills[3] = real[2];
+        assertEq(fills[0].offer.tick, 4204, "tick 4204 bid staged first");
+        uint256[] memory consumedBefore = _consumed(fills);
+
+        uint256 amount = 100_000e6;
+        uint256[] memory units = new uint256[](fills.length);
+        uint256[] memory assets = new uint256[](fills.length);
+        uint256 raised;
+        uint256 sold;
+        for (uint256 i = 0; i < fills.length && raised < amount; i++) {
+            (units[i], assets[i]) = _expectedFill(fills[i], amount - raised);
+            raised += assets[i];
+            sold += units[i];
+        }
+        assertGt(assets[0], 0, "tick 4204 bid has capacity for this borrow");
+        assertGe(raised, amount, "staged bids cover the amount");
+
+        uint256 usdcBefore = USDC.balanceOf(address(box));
+        vm.startPrank(allocator);
+        box.pledge(module, fd, CBBTC, COLLATERAL);
+        module.stageBorrow(fd, fills, block.timestamp + 1 hours);
+        box.borrow(module, fd, USDC, amount);
+        vm.stopPrank();
+
+        uint256[] memory consumedAfter = _consumed(fills);
+        assertEq(
+            consumedAfter[0] - consumedBefore[0],
+            _consumption(fills[0], units[0], assets[0]),
+            "tick 4204 bid taken: its maker's consumed changed"
+        );
+        for (uint256 i = 1; i < fills.length; i++) {
+            assertEq(consumedAfter[i] - consumedBefore[i], _consumption(fills[i], units[i], assets[i]), "later bids as expected");
+        }
+        assertEq(USDC.balanceOf(address(box)) - usdcBefore, raised, "proceeds of the bids taken in staging order");
+        assertEq(module.debtBalance(fd, USDC), sold, "debt = units sold");
+    }
+
     // ========== VAL-MID-035: ONLY ABOVE-BOUND OFFERS ==========
 
     function testBorrowRevertsWhenOnlyAboveBoundRealOffers() public {
@@ -738,6 +783,57 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertApproxEqAbs(box.totalAssets(), totalBefore, 2, "totalAssets after the borrow");
         assertEq(probe.reentryAttempts(), 4);
         assertEq(probe.reentrySuccesses(), 0, "no Box reentry from the callback");
+    }
+
+    // ========== FORK FUZZ ==========
+
+    /// @dev One fresh SetterRatifier bid per run at a tick between 4204 and 4216 (all within the 8% bound). Borrows
+    ///      stay at or below 70% of the collateral value, so face / value stays under LLTV x lltvCap (0.774). Collateral
+    ///      returns exactly and nothing else moves, so the round trip costs exactly the discount (face - proceeds).
+    /// forge-config: default.fuzz.runs = 16
+    function testFuzz_PledgeBorrowRepayDepledgeRoundTrip(uint256 collateral, uint256 amount, uint256 tickStep, uint256 elapsed) public {
+        collateral = bound(collateral, 0.5e8, COLLATERAL);
+        uint256 collateralValue = (collateral * IOracle(BASE_CBBTC_USDC_ORACLE).price()) / 1e36;
+        amount = bound(amount, 5_000e6, (collateralValue * 70) / 100);
+        uint256 tick = 4204 + 4 * bound(tickStep, 0, 3);
+        elapsed = bound(elapsed, 0, 60 days);
+        uint256 minPrice = MidnightMathLib.minSellerPrice(MAX_APR, DEC25_MATURITY - block.timestamp);
+        assertGe(TickLib.tickToPrice(tick), minPrice, "bid within the 8% bound");
+
+        uint256 cbbtcBefore = CBBTC.balanceOf(address(box));
+        uint256 navBefore = box.totalAssets();
+
+        uint256 proceeds = _open(module, fd, _dec25Market(), collateral, amount, tick, "fuzz");
+        uint256 face = midnight.debt(DEC25_ID, address(module));
+
+        assertGe(proceeds, amount, "Box received at least the amount");
+        assertGt(face, proceeds, "face above proceeds");
+        assertEq(module.debtBalance(fd, USDC), face, "debtBalance = face");
+        assertEq(module.collateralBalance(fd, CBBTC), collateral, "collateral = pledged");
+        assertEq(USDC.balanceOf(address(module)), 0, "no USDC left in the module");
+        assertLe(module.ltv(fd), (LLTV * LLTV_CAP) / WAD, "ltv within LLTV x lltvCap");
+        // 1 wei from the discount rounding, 1 wei from flooring the Box and module cbBTC values separately
+        assertApproxEqAbs(box.totalAssets(), navBefore, 2, "pledge + borrow within 2 wei");
+
+        vm.warp(block.timestamp + elapsed);
+        uint256 usdcBefore = USDC.balanceOf(address(box));
+        vm.startPrank(allocator);
+        box.repay(module, fd, USDC, type(uint256).max);
+        box.depledge(module, fd, CBBTC, type(uint256).max);
+        vm.stopPrank();
+
+        assertEq(usdcBefore - USDC.balanceOf(address(box)), face, "repay(max) paid exactly the face");
+        assertEq(midnight.debt(DEC25_ID, address(module)), 0, "no Midnight debt");
+        assertEq(midnight.collateral(DEC25_ID, address(module), 0), 0, "no collateral on Midnight");
+        assertEq(module.debtBalance(fd, USDC), 0, "facility debt 0");
+        assertEq(module.collateralBalance(fd, CBBTC), 0, "facility collateral 0");
+        (uint256 tracked, uint256 rate) = module.accretionState(fd);
+        assertEq(tracked, 0, "accretion units reset");
+        assertEq(rate, 0, "accretion rate reset");
+        assertEq(CBBTC.balanceOf(address(box)), cbbtcBefore, "all cbBTC back in the Box");
+        assertEq(USDC.balanceOf(address(module)), 0, "no idle USDC");
+        assertEq(CBBTC.balanceOf(address(module)), 0, "no idle cbBTC");
+        assertEq(box.totalAssets(), navBefore - (face - proceeds), "totalAssets = start - discount paid, exactly");
     }
 
     // ========== HELPERS ==========
