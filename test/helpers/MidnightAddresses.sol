@@ -12,6 +12,8 @@ abstract contract MidnightAddresses {
     address internal constant BASE_CBBTC = 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf;
     address internal constant BASE_CBBTC_USDC_ORACLE = 0x663BECd10daE6C4A3Dcd89F1d76c1174199639B9;
     address internal constant BASE_USDC_USDC_ORACLE = 0x4429112b3C00b40Cf295db81cfcdE39d7d5ADC1d;
+    address internal constant BASE_SETTER_RATIFIER = 0x800B5F12A61B8198a5a6EfD794Cac6699B294d63;
+    address internal constant BASE_ECRECOVER_RATIFIER = 0xd6e70365C8E8DDa9a4ca662C07bbE663b017755E;
 
     // ========== ETHEREUM ==========
 
@@ -21,4 +23,6 @@ abstract contract MidnightAddresses {
     address internal constant ETHEREUM_WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
     address internal constant ETHEREUM_WBTC_USDC_ORACLE = 0xDddd770BADd886dF3864029e4B377B5F6a2B6b83;
     address internal constant ETHEREUM_USDC_USDC_ORACLE = 0x8d1A84515B54C58bAc3b18315B6b1f17dA5cf6ca;
+    address internal constant ETHEREUM_SETTER_RATIFIER = 0xb72c416382c8A6399D0765CebfB032F040B00B3c;
+    address internal constant ETHEREUM_ECRECOVER_RATIFIER = 0xAC439c81CAA6ef4C7B7E8F0110F8CE63A4b6D43e;
 }
