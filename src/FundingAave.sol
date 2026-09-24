@@ -115,6 +115,22 @@ contract FundingAave is FundingBase {
         return "";
     }
 
+    /// @dev Only Aave reserves (non-zero aToken) are accepted, otherwise nav could not value the token
+    function addCollateralToken(IERC20 collateralToken) external override {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(address(collateralToken));
+        require(aTokenAddress != address(0), ErrorsLib.TokenNotWhitelisted());
+        require(collateralTokensSet.add(address(collateralToken)), ErrorsLib.AlreadyWhitelisted());
+    }
+
+    /// @dev Only Aave reserves (non-zero variable debt token) are accepted, otherwise nav could not value the token
+    function addDebtToken(IERC20 debtToken) external override {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        (, , , , , , , , , , address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
+        require(variableDebtToken != address(0), ErrorsLib.TokenNotWhitelisted());
+        require(debtTokensSet.add(address(debtToken)), ErrorsLib.AlreadyWhitelisted());
+    }
+
     function removeCollateralToken(IERC20 collateralToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_collateralBalance(collateralToken) == 0, ErrorsLib.CannotRemove());
@@ -238,13 +254,17 @@ contract FundingAave is FundingBase {
         }
     }
 
+    /// @dev Returns 0 for tokens Aave does not list: Box calls debtBalance for arbitrary tokens during winddown
     function _debtBalance(IERC20 debtToken) internal view override returns (uint256 balance) {
         (, , , , , , , , , , address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
+        if (variableDebtToken == address(0)) return 0;
         return IERC20(variableDebtToken).balanceOf(address(this));
     }
 
+    /// @dev Returns 0 for tokens Aave does not list
     function _collateralBalance(IERC20 collateralToken) internal view override returns (uint256 balance) {
         (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(address(collateralToken));
+        if (aTokenAddress == address(0)) return 0;
         return IERC20(aTokenAddress).balanceOf(address(this));
     }
 
