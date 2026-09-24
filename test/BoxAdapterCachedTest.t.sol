@@ -221,6 +221,8 @@ contract BoxAdapterCachedTest is Test {
     function testDifferentAssetReverts(address randomAsset) public {
         vm.assume(randomAsset != parentVault.asset());
         vm.assume(randomAsset != address(0));
+        // Mocking decimals() on the console or cheatcode address fails, and the fuzzer finds them in its dictionary
+        assumeNotForgeAddress(randomAsset);
 
         // Mock the decimals() call to return 18 so Box constructor doesn't revert
         vm.mockCall(randomAsset, abi.encodeWithSignature("decimals()"), abi.encode(uint8(18)));

@@ -14,6 +14,14 @@ evm_version = "prague"
 gas_reports = ["*"]
 libraries = []
 
+# No fixed seed: every run explores new inputs; forge persists failures under cache/ and replays them first.
+[fuzz]
+runs = 1024
+
+[invariant]
+runs = 128
+depth = 64
+
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}" }
 base = { key = "${ETHERSCAN_API_KEY}" }
