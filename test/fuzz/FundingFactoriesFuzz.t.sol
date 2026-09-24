@@ -9,9 +9,11 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Box} from "../../src/Box.sol";
 import {FundingAave, IPool} from "../../src/FundingAave.sol";
 import {FundingAaveV4} from "../../src/FundingAaveV4.sol";
+import {FundingMidnight} from "../../src/FundingMidnight.sol";
 import {FundingMorpho} from "../../src/FundingMorpho.sol";
 import {FundingAaveFactory} from "../../src/factories/FundingAaveFactory.sol";
 import {FundingAaveV4Factory} from "../../src/factories/FundingAaveV4Factory.sol";
+import {FundingMidnightFactory} from "../../src/factories/FundingMidnightFactory.sol";
 import {FundingMorphoFactory} from "../../src/factories/FundingMorphoFactory.sol";
 import {IBox} from "../../src/interfaces/IBox.sol";
 import {IFunding} from "../../src/interfaces/IFunding.sol";
@@ -20,8 +22,9 @@ import {BoxLib} from "../../src/periphery/BoxLib.sol";
 import {ERC20MockDecimals} from "../mocks/ERC20MockDecimals.sol";
 import {MockAaveV3Pool} from "../mocks/MockAaveV3Pool.sol";
 import {MockAaveV4Spoke} from "../mocks/MockAaveV4Spoke.sol";
+import {MockMidnight} from "../mocks/MockMidnight.sol";
 
-/// @dev Stateless fuzzing of the three funding module factories against a local Morpho Blue and the protocol mocks.
+/// @dev Stateless fuzzing of the four funding module factories against a local Morpho Blue and the protocol mocks.
 contract FundingFactoriesFuzzTest is Test {
     using BoxLib for IBox;
 
@@ -34,6 +37,7 @@ contract FundingFactoriesFuzzTest is Test {
         uint256 lltvCap,
         FundingAaveV4 fundingAaveV4
     );
+    event CreateFundingMidnight(address indexed owner, address indexed midnight, uint256 lltvCap, FundingMidnight fundingMidnight);
 
     uint256 internal constant WAD = 1e18;
     /// @dev Spoke reserves 0..5 have non-zero underlyings (1/2 and 3/5 share one), reserve 6 has a zero underlying
@@ -43,10 +47,12 @@ contract FundingFactoriesFuzzTest is Test {
     FundingMorphoFactory internal morphoFactory;
     FundingAaveFactory internal aaveFactory;
     FundingAaveV4Factory internal aaveV4Factory;
+    FundingMidnightFactory internal midnightFactory;
 
     Morpho internal morpho;
     MockAaveV3Pool internal aavePool;
     MockAaveV4Spoke internal spoke;
+    MockMidnight internal midnight;
     /// @dev Underlying of each spoke reserve, indexed by reserve id
     address[] internal reserveUnderlyings;
 
@@ -54,9 +60,11 @@ contract FundingFactoriesFuzzTest is Test {
         morphoFactory = new FundingMorphoFactory();
         aaveFactory = new FundingAaveFactory();
         aaveV4Factory = new FundingAaveV4Factory();
+        midnightFactory = new FundingMidnightFactory();
 
         morpho = new Morpho(address(this));
         aavePool = new MockAaveV3Pool();
+        midnight = new MockMidnight();
 
         spoke = new MockAaveV4Spoke();
         address a = address(new ERC20MockDecimals(18));
@@ -351,6 +359,60 @@ contract FundingFactoriesFuzzTest is Test {
     }
 
     /////////////////////////////
+    /// FUNDING MIDNIGHT FACTORY
+    /////////////////////////////
+
+    function _assertMidnightModule(FundingMidnight module, address owner_, address midnight_, uint256 cap) internal view {
+        assertEq(module.owner(), owner_, "owner");
+        assertEq(address(module.midnight()), midnight_, "midnight");
+        assertEq(module.lltvCap(), cap, "lltvCap");
+        _assertEmpty(module);
+        assertTrue(midnightFactory.isFundingMidnight(address(module)), "registered");
+    }
+
+    function testFuzz_MidnightFactoryDeploysAndRegisters(address owner_, address midnight_, bool mockMidnight, uint256 cap) public {
+        owner_ = _nonZero(owner_);
+        // The constructor does not call Midnight, so any non-zero address is accepted and stored
+        midnight_ = mockMidnight ? address(midnight) : _nonZero(midnight_);
+        cap = bound(cap, 1, WAD);
+
+        address predicted = _nextAddress(address(midnightFactory));
+        vm.expectEmit(true, true, true, true, address(midnightFactory));
+        emit CreateFundingMidnight(owner_, midnight_, cap, FundingMidnight(payable(predicted)));
+        FundingMidnight module = midnightFactory.createFundingMidnight(owner_, midnight_, cap);
+        assertEq(address(module), predicted, "deployed at the predicted address");
+        _assertMidnightModule(module, owner_, midnight_, cap);
+
+        predicted = _nextAddress(address(midnightFactory));
+        vm.expectEmit(true, true, true, true, address(midnightFactory));
+        emit CreateFundingMidnight(owner_, midnight_, cap, FundingMidnight(payable(predicted)));
+        FundingMidnight second = midnightFactory.createFundingMidnight(owner_, midnight_, cap);
+        assertEq(address(second), predicted, "second deployed at the next address");
+        assertTrue(address(second) != address(module), "distinct modules");
+        _assertMidnightModule(second, owner_, midnight_, cap);
+        assertTrue(midnightFactory.isFundingMidnight(address(module)), "first still registered");
+    }
+
+    function testFuzz_MidnightFactoryRejectsInvalidParams(address owner_, uint256 cap, uint256 badCap) public {
+        owner_ = _nonZero(owner_);
+        cap = bound(cap, 1, WAD);
+        badCap = bound(badCap, WAD + 1, type(uint256).max);
+        address predicted = _nextAddress(address(midnightFactory));
+        uint256 nonceBefore = vm.getNonce(address(midnightFactory));
+
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        midnightFactory.createFundingMidnight(address(0), address(midnight), cap);
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        midnightFactory.createFundingMidnight(owner_, address(0), cap);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        midnightFactory.createFundingMidnight(owner_, address(midnight), 0);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        midnightFactory.createFundingMidnight(owner_, address(midnight), badCap);
+
+        _assertNothingDeployed(address(midnightFactory), predicted, nonceBefore, midnightFactory.isFundingMidnight(predicted));
+    }
+
+    /////////////////////////////
     /// MODULES OWNED BY A BOX
     /////////////////////////////
 
@@ -362,10 +424,11 @@ contract FundingFactoriesFuzzTest is Test {
             address(new Box(address(boxAsset), address(0x1), curator, "Box Factories Fuzz", "BOXFF", 0.01 ether, 7 days, 10 days, 7 days))
         );
 
-        IFunding[3] memory modules = [
+        IFunding[4] memory modules = [
             IFunding(morphoFactory.createFundingMorpho(address(box), address(morpho), cap)),
             IFunding(aaveFactory.createFundingAave(address(box), IPool(address(aavePool)), eMode, cap)),
-            IFunding(aaveV4Factory.createFundingAaveV4(address(box), address(spoke), _validReserveIds(seed), cap))
+            IFunding(aaveV4Factory.createFundingAaveV4(address(box), address(spoke), _validReserveIds(seed), cap)),
+            IFunding(midnightFactory.createFundingMidnight(address(box), address(midnight), cap))
         ];
 
         vm.startPrank(curator);
@@ -376,12 +439,12 @@ contract FundingFactoriesFuzzTest is Test {
         for (uint256 i; i < modules.length; i++) {
             assertTrue(box.isFunding(modules[i]), string.concat("module added, index ", vm.toString(i)));
         }
-        assertEq(box.fundingsLength(), 3, "three modules attached");
+        assertEq(box.fundingsLength(), 4, "four modules attached");
 
         // The Box refuses a module owned by anyone else
         stranger = _nonZero(stranger);
         if (stranger == address(box)) stranger = address(uint160(stranger) ^ 1);
-        IFunding foreign = IFunding(morphoFactory.createFundingMorpho(stranger, address(morpho), cap));
+        IFunding foreign = IFunding(midnightFactory.createFundingMidnight(stranger, address(midnight), cap));
         vm.startPrank(curator);
         box.submit(abi.encodeCall(IBox.addFunding, (foreign)));
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
