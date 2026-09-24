@@ -102,6 +102,9 @@ contract FundingEuler is FundingBase {
     /// @dev Shares worth 0 assets can remain after Euler socialises bad debt (share price below 1). Euler refuses to
     ///      redeem them (E_ZeroAssets), so they are left on the sub-account and its id is never assigned again: a later
     ///      facility can never count them if they regain value. Without shares, the id is freed.
+    /// @dev Anyone can donate zero-value shares of a collapsed collateral vault to a facility sub-account, which retires
+    ///      its id on removal and lowers the 255-facility budget. Accepted: it only limits how many facilities can ever
+    ///      be registered, never funds, nav or winddown.
     function removeFacility(bytes calldata facilityData) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         bytes32 facilityHash = keccak256(facilityData);
@@ -120,6 +123,7 @@ contract FundingEuler is FundingBase {
         delete facilityDataMap[facilityHash];
     }
 
+    /// @notice facilityData of the facility at `index`
     function facilities(uint256 index) external view returns (bytes memory) {
         return facilityDataMap[facilitiesSet.at(index)];
     }
@@ -302,6 +306,7 @@ contract FundingEuler is FundingBase {
         require(collateralVault != borrowVault, ErrorsLib.InvalidFacilityData());
     }
 
+    /// @notice Canonical facilityData for a (collateral vault, borrow vault) pair
     function encodeFacilityData(address collateralVault, address borrowVault) external pure returns (bytes memory) {
         return abi.encode(collateralVault, borrowVault);
     }

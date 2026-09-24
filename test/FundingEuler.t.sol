@@ -219,7 +219,7 @@ contract FundingEulerTest is Test {
         return MockEVault(cv).convertToAssets(MockEVault(cv).balanceOf(module.subAccount(facilityData)));
     }
 
-    // ========== VAL-EUL-001: constructor ==========
+    // ========== constructor ==========
 
     function testConstructorStoresArguments() public {
         assertEq(module.owner(), address(box));
@@ -247,7 +247,7 @@ contract FundingEulerTest is Test {
         new FundingEuler(address(box), address(evc), 1e18 + 1);
     }
 
-    // ========== VAL-EUL-003: canonical facilityData ==========
+    // ========== canonical facilityData ==========
 
     function testCanonicalFacilityDataRegisters() public {
         uint256 before = module.facilitiesLength();
@@ -315,7 +315,7 @@ contract FundingEulerTest is Test {
         assertEq(module.facilitiesLength(), 1);
     }
 
-    // ========== VAL-EUL-004: addFacility preconditions ==========
+    // ========== addFacility preconditions ==========
 
     function testAddFacilityRequiresMatchingEvc() public {
         MockEVC otherEvc = new MockEVC();
@@ -385,7 +385,7 @@ contract FundingEulerTest is Test {
         assertEq(module.debtBalance(fdUsdc, usdc), 100e6);
     }
 
-    // ========== VAL-EUL-005: sub-accounts ==========
+    // ========== sub-accounts ==========
 
     function testSubAccountsLowestFreeFirst() public {
         assertEq(module.subAccountId(fdWeth), 1);
@@ -476,7 +476,7 @@ contract FundingEulerTest is Test {
         assertEq(m.facilitiesLength(), 255);
     }
 
-    // ========== VAL-EUL-006: access control and no authorisations ==========
+    // ========== access control and no authorisations ==========
 
     function _ownerGatedCalls() internal view returns (bytes[] memory calls) {
         calls = new bytes[](11);
@@ -574,7 +574,7 @@ contract FundingEulerTest is Test {
         }
     }
 
-    // ========== VAL-EUL-007: facility and token checks on actions ==========
+    // ========== facility and token checks on actions ==========
 
     function testActionsRejectUnregisteredFacility() public {
         bytes[] memory fds = new bytes[](5);
@@ -621,7 +621,7 @@ contract FundingEulerTest is Test {
         vm.stopPrank();
     }
 
-    // ========== VAL-EUL-008: pledge ==========
+    // ========== pledge ==========
 
     function testPledgeDepositsToSubAccount() public {
         _skewSharePrice(cvWsteth, wsteth);
@@ -651,7 +651,7 @@ contract FundingEulerTest is Test {
         assertApproxEqAbs(module.collateralBalance(fdWeth, wsteth), 15e18, 3, "both pledges counted");
     }
 
-    // ========== VAL-EUL-009: borrow ==========
+    // ========== borrow ==========
 
     function testBorrowRunsAsSubAccountAndDeliversExactly() public {
         address sub = module.subAccount(fdWeth);
@@ -691,7 +691,7 @@ contract FundingEulerTest is Test {
         assertEq(module.debtBalance(fdWeth, weth), 0);
     }
 
-    // ========== VAL-EUL-010: LTV guard ==========
+    // ========== LTV guard ==========
 
     function testGuardCapValue() public pure {
         assertEq((uint256(9300) * 1e14 * LTV_CAP) / 1e18, WETH_CAP);
@@ -775,7 +775,7 @@ contract FundingEulerTest is Test {
         assertFalse(evc.isControllerEnabled(module.subAccount(fdWeth), address(bvWeth)));
     }
 
-    // ========== VAL-EUL-011: repay ==========
+    // ========== repay ==========
 
     function testRepayExactDebtClosesAndReleasesController() public {
         address sub = module.subAccount(fdWeth);
@@ -869,7 +869,7 @@ contract FundingEulerTest is Test {
         assertEq(weth.balanceOf(address(box)), boxBefore);
     }
 
-    // ========== VAL-EUL-012: depledge ==========
+    // ========== depledge ==========
 
     function testDepledgeDeliversExactAmount() public {
         _skewSharePrice(cvWsteth, wsteth);
@@ -918,7 +918,7 @@ contract FundingEulerTest is Test {
         assertEq(module.collateralBalance(fdWeth, wsteth), balance);
     }
 
-    // ========== VAL-EUL-013: views for unknown tokens and facilities ==========
+    // ========== views for unknown tokens and facilities ==========
 
     function testUnknownTokenViewsReturnZero(address token) public {
         vm.assume(token != address(wsteth) && token != address(weth));
@@ -971,7 +971,7 @@ contract FundingEulerTest is Test {
         assertEq(module.collateralBalance(fdWeth, wsteth), 10e18);
     }
 
-    // ========== VAL-EUL-014: token balances aggregate facilities ==========
+    // ========== token balances aggregate facilities ==========
 
     function _fds() internal view returns (bytes[] memory fds) {
         fds = new bytes[](3);
@@ -1046,7 +1046,7 @@ contract FundingEulerTest is Test {
         assertEq(module.collateralBalance(wsteth), 55e18);
     }
 
-    // ========== VAL-EUL-015: nav ==========
+    // ========== nav ==========
 
     function _openTwoFacilities() internal returns (address subA, address subB) {
         _skewSharePrice(cvWsteth, wsteth);
@@ -1120,7 +1120,7 @@ contract FundingEulerTest is Test {
         assertGt(box.totalAssets(), totalBefore, "skimmed Box tokens now count at the Box");
     }
 
-    // ========== VAL-EUL-016: nav reverts only while a vault is locked ==========
+    // ========== nav reverts only while a vault is locked ==========
 
     function testNavNeverRevertsInListedStates() public {
         FundingEuler empty = new FundingEuler(address(box), address(evc), LTV_CAP);
@@ -1173,7 +1173,7 @@ contract FundingEulerTest is Test {
         assertEq(module.nav(provider), navBefore);
     }
 
-    // ========== VAL-EUL-017: ltv ==========
+    // ========== ltv ==========
 
     function testLtvZeroWithoutDebtWithoutOracle() public {
         assertEq(module.ltv(fdWeth), 0, "no position");
@@ -1261,7 +1261,7 @@ contract FundingEulerTest is Test {
         assertEq(module.ltv(fd), expected);
     }
 
-    // ========== VAL-EUL-018: removal ==========
+    // ========== removal ==========
 
     function testRemoveFacilityOnlyWhenEmpty() public {
         address sub = module.subAccount(fdWeth);
@@ -1384,7 +1384,7 @@ contract FundingEulerTest is Test {
         assertEq(module.debtTokensLength(), 0);
     }
 
-    // ========== VAL-EUL-029: zero-value share dust ==========
+    // ========== zero-value share dust ==========
 
     uint256 internal constant DUST_SHARES = 1e6;
 

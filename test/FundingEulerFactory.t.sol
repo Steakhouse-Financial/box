@@ -12,7 +12,6 @@ import {BoxLib} from "../src/periphery/BoxLib.sol";
 import {ERC20MockDecimals} from "./mocks/ERC20MockDecimals.sol";
 import {MockEVC} from "./mocks/MockEVC.sol";
 
-/// @dev VAL-EUL-002
 contract FundingEulerFactoryTest is Test {
     using BoxLib for Box;
 
