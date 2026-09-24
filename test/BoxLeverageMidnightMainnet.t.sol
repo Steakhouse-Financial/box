@@ -123,7 +123,7 @@ contract BoxLeverageMidnightMainnetTest is MidnightForkTest {
         assertEq(module.maturity(fd), DEC25_MATURITY, "maturity from the market");
     }
 
-    // ========== VAL-MID-041: CORE FLOW ==========
+    // ========== CORE FLOW ==========
 
     function testCoreFlowWbtcUsdc() public {
         uint256 moduleUsdcBefore = USDC.balanceOf(address(module));

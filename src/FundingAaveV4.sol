@@ -85,6 +85,7 @@ contract FundingAaveV4 is FundingBase {
         facilitiesSet.remove(facilityHash);
     }
 
+    /// @notice facilityData of the facility at `index`; always "" for this module
     function facilities(uint256 index) external view returns (bytes memory) {
         // Reverts on an invalid index, like FundingMorpho
         facilitiesSet.at(index);
@@ -109,12 +110,14 @@ contract FundingAaveV4 is FundingBase {
         require(debtTokensSet.add(address(debtToken)), ErrorsLib.AlreadyWhitelisted());
     }
 
+    /// @dev Only when the supplied balance of the token is 0
     function removeCollateralToken(IERC20 collateralToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_collateralBalance(collateralToken) == 0, ErrorsLib.CannotRemove());
         require(collateralTokensSet.remove(address(collateralToken)), ErrorsLib.NotWhitelisted());
     }
 
+    /// @dev Only when the debt of the token (premium included) is 0
     function removeDebtToken(IERC20 debtToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_debtBalance(debtToken) == 0, ErrorsLib.CannotRemove());

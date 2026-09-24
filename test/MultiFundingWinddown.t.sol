@@ -128,7 +128,6 @@ contract MultiFundingWinddownTest is Test {
         vm.stopPrank();
     }
 
-    /// @dev VAL-CROSS-010
     function testWinddownExitWithEveryModuleType() public {
         for (uint256 i; i < 5; i++) {
             assertGt(modules[i].debtBalance(fds[i], debtTokens[i]), 0, string.concat(names[i], " has open debt"));

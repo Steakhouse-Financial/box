@@ -8,7 +8,6 @@ import {FundingMidnightFactory} from "../src/factories/FundingMidnightFactory.so
 import {ErrorsLib} from "../src/libraries/ErrorsLib.sol";
 import {MockMidnight} from "./mocks/MockMidnight.sol";
 
-/// @dev VAL-MID-002
 contract FundingMidnightFactoryTest is Test {
     event CreateFundingMidnight(address indexed owner, address indexed midnight, uint256 lltvCap, FundingMidnight fundingMidnight);
 

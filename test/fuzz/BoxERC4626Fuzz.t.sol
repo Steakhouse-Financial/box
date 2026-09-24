@@ -88,7 +88,7 @@ contract BoxERC4626FuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-002: ROUND TRIPS NEVER CREATE VALUE
+    /// ROUND TRIPS NEVER CREATE VALUE
     /////////////////////////////
 
     function testFuzz_DepositThenRedeemNeverCreatesValue(PreState memory pre, uint256 assets) public {
@@ -182,7 +182,7 @@ contract BoxERC4626FuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-003: SHARE PRICE NEVER DECREASES
+    /// SHARE PRICE NEVER DECREASES
     /////////////////////////////
 
     function testFuzz_SharePriceNeverDecreases(PreState memory pre, uint256[ACTIONS] memory actions) public {

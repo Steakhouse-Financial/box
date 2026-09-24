@@ -36,7 +36,7 @@ contract BoxTimelockFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-005: SUBMIT / EXECUTE / REVOKE
+    /// SUBMIT / EXECUTE / REVOKE
     /////////////////////////////
 
     function testFuzz_ExecutionSucceedsIffDelayElapsed(uint256 delay, uint256 elapsed, address account, address executor) public {
@@ -112,7 +112,7 @@ contract BoxTimelockFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-005: INCREASE / DECREASE / ABDICATE
+    /// INCREASE / DECREASE / ABDICATE
     /////////////////////////////
 
     function testFuzz_IncreaseTimelockBounds(bytes4 selector, uint256 current, uint256 newDuration) public {

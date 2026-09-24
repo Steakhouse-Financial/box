@@ -268,7 +268,7 @@ contract FundingMidnightFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-006: BOX ROUND TRIP
+    /// BOX ROUND TRIP
     /////////////////////////////
 
     /// @dev pledge -> stageBorrow -> borrow -> (warp) -> repay(max) -> depledge(max) -> removeFundingFacility, all driven
@@ -356,7 +356,7 @@ contract FundingMidnightFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-007: NAV
+    /// NAV
     /////////////////////////////
 
     function _decimals(uint256 seed) internal pure returns (uint8) {
@@ -563,7 +563,7 @@ contract FundingMidnightFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-008: GUARD BOUNDARIES
+    /// GUARD BOUNDARIES
     /////////////////////////////
 
     /// @dev A new module (lltvCap), market (lltv, own Midnight oracle) and facility attached to the Box, with fuzzed
@@ -759,7 +759,7 @@ contract FundingMidnightFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-009: FACILITY DATA
+    /// FACILITY DATA
     /////////////////////////////
 
     function _slice(bytes memory data, uint256 start, uint256 end) internal pure returns (bytes memory out) {
@@ -1000,7 +1000,7 @@ contract FundingMidnightFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-010: CALLERS
+    /// CALLERS
     /////////////////////////////
 
     function _ownerGatedCalls(uint256 amount) internal view returns (bytes[] memory calls) {
@@ -1153,7 +1153,7 @@ contract FundingMidnightFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-011: UNKNOWN TOKENS
+    /// UNKNOWN TOKENS
     /////////////////////////////
 
     function _assertUnknownTokenReadsZero(address token) internal view {

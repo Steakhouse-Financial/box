@@ -144,7 +144,7 @@ contract BoxSlippageFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-004: ALLOCATE / DEALLOCATE SLIPPAGE BOUNDS
+    /// ALLOCATE / DEALLOCATE SLIPPAGE BOUNDS
     /////////////////////////////
 
     function testFuzz_AllocateRespectsSlippageBounds(
@@ -253,7 +253,7 @@ contract BoxSlippageFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-004: WINDDOWN ALLOCATION CAP
+    /// WINDDOWN ALLOCATION CAP
     /////////////////////////////
 
     function testFuzz_WinddownAllocateCapIsExact(

@@ -122,7 +122,7 @@ contract BoxMorphoInvariantTest is Test {
 
     // ========== INVARIANTS ==========
 
-    /// @dev VAL-FUZZ-014: totalAssets = asset balance + floored value of every Box token + FundingMorpho nav
+    /// @dev totalAssets = asset balance + floored value of every Box token + FundingMorpho nav
     function invariant_totalAssetsEqualsSumOfParts() public view {
         uint256 expected = usdc.balanceOf(address(box)) + module.nav(IOracleCallback(address(box)));
         uint256 length = box.tokensLength();
@@ -133,7 +133,7 @@ contract BoxMorphoInvariantTest is Test {
         assertEq(box.totalAssets(), expected, "totalAssets = idle holdings + module nav");
     }
 
-    /// @dev VAL-FUZZ-014: nav = sum over facilities of max(0, floor(collateral * p / 1e36) - ceil(debt * p / 1e36))
+    /// @dev nav = sum over facilities of max(0, floor(collateral * p / 1e36) - ceil(debt * p / 1e36))
     function invariant_navMatchesPerFacilityReference() public view {
         uint256 expected;
         for (uint256 i; i < 3; i++) {
@@ -148,7 +148,7 @@ contract BoxMorphoInvariantTest is Test {
         assertEq(module.nav(IOracleCallback(address(box))), expected, "nav = sum of floored per-facility values");
     }
 
-    /// @dev VAL-FUZZ-014: token-level balances equal the sum of the per-facility balances of that token
+    /// @dev token-level balances equal the sum of the per-facility balances of that token
     function invariant_balancesAggregateFacilities() public view {
         IERC20[2] memory tokens = [IERC20(address(usdc)), IERC20(address(weth))];
         for (uint256 t; t < 2; t++) {
@@ -164,7 +164,7 @@ contract BoxMorphoInvariantTest is Test {
         }
     }
 
-    /// @dev VAL-FUZZ-014: totalAssets and nav never reverted after any action, and do not revert now
+    /// @dev totalAssets and nav never reverted after any action, and do not revert now
     function invariant_navNeverReverts() public view {
         assertEq(handler.navFailures(), 0, "no nav or totalAssets revert after any action");
         try box.totalAssets() returns (uint256) {} catch {
@@ -175,7 +175,7 @@ contract BoxMorphoInvariantTest is Test {
         }
     }
 
-    /// @dev VAL-FUZZ-015: the module holds exactly the donations not yet skimmed, and skims never touch nav
+    /// @dev the module holds exactly the donations not yet skimmed, and skims never touch nav
     function invariant_moduleHoldsOnlyDonations() public view {
         assertEq(usdc.balanceOf(address(module)), handler.donations(address(usdc)), "idle USDC = unskimmed donations");
         assertEq(weth.balanceOf(address(module)), handler.donations(address(weth)), "idle WETH = unskimmed donations");
@@ -183,12 +183,12 @@ contract BoxMorphoInvariantTest is Test {
         assertEq(handler.skimFailures(), 0, "a donation can always be skimmed");
     }
 
-    /// @dev VAL-FUZZ-015: every successful borrow or depledge left the facility at or below lltv * lltvCap
+    /// @dev every successful borrow or depledge left the facility at or below lltv * lltvCap
     function invariant_ltvWithinCapAfterBorrowAndDepledge() public view {
         assertEq(handler.ltvViolations(), 0, "ltv <= lltv * lltvCap right after every borrow and depledge");
     }
 
-    /// @dev VAL-FUZZ-015: no deposit, withdraw or redeem decreased the price per share
+    /// @dev no deposit, withdraw or redeem decreased the price per share
     function invariant_sharePriceNotDecreasedByDepositOrWithdrawal() public view {
         assertEq(handler.sharePriceDecreases(), 0, "deposit/withdraw/redeem never decrease the share price");
     }

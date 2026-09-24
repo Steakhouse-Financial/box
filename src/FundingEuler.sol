@@ -120,6 +120,7 @@ contract FundingEuler is FundingBase {
         delete facilityDataMap[facilityHash];
     }
 
+    /// @notice facilityData of the facility at `index`
     function facilities(uint256 index) external view returns (bytes memory) {
         return facilityDataMap[facilitiesSet.at(index)];
     }
@@ -302,6 +303,7 @@ contract FundingEuler is FundingBase {
         require(collateralVault != borrowVault, ErrorsLib.InvalidFacilityData());
     }
 
+    /// @notice Canonical facilityData for a (collateral vault, borrow vault) pair
     function encodeFacilityData(address collateralVault, address borrowVault) external pure returns (bytes memory) {
         return abi.encode(collateralVault, borrowVault);
     }

@@ -92,7 +92,7 @@ contract FundingMorphoFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-006: BOX ROUND TRIP
+    /// BOX ROUND TRIP
     /////////////////////////////
 
     struct RoundTripCase {
@@ -191,7 +191,7 @@ contract FundingMorphoFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-007: NAV MATCHES THE PER-FACILITY REFERENCE
+    /// NAV MATCHES THE PER-FACILITY REFERENCE
     /////////////////////////////
 
     struct NavCase {
@@ -257,7 +257,7 @@ contract FundingMorphoFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-008: GUARD BOUNDARY IS EXACT
+    /// GUARD BOUNDARY IS EXACT
     /////////////////////////////
 
     struct BoundaryCase {
@@ -359,7 +359,7 @@ contract FundingMorphoFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-009: ONLY CANONICAL FACILITY DATA
+    /// ONLY CANONICAL FACILITY DATA
     /////////////////////////////
 
     struct EncodingCase {
@@ -467,7 +467,7 @@ contract FundingMorphoFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-010: OWNER-GATED FUNCTIONS
+    /// OWNER-GATED FUNCTIONS
     /////////////////////////////
 
     function testFuzz_NonOwnerCallsRevertOnlyOwner(
@@ -528,7 +528,7 @@ contract FundingMorphoFuzzTest is Test {
     }
 
     /////////////////////////////
-    /// VAL-FUZZ-011: UNKNOWN TOKENS WITH A LIVE POSITION
+    /// UNKNOWN TOKENS WITH A LIVE POSITION
     /////////////////////////////
 
     struct UnknownTokenCase {

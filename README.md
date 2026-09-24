@@ -84,11 +84,14 @@ Notice that a Box holder don't need to be a `feeder` to redeem and transfer a Bo
 ## Funding Modules
 
 The curator can add modular funding integrations (`IFunding`).  
-Supported modules: **Morpho Blue** and **Aave v3**.  
+Supported modules: **Morpho Blue**, **Aave v3**, **Aave v4**, **Morpho Midnight** and **Euler v2**.  
 
 - Each module instance belongs to a single Box (constructor parameter).  
 - Only whitelisted tokens from the parent Box can be used as collateral/debt.  
 - Only empty modules (no facilities, collateral, or debt tokens) can be added.  
+- Modules are chain-agnostic: every protocol address (pool, Spoke, Midnight, EVC) is a constructor argument, so a module can be deployed on any chain where its protocol is deployed. Each module has a factory in `src/factories/` that records the modules it created (`isFundingX`) and emits a creation event.  
+- `nav` values positions with the Box oracles (collateral rounded down, debt rounded up, floored at 0 because there is no recourse beyond the collateral) and ignores tokens held idle by the module. `ltv` uses the protocol's own pricing and is only used by the module's post-action guard.  
+- Views never revert for tokens or `facilityData` the module does not know (they return 0), so a winddown `deallocate` cannot be blocked by an attached module.  
 
 ### Morpho Module
 - `facilityData` encodes Morpho Blue market parameters.  
@@ -98,6 +101,43 @@ Supported modules: **Morpho Blue** and **Aave v3**.
 ### Aave Module
 - `facilityData` is always empty (`""`).  
 - Each module is tied to an Aave pool address and a given `eMode` parameter.  
+- `debtBalance` / `collateralBalance` return 0 for tokens that are not listed on the Aave pool (instead of reverting).  
+- `addCollateralToken` / `addDebtToken` only accept listed Aave reserves (non-zero aToken / variable debt token), so an unlisted token can no longer make `nav` revert.  
+
+### Aave v4 Module (`FundingAaveV4`)
+- One module instance = one position (the module address) on one Aave v4 Spoke. Use one module per Spoke.  
+- `facilityData` is always empty (`""`); any other value is rejected.  
+- Constructor / factory: `createFundingAaveV4(owner, spoke, reserveIds, lltvCap)`.  
+  - `reserveIds`: the Spoke reserves the module may use. Their underlying tokens must be pairwise distinct: when a Spoke lists the same token several times (reserves backed by different Hubs), this list selects which reserve the token uses.  
+  - `lltvCap`: fraction (1e18 = 100%) of the Spoke's own borrowing limit the module may use, in `(0, 1e18]`.  
+- A collateral token must be the underlying of a configured reserve with a non-zero collateral factor; a debt token must be the underlying of a configured borrowable reserve.  
+- `pledge` supplies and enables the reserve as collateral. `borrow` and `depledge` deliver exactly the requested amount to the Box and are followed by a health guard: `healthFactor >= ceil(1e36 / lltvCap)`, i.e. `ltv <= avgCollateralFactor * lltvCap / 1e18` (Aave v4 lets a position borrow down to a health factor of exactly 1).  
+- `debtBalance` includes the Aave v4 premium debt, so repaying `debtBalance` closes the debt with no dust; unused tokens are returned to the Box.  
+
+### Morpho Midnight Module (`FundingMidnight`)
+Morpho Midnight is fixed-rate, fixed-term lending: each maturity is a separate market, and borrowing sells "units" (face value due at maturity) to lenders at a price below 1.  
+- Constructor / factory: `createFundingMidnight(owner, midnight, lltvCap)`. `lltvCap` is the fraction (1e18 = 100%) of the market LLTV the module may use, in `(0, 1e18]`.  
+- `facilityData = abi.encode(Market market, uint256 collateralIndex, uint256 maxBorrowApr)` (three top-level values, canonical encoding only; see `encodeFacilityData`).  
+  - `market`: the Midnight market struct. It must belong to this Midnight contract and chain, already exist on Midnight and mature in the future.  
+  - `collateralIndex`: index of the collateral in `market.collateralParams`. The facility's debt token is `market.loanToken` and its collateral token is `market.collateralParams[collateralIndex].token`; both must already be registered module tokens.  
+  - `maxBorrowApr`: highest simple annual rate (1e18 = 100%, 365-day year) the module accepts when borrowing, in `(0, 1e18]`. It is set by the curator through the timelocked `addFacility`.  
+  - Midnight keeps one position per market and address, so the module accepts at most one facility per market.  
+- Borrowing is a two-step flow, because `IFunding.borrow` carries no lender offer:  
+  1. An allocator calls `stageBorrow(facilityData, fills, validUntil)` on the module (allocator-only). Each `OfferFill` holds a lender bid, the `ratifierData` passed to Midnight's `take`, and `maxUnits` (0 skips the fill, `type(uint256).max` means no cap). A new staging replaces the previous one for that facility.  
+  2. The allocator calls `Box.borrow(module, facilityData, loanToken, amount)`. The module consumes the staging: it tries the fills in order and skips (does not revert on) offers that are not bids of this market, are outside their validity window, have no capacity left, or whose price net of the settlement fee is below the floor `1 / (1 + maxBorrowApr * timeToMaturity / 365 days)`. Proceeds go straight to the Box. The call reverts if the Box received less than `amount`, if the staging is expired (`block.timestamp > validUntil`) or was staged by an address that is no longer an allocator, if the market is matured, or if the LTV guard is broken. The staging is deleted whatever the number of fills used.  
+- `debtBalance` is the face value owed at maturity (the exact amount that closes the loan). Repayment is at face value only; unused tokens are returned to the Box. Repay, depledge, views and `nav` never read the staging, so it can never block a winddown.  
+- `nav` values the debt at its accreted value: linear from the proceeds at borrow time to the face value at maturity (`debtValue(facilityData)`). A borrow therefore does not move `nav`, and the implied interest is recognised over the term.  
+- Guard after `borrow` and `depledge`: `ltv <= lltv * lltvCap / 1e18`, where `ltv` is face debt over collateral value at the market's own Midnight oracle and `lltv` is the LLTV of the facility's collateral.  
+- Maturity views for keepers: `maturity(facilityData)`, `isMatured(facilityData)` (true from the maturity timestamp) and `marketId(facilityData)`.  
+- Before maturity, a position can be liquidated when its debt exceeds the LLTV-weighted collateral value at the Midnight oracle.  
+- ⚠️ Maturity risk: there is no grace period. Borrowing closes at maturity, and one second after maturity anyone can liquidate the whole position, even a healthy one, with a liquidation bonus that ramps up linearly over the following hour. Allocators (or anyone during winddown) must repay before maturity.  
+
+### Euler v2 Module (`FundingEuler`)
+- Constructor / factory: `createFundingEuler(owner, evc, ltvCap)`. `evc` is the Ethereum Vault Connector of the chain; `ltvCap` is the fraction (1e18 = 100%) of the Euler borrow LTV the module may use, in `(0, 1e18]`.  
+- `facilityData = abi.encode(address collateralVault, address borrowVault)`: exactly 64 bytes, two distinct non-zero EVK vaults of this EVC (see `encodeFacilityData`). The borrow vault must accept the collateral vault (`LTVBorrow > 0`), and both vault assets must already be registered module tokens.  
+- Each facility uses its own EVC sub-account (`address(module) ^ id`, id in 1..255, the lowest free id at registration; see `subAccount(facilityData)`), because an EVC account can only have one controller (debt vault). The module address itself (id 0) never holds positions.  
+- Collateral is held as collateral-vault shares. `borrow` and `depledge` deliver exactly the requested amount to the Box and are followed by a guard: `ltv <= LTVBorrow * ltvCap`, where `ltv` is the raw debt/collateral value ratio at the borrow vault's oracle. Repaying `debtBalance` closes the debt and releases the controller.  
+- ⚠️ Euler's balance views revert while a vault is in the middle of an operation (for example inside its flash-loan callback), so `nav` and the Box `totalAssets` revert in that window instead of returning a wrong value. Do not source flash liquidity from a vault used by a facility of the same Box.  
 
 ## Arbitrage Protection
 
