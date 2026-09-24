@@ -9,10 +9,12 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Box} from "../../src/Box.sol";
 import {FundingAave, IPool} from "../../src/FundingAave.sol";
 import {FundingAaveV4} from "../../src/FundingAaveV4.sol";
+import {FundingEuler} from "../../src/FundingEuler.sol";
 import {FundingMidnight} from "../../src/FundingMidnight.sol";
 import {FundingMorpho} from "../../src/FundingMorpho.sol";
 import {FundingAaveFactory} from "../../src/factories/FundingAaveFactory.sol";
 import {FundingAaveV4Factory} from "../../src/factories/FundingAaveV4Factory.sol";
+import {FundingEulerFactory} from "../../src/factories/FundingEulerFactory.sol";
 import {FundingMidnightFactory} from "../../src/factories/FundingMidnightFactory.sol";
 import {FundingMorphoFactory} from "../../src/factories/FundingMorphoFactory.sol";
 import {IBox} from "../../src/interfaces/IBox.sol";
@@ -22,9 +24,10 @@ import {BoxLib} from "../../src/periphery/BoxLib.sol";
 import {ERC20MockDecimals} from "../mocks/ERC20MockDecimals.sol";
 import {MockAaveV3Pool} from "../mocks/MockAaveV3Pool.sol";
 import {MockAaveV4Spoke} from "../mocks/MockAaveV4Spoke.sol";
+import {MockEVC} from "../mocks/MockEVC.sol";
 import {MockMidnight} from "../mocks/MockMidnight.sol";
 
-/// @dev Stateless fuzzing of the four funding module factories against a local Morpho Blue and the protocol mocks.
+/// @dev Stateless fuzzing of the five funding module factories against a local Morpho Blue and the protocol mocks.
 contract FundingFactoriesFuzzTest is Test {
     using BoxLib for IBox;
 
@@ -38,6 +41,7 @@ contract FundingFactoriesFuzzTest is Test {
         FundingAaveV4 fundingAaveV4
     );
     event CreateFundingMidnight(address indexed owner, address indexed midnight, uint256 lltvCap, FundingMidnight fundingMidnight);
+    event CreateFundingEuler(address indexed owner, address indexed evc, uint256 ltvCap, FundingEuler fundingEuler);
 
     uint256 internal constant WAD = 1e18;
     /// @dev Spoke reserves 0..5 have non-zero underlyings (1/2 and 3/5 share one), reserve 6 has a zero underlying
@@ -48,11 +52,13 @@ contract FundingFactoriesFuzzTest is Test {
     FundingAaveFactory internal aaveFactory;
     FundingAaveV4Factory internal aaveV4Factory;
     FundingMidnightFactory internal midnightFactory;
+    FundingEulerFactory internal eulerFactory;
 
     Morpho internal morpho;
     MockAaveV3Pool internal aavePool;
     MockAaveV4Spoke internal spoke;
     MockMidnight internal midnight;
+    MockEVC internal evc;
     /// @dev Underlying of each spoke reserve, indexed by reserve id
     address[] internal reserveUnderlyings;
 
@@ -61,10 +67,12 @@ contract FundingFactoriesFuzzTest is Test {
         aaveFactory = new FundingAaveFactory();
         aaveV4Factory = new FundingAaveV4Factory();
         midnightFactory = new FundingMidnightFactory();
+        eulerFactory = new FundingEulerFactory();
 
         morpho = new Morpho(address(this));
         aavePool = new MockAaveV3Pool();
         midnight = new MockMidnight();
+        evc = new MockEVC();
 
         spoke = new MockAaveV4Spoke();
         address a = address(new ERC20MockDecimals(18));
@@ -413,6 +421,60 @@ contract FundingFactoriesFuzzTest is Test {
     }
 
     /////////////////////////////
+    /// FUNDING EULER FACTORY
+    /////////////////////////////
+
+    function _assertEulerModule(FundingEuler module, address owner_, address evc_, uint256 cap) internal view {
+        assertEq(module.owner(), owner_, "owner");
+        assertEq(address(module.evc()), evc_, "evc");
+        assertEq(module.ltvCap(), cap, "ltvCap");
+        _assertEmpty(module);
+        assertTrue(eulerFactory.isFundingEuler(address(module)), "registered");
+    }
+
+    function testFuzz_EulerFactoryDeploysAndRegisters(address owner_, address evc_, bool mockEvc, uint256 cap) public {
+        owner_ = _nonZero(owner_);
+        // The constructor does not call the EVC, so any non-zero address is accepted and stored
+        evc_ = mockEvc ? address(evc) : _nonZero(evc_);
+        cap = bound(cap, 1, WAD);
+
+        address predicted = _nextAddress(address(eulerFactory));
+        vm.expectEmit(true, true, true, true, address(eulerFactory));
+        emit CreateFundingEuler(owner_, evc_, cap, FundingEuler(payable(predicted)));
+        FundingEuler module = eulerFactory.createFundingEuler(owner_, evc_, cap);
+        assertEq(address(module), predicted, "deployed at the predicted address");
+        _assertEulerModule(module, owner_, evc_, cap);
+
+        predicted = _nextAddress(address(eulerFactory));
+        vm.expectEmit(true, true, true, true, address(eulerFactory));
+        emit CreateFundingEuler(owner_, evc_, cap, FundingEuler(payable(predicted)));
+        FundingEuler second = eulerFactory.createFundingEuler(owner_, evc_, cap);
+        assertEq(address(second), predicted, "second deployed at the next address");
+        assertTrue(address(second) != address(module), "distinct modules");
+        _assertEulerModule(second, owner_, evc_, cap);
+        assertTrue(eulerFactory.isFundingEuler(address(module)), "first still registered");
+    }
+
+    function testFuzz_EulerFactoryRejectsInvalidParams(address owner_, uint256 cap, uint256 badCap) public {
+        owner_ = _nonZero(owner_);
+        cap = bound(cap, 1, WAD);
+        badCap = bound(badCap, WAD + 1, type(uint256).max);
+        address predicted = _nextAddress(address(eulerFactory));
+        uint256 nonceBefore = vm.getNonce(address(eulerFactory));
+
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        eulerFactory.createFundingEuler(address(0), address(evc), cap);
+        vm.expectRevert(ErrorsLib.InvalidAddress.selector);
+        eulerFactory.createFundingEuler(owner_, address(0), cap);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        eulerFactory.createFundingEuler(owner_, address(evc), 0);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        eulerFactory.createFundingEuler(owner_, address(evc), badCap);
+
+        _assertNothingDeployed(address(eulerFactory), predicted, nonceBefore, eulerFactory.isFundingEuler(predicted));
+    }
+
+    /////////////////////////////
     /// MODULES OWNED BY A BOX
     /////////////////////////////
 
@@ -424,11 +486,12 @@ contract FundingFactoriesFuzzTest is Test {
             address(new Box(address(boxAsset), address(0x1), curator, "Box Factories Fuzz", "BOXFF", 0.01 ether, 7 days, 10 days, 7 days))
         );
 
-        IFunding[4] memory modules = [
+        IFunding[5] memory modules = [
             IFunding(morphoFactory.createFundingMorpho(address(box), address(morpho), cap)),
             IFunding(aaveFactory.createFundingAave(address(box), IPool(address(aavePool)), eMode, cap)),
             IFunding(aaveV4Factory.createFundingAaveV4(address(box), address(spoke), _validReserveIds(seed), cap)),
-            IFunding(midnightFactory.createFundingMidnight(address(box), address(midnight), cap))
+            IFunding(midnightFactory.createFundingMidnight(address(box), address(midnight), cap)),
+            IFunding(eulerFactory.createFundingEuler(address(box), address(evc), cap))
         ];
 
         vm.startPrank(curator);
@@ -439,7 +502,7 @@ contract FundingFactoriesFuzzTest is Test {
         for (uint256 i; i < modules.length; i++) {
             assertTrue(box.isFunding(modules[i]), string.concat("module added, index ", vm.toString(i)));
         }
-        assertEq(box.fundingsLength(), 4, "four modules attached");
+        assertEq(box.fundingsLength(), 5, "five modules attached");
 
         // The Box refuses a module owned by anyone else
         stranger = _nonZero(stranger);
