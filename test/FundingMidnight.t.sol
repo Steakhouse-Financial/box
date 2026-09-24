@@ -295,6 +295,27 @@ abstract contract FundingMidnightFixture is Test {
     function _maxLtv() internal pure returns (uint256) {
         return (LLTV * LLTV_CAP) / 1e18;
     }
+
+    // ========== TAKE EXPECTATIONS ==========
+
+    /// @dev The exact `take` calldata of the module selling `units` into `f`, with the proceeds sent to the Box
+    function _takeCall(OfferFill memory f, uint256 units) internal view returns (bytes memory) {
+        return abi.encodeCall(IMidnight.take, (f.offer, f.ratifierData, units, address(module), address(box), address(0), bytes("")));
+    }
+
+    /// @dev Midnight's `take` is called exactly `count` times, whatever the arguments, from here to the end of the test.
+    ///      With one `_expectTakeCall` per expected call, this rules out any other take (offer, units or receiver).
+    function _expectTakeCount(uint64 count) internal {
+        vm.expectCall(address(midnight), abi.encodeWithSelector(IMidnight.take.selector), count);
+    }
+
+    function _expectTakeCall(OfferFill memory f, uint256 units) internal {
+        vm.expectCall(address(midnight), _takeCall(f, units), 1);
+    }
+
+    function _expectNoTakeCall(OfferFill memory f, uint256 units) internal {
+        vm.expectCall(address(midnight), _takeCall(f, units), 0);
+    }
 }
 
 contract FundingMidnightTest is FundingMidnightFixture {
@@ -349,11 +370,21 @@ contract FundingMidnightTest is FundingMidnightFixture {
     }
 
     function _assertRejected(FundingMidnight m, bytes memory data, bytes4 selector) internal {
+        _assertRejectedWith(m, data, abi.encodeWithSelector(selector));
+    }
+
+    /// @dev For bytes that abi.decode itself refuses (an address word with dirty high-order bits, an offset or length out
+    ///      of bounds): Solidity's ABI decoder reverts without data, before the module's canonical-encoding check runs.
+    function _assertRejectedByDecoder(FundingMidnight m, bytes memory data) internal {
+        _assertRejectedWith(m, data, "");
+    }
+
+    function _assertRejectedWith(FundingMidnight m, bytes memory data, bytes memory revertData) internal {
         uint256 lengthBefore = m.facilitiesLength();
         vm.prank(address(box));
-        if (selector == bytes4(0)) vm.expectRevert();
-        else vm.expectRevert(selector);
-        m.addFacility(data);
+        (bool ok, bytes memory ret) = address(m).call(abi.encodeCall(FundingMidnight.addFacility, (data)));
+        assertFalse(ok, "rejected");
+        assertEq(ret, revertData, "exact revert data");
         assertEq(m.facilitiesLength(), lengthBefore, "nothing registered");
         assertFalse(m.isFacility(data));
     }
@@ -386,25 +417,66 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(IdLib.toId(d2), id);
         _assertRejected(m, arrayOffset, ErrorsLib.InvalidFacilityData.selector);
 
-        // Struct-wrapped encoding
-        _assertRejected(m, abi.encode(WrappedFacility(_market(M), 0, MAX_APR)), bytes4(0));
+        // Struct-wrapped encoding: an offset word in front of the canonical bytes. abi.decode then reads the canonical
+        // head as the market and takes the chain id as the collateralParams offset, which is out of bounds.
+        bytes memory wrapped = abi.encode(WrappedFacility(_market(M), 0, MAX_APR));
+        assertEq(wrapped, bytes.concat(bytes32(uint256(0x20)), fd));
+        _assertRejectedByDecoder(m, wrapped);
 
-        // Dirty high-order bits in the `midnight` address word (bytes [128,160))
-        bytes memory dirty = bytes.concat(
-            _slice(fd, 0, 128),
-            bytes32(uint256(uint160(address(midnight))) | (1 << 200)),
-            _slice(fd, 160, fd.length)
-        );
-        _assertRejected(m, dirty, bytes4(0));
-
-        // Garbage
-        _assertRejected(m, hex"00", bytes4(0));
-        _assertRejected(m, "", bytes4(0));
+        // Shorter than the three head words
+        _assertRejectedByDecoder(m, hex"00");
+        _assertRejectedByDecoder(m, "");
 
         // The canonical bytes still register
         vm.prank(address(box));
         m.addFacility(fd);
         assertEq(m.facilitiesLength(), 1);
+    }
+
+    function testDirtyAddressWordsRejected() public {
+        FundingMidnight m = _freshModule();
+        (Market memory two, uint256 cbIdx) = _market2(M);
+        midnight.touchMarket(two);
+        bytes memory fdTwo = _fd(two, cbIdx, MAX_APR);
+
+        // Words 0-2: market offset, collateralIndex, maxBorrowApr. Words 3-10 (market head): chainId, midnight,
+        // loanToken, collateralParams offset, maturity, rcfThreshold, enterGate, liquidatorGate. Word 11: the
+        // collateralParams length, then 4 words per entry: token, lltv, liquidationCursor, oracle.
+        assertEq(uint256(bytes32(_slice(fdTwo, 192, 224))), 0x100);
+        assertEq(uint256(bytes32(_slice(fdTwo, 352, 384))), 2);
+        _assertDirtyAddressRejected(m, fd, 4, address(midnight));
+        _assertDirtyAddressRejected(m, fd, 5, address(usdc));
+        _assertDirtyAddressRejected(m, fd, 9, address(0));
+        _assertDirtyAddressRejected(m, fd, 10, address(0));
+        _assertDirtyAddressRejected(m, fd, 12, address(cbBtc));
+        _assertDirtyAddressRejected(m, fd, 15, address(cbBtcMidnightOracle));
+        // Both collateral entries, including the one the facility does not use
+        for (uint256 k; k < 2; k++) {
+            _assertDirtyAddressRejected(m, fdTwo, 12 + 4 * k, two.collateralParams[k].token);
+            _assertDirtyAddressRejected(m, fdTwo, 15 + 4 * k, two.collateralParams[k].oracle);
+        }
+
+        // The canonical encodings still register
+        vm.startPrank(address(box));
+        m.addFacility(fd);
+        m.addFacility(fdTwo);
+        vm.stopPrank();
+        assertEq(m.facilitiesLength(), 2);
+    }
+
+    /// @dev Rejects `data` with the lowest, then the highest, high-order bit set in address word `word`
+    function _assertDirtyAddressRejected(FundingMidnight m, bytes memory data, uint256 word, address expected) internal {
+        uint256 clean = uint256(uint160(expected));
+        assertEq(uint256(bytes32(_slice(data, 32 * word, 32 * word + 32))), clean, "address word");
+        uint256[2] memory dirtyBits = [uint256(1) << 160, uint256(1) << 255];
+        for (uint256 k; k < 2; k++) {
+            bytes memory dirty = bytes.concat(
+                _slice(data, 0, 32 * word),
+                bytes32(clean | dirtyBits[k]),
+                _slice(data, 32 * word + 32, data.length)
+            );
+            _assertRejectedByDecoder(m, dirty);
+        }
     }
 
     function _slice(bytes memory data, uint256 start, uint256 end) internal pure returns (bytes memory out) {
@@ -849,6 +921,12 @@ contract FundingMidnightTest is FundingMidnightFixture {
         fills[2] = _fill(otherCollaterals);
         fills[3] = _fill(valid);
         _stage(fd, fills);
+
+        // The skipped fills never reach Midnight: the only take is the valid bid's
+        uint256 units = MidnightMathLib.unitsForSellerAssets(10_000e6, TickLib.tickToPrice(TICK));
+        for (uint256 i; i < 3; i++) _expectNoTakeCall(fills[i], units);
+        _expectTakeCall(fills[3], units);
+        _expectTakeCount(1);
         _borrow(fd, 10_000e6);
 
         assertEq(midnight.consumed(lender, "sell"), 0);
@@ -858,18 +936,61 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(midnight.debt(IdLib.toId(twoColl), address(module)), 0);
         assertGt(midnight.consumed(lender2, "valid"), 0);
         assertEq(midnight.takeCount(), 1);
-        assertEq(_debt(), MidnightMathLib.unitsForSellerAssets(10_000e6, TickLib.tickToPrice(TICK)));
+        assertEq(_debt(), units);
     }
 
     function testOnlyInvalidFillsReverts() public {
         _pledge(fd, 5e8);
         Offer memory sell = _bid(lender, TICK, "sell");
         sell.buy = false;
-        _stage(fd, _fills(_fill(sell), _fill(_bidIn(_market(M2), lender, TICK, "other"))));
+        OfferFill[] memory fills = _fills(_fill(sell), _fill(_bidIn(_market(M2), lender, TICK, "other")));
+        _stage(fd, fills);
+        uint256 units = MidnightMathLib.unitsForSellerAssets(1_000e6, TickLib.tickToPrice(TICK));
+        _expectNoTakeCall(fills[0], units);
+        _expectNoTakeCall(fills[1], units);
+        _expectTakeCount(0);
         vm.prank(allocator);
         vm.expectRevert(ErrorsLib.InsufficientLiquidity.selector);
         box.borrow(module, fd, usdc, 1_000e6);
         assertEq(_debt(), 0);
+    }
+
+    /// @dev Bids Midnight would refuse (not started, self take, no capacity left) are filtered out by the module before
+    ///      any take, not left to fail inside the try/catch
+    function testUnusableBidsAreSkippedBeforeTake() public {
+        _pledge(fd, 5e8);
+        Offer memory notStarted = _bid(lender, TICK, "not-started");
+        notStarted.start = block.timestamp + 1;
+        ratifier.setOfferRatified(notStarted, true);
+        Offer memory selfMade = _bid(address(module), TICK, "self-made");
+        Offer memory exhausted = _bid(lender, TICK, "exhausted");
+        (exhausted.maxAssets, exhausted.maxUnits) = (0, 1_000e6);
+        ratifier.setOfferRatified(exhausted, true);
+        vm.prank(lender);
+        midnight.setConsumed("exhausted", 1_000e6, lender);
+
+        OfferFill[] memory fills = new OfferFill[](4);
+        fills[0] = _fill(notStarted);
+        fills[1] = _fill(selfMade);
+        fills[2] = _fill(exhausted);
+        fills[3] = _fill(_bid(lender2, TICK, "valid"));
+        _stage(fd, fills);
+
+        uint256 price = TickLib.tickToPrice(TICK);
+        uint256 units = MidnightMathLib.unitsForSellerAssets(10_000e6, price);
+        _expectNoTakeCall(fills[0], units);
+        _expectNoTakeCall(fills[1], units);
+        _expectNoTakeCall(fills[2], units);
+        _expectNoTakeCall(fills[2], 0);
+        _expectTakeCall(fills[3], units);
+        _expectTakeCount(1);
+        _borrow(fd, 10_000e6);
+
+        assertEq(midnight.consumed(lender, "not-started"), 0);
+        assertEq(midnight.consumed(address(module), "self-made"), 0);
+        assertEq(midnight.consumed(lender, "exhausted"), 1_000e6);
+        assertEq(midnight.consumed(lender2, "valid"), MidnightMathLib.sellerAssetsOf(units, price));
+        assertEq(_debt(), units);
     }
 
     // ========== VAL-MID-014: APR floor ==========
@@ -897,38 +1018,53 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertGe(TickLib.tickToPrice(hi), pMin);
 
         _pledge(fd, 5e8);
-        _stage(fd, _fills(_fill(_bid(lender, lo, "lo")), _fill(_bid(lender, hi, "hi"))));
+        OfferFill memory loFill = _fill(_bid(lender, lo, "lo"));
+        OfferFill memory hiFill = _fill(_bid(lender, hi, "hi"));
+        _stage(fd, _fills(loFill, hiFill));
+        uint256 hiUnits = MidnightMathLib.unitsForSellerAssets(10_000e6, TickLib.tickToPrice(hi));
+        _expectNoTakeCall(loFill, MidnightMathLib.unitsForSellerAssets(10_000e6, TickLib.tickToPrice(lo)));
+        _expectTakeCall(hiFill, hiUnits);
+        _expectTakeCount(1);
         _borrow(fd, 10_000e6);
         assertEq(midnight.consumed(lender, "lo"), 0, "below floor skipped");
         assertGt(midnight.consumed(lender, "hi"), 0, "at or above floor taken");
-        assertEq(_debt(), MidnightMathLib.unitsForSellerAssets(10_000e6, TickLib.tickToPrice(hi)));
+        assertEq(_debt(), hiUnits);
     }
 
     function testSettlementFeePushesBidBelowFloor() public {
         uint256 pMin = _pMin();
         uint256 hi = _floorTick(pMin);
-        uint256 hiPrice = TickLib.tickToPrice(hi);
+        uint256 fee = TickLib.tickToPrice(hi) - pMin; // puts the seller price of `hi` exactly at the floor
         _pledge(fd, 5e8);
+        OfferFill[] memory fills = _fills(_fill(_bid(lender, hi, "hi")), _fill(_bid(lender, HIGH_TICK, "backup")));
+        uint256 atFloorUnits = MidnightMathLib.unitsForSellerAssets(10_000e6, pMin);
+        uint256 backupUnits = MidnightMathLib.unitsForSellerAssets(10_000e6, TickLib.tickToPrice(HIGH_TICK) - (fee + 1));
+        // Expectations over both runs below (cheatcode expectations survive vm.revertToState). One wei of price does not
+        // change the units sized for `hi`, so its take calldata is the same in both runs: seen exactly once, it is taken
+        // at the floor only. `backup` is taken once `hi` is below the floor, and there is no other take.
+        assertEq(MidnightMathLib.unitsForSellerAssets(10_000e6, pMin - 1), atFloorUnits);
+        _expectTakeCall(fills[0], atFloorUnits);
+        _expectTakeCall(fills[1], backupUnits);
+        _expectTakeCount(2);
         uint256 snap = vm.snapshotState();
 
         // Seller price exactly at the floor: taken
-        midnight.setSettlementFee(id, hiPrice - pMin);
-        _stage(fd, _fills(_fill(_bid(lender, hi, "hi")), _fill(_bid(lender, HIGH_TICK, "backup"))));
+        midnight.setSettlementFee(id, fee);
+        _stage(fd, fills);
         _borrow(fd, 10_000e6);
         assertGt(midnight.consumed(lender, "hi"), 0);
         assertEq(midnight.consumed(lender, "backup"), 0);
-        assertEq(_debt(), MidnightMathLib.unitsForSellerAssets(10_000e6, pMin));
+        assertEq(_debt(), atFloorUnits);
 
         // One wei of fee more: skipped, the backup bid is used
         vm.revertToState(snap);
-        midnight.setSettlementFee(id, hiPrice - pMin + 1);
-        _stage(fd, _fills(_fill(_bid(lender, hi, "hi")), _fill(_bid(lender, HIGH_TICK, "backup"))));
+        midnight.setSettlementFee(id, fee + 1);
+        _stage(fd, fills);
         uint256 boxBefore = usdc.balanceOf(address(box));
         _borrow(fd, 10_000e6);
         assertEq(midnight.consumed(lender, "hi"), 0, "net price below floor skipped");
         assertGt(midnight.consumed(lender, "backup"), 0);
-        uint256 backupSellerPrice = TickLib.tickToPrice(HIGH_TICK) - (hiPrice - pMin + 1);
-        assertEq(_debt(), MidnightMathLib.unitsForSellerAssets(10_000e6, backupSellerPrice));
+        assertEq(_debt(), backupUnits);
         assertGe(usdc.balanceOf(address(box)) - boxBefore, 10_000e6);
     }
 
@@ -947,6 +1083,13 @@ contract FundingMidnightTest is FundingMidnightFixture {
         fills[2] = _fill(feeAbovePrice);
         fills[3] = _fill(valid);
         _stage(fd, fills);
+
+        uint256 validUnits = MidnightMathLib.unitsForSellerAssets(10_000e6, TickLib.tickToPrice(HIGH_TICK) - 1e15);
+        // A malformed bid has a seller price of 0, into which the module would size 0 units; the take count rules out
+        // any other call for them
+        for (uint256 i; i < 3; i++) _expectNoTakeCall(fills[i], 0);
+        _expectTakeCall(fills[3], validUnits);
+        _expectTakeCount(1);
         _borrow(fd, 10_000e6);
 
         assertEq(midnight.consumed(lender, "too-high"), 0);
@@ -954,11 +1097,14 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(midnight.consumed(lender, "fee-above-price"), 0);
         assertGt(midnight.consumed(lender, "valid"), 0);
         assertEq(midnight.takeCount(), 1);
+        assertEq(_debt(), validUnits);
     }
 
     // ========== VAL-MID-015: failing takes are skipped ==========
 
-    function _assertFailingFillSkipped(OfferFill memory bad) internal {
+    /// @dev `prefiltered`: the module skips `bad` without calling Midnight. Otherwise the module calls `take`, which fails
+    ///      inside the module's try/catch.
+    function _assertFailingFillSkipped(OfferFill memory bad, bool prefiltered) internal {
         address maker = bad.offer.maker;
         bytes32 group = bad.offer.group;
         uint256 consumedBefore = midnight.consumed(maker, group);
@@ -966,7 +1112,18 @@ contract FundingMidnightTest is FundingMidnightFixture {
         uint256 boxBefore = usdc.balanceOf(address(box));
 
         _pledge(fd, 5e8);
-        _stage(fd, _fills(bad, _fill(_bid(lender2, TICK, "good"))));
+        OfferFill memory good = _fill(_bid(lender2, TICK, "good"));
+        _stage(fd, _fills(bad, good));
+        uint256 units = MidnightMathLib.unitsForSellerAssets(10_000e6, TickLib.tickToPrice(TICK));
+        if (prefiltered) {
+            _expectNoTakeCall(bad, units);
+            _expectNoTakeCall(bad, 0);
+            _expectTakeCount(1);
+        } else {
+            _expectTakeCall(bad, units);
+            _expectTakeCount(2);
+        }
+        _expectTakeCall(good, units);
         _borrow(fd, 10_000e6);
 
         assertEq(midnight.consumed(maker, group), consumedBefore, "failing maker untouched");
@@ -981,20 +1138,21 @@ contract FundingMidnightTest is FundingMidnightFixture {
         o.start = block.timestamp - 2 hours;
         o.expiry = block.timestamp - 1;
         ratifier.setOfferRatified(o, true);
-        _assertFailingFillSkipped(_fill(o));
+        _assertFailingFillSkipped(_fill(o), true);
     }
 
     function testUnratifiedOfferSkipped() public {
         Offer memory o = _bid(lender, TICK, "unratified");
         ratifier.setOfferRatified(o, false);
-        _assertFailingFillSkipped(_fill(o));
+        _assertFailingFillSkipped(_fill(o), false);
     }
 
     function testCancelledGroupSkipped() public {
         Offer memory o = _bid(lender, TICK, "cancelled");
         vm.prank(lender);
         midnight.setConsumed("cancelled", type(uint128).max, lender);
-        _assertFailingFillSkipped(_fill(o));
+        // No capacity left: skipped by the module
+        _assertFailingFillSkipped(_fill(o), true);
     }
 
     function testInvalidRatifierDataSkipped() public {
@@ -1003,7 +1161,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         midnight.setIsAuthorized(address(dataRatifier), true, lender);
         Offer memory o = _bid(lender, TICK, "bad-data");
         o.ratifier = address(dataRatifier);
-        _assertFailingFillSkipped(OfferFill(o, "bad", type(uint256).max));
+        _assertFailingFillSkipped(OfferFill(o, "bad", type(uint256).max), false);
     }
 
     function testRatifierWrongAnswerSkipped() public {
@@ -1014,7 +1172,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         midnight.setIsAuthorized(address(wrong), true, lender);
         Offer memory o = _bid(lender, TICK, "wrong-answer");
         o.ratifier = address(wrong);
-        _assertFailingFillSkipped(_fill(o));
+        _assertFailingFillSkipped(_fill(o), false);
     }
 
     function testMakerWithoutFundsSkipped() public {
@@ -1023,7 +1181,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         usdc.approve(address(midnight), type(uint256).max);
         midnight.setIsAuthorized(address(ratifier), true, poor);
         vm.stopPrank();
-        _assertFailingFillSkipped(_fill(_bid(poor, TICK, "no-funds")));
+        _assertFailingFillSkipped(_fill(_bid(poor, TICK, "no-funds")), false);
     }
 
     function testMakerWithoutAllowanceSkipped() public {
@@ -1031,13 +1189,13 @@ contract FundingMidnightTest is FundingMidnightFixture {
         usdc.mint(stingy, 1_000_000e6);
         vm.prank(stingy);
         midnight.setIsAuthorized(address(ratifier), true, stingy);
-        _assertFailingFillSkipped(_fill(_bid(stingy, TICK, "no-allowance")));
+        _assertFailingFillSkipped(_fill(_bid(stingy, TICK, "no-allowance")), false);
     }
 
     function testRevertingMakerCallbackSkipped() public {
         Offer memory o = _bid(lender, TICK, "forced");
         midnight.setForcedTakeRevert(o, true);
-        _assertFailingFillSkipped(_fill(o));
+        _assertFailingFillSkipped(_fill(o), false);
     }
 
     // ========== VAL-MID-016: delivery ==========
@@ -1072,11 +1230,18 @@ contract FundingMidnightTest is FundingMidnightFixture {
         (fills[0], fills[1], fills[2], fills[3]) = (skipped, capped, rest, untouched);
         _stage(fd, fills);
 
+        uint256 firstProceeds = MidnightMathLib.sellerAssetsOf(3_000e6, price);
+        uint256 restUnits = MidnightMathLib.unitsForSellerAssets(10_000e6 - firstProceeds, price);
+        // Exactly two takes, each with receiverIfTakerIsSeller == Box; the maxUnits-0 fill never reaches Midnight
+        _expectNoTakeCall(skipped, 0);
+        _expectNoTakeCall(skipped, MidnightMathLib.unitsForSellerAssets(10_000e6, price));
+        _expectTakeCall(capped, 3_000e6);
+        _expectTakeCall(rest, restUnits);
+        _expectTakeCount(2);
+
         uint256 boxBefore = usdc.balanceOf(address(box));
         _borrow(fd, 10_000e6);
 
-        uint256 firstProceeds = MidnightMathLib.sellerAssetsOf(3_000e6, price);
-        uint256 restUnits = MidnightMathLib.unitsForSellerAssets(10_000e6 - firstProceeds, price);
         assertEq(midnight.consumed(lender, "g0"), 0, "maxUnits 0 skipped");
         assertEq(midnight.consumed(lender, "g1"), firstProceeds, "exactly maxUnits sold (buyer assets consumed)");
         assertEq(midnight.consumed(lender, "g2"), MidnightMathLib.sellerAssetsOf(restUnits, price));
@@ -1086,6 +1251,34 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertGe(received, 10_000e6);
         assertLe(received, 10_000e6 + 2);
         assertEq(usdc.balanceOf(address(module)), 0);
+    }
+
+    function testEveryTakeOfMultiFillBorrowPaysBox() public {
+        uint256 fee = 0.002e18;
+        midnight.setSettlementFee(id, fee);
+        _pledge(fd, 5e8);
+        OfferFill memory a = OfferFill(_bid(lender, TICK, "a"), "", 2_000e6);
+        OfferFill memory b = OfferFill(_bid(lender2, TICK, "b"), "", 3_000e6);
+        OfferFill memory c = _fill(_bid(lender, HIGH_TICK, "c"));
+        _stage(fd, _fills(a, b, c));
+
+        uint256 price = TickLib.tickToPrice(TICK) - fee;
+        uint256 proceedsAb = MidnightMathLib.sellerAssetsOf(2_000e6, price) + MidnightMathLib.sellerAssetsOf(3_000e6, price);
+        uint256 cUnits = MidnightMathLib.unitsForSellerAssets(10_000e6 - proceedsAb, TickLib.tickToPrice(HIGH_TICK) - fee);
+        // The exact calldata of each take has receiverIfTakerIsSeller == Box, and there is no other take
+        _expectTakeCall(a, 2_000e6);
+        _expectTakeCall(b, 3_000e6);
+        _expectTakeCall(c, cUnits);
+        _expectTakeCount(3);
+
+        uint256 boxBefore = usdc.balanceOf(address(box));
+        _borrow(fd, 10_000e6);
+        uint256 received = usdc.balanceOf(address(box)) - boxBefore;
+        assertGe(received, 10_000e6);
+        assertLe(received, 10_000e6 + 3, "at most 1 wei of rounding surplus per fill");
+        assertEq(usdc.balanceOf(address(module)), 0, "module holds no loan token");
+        assertEq(_debt(), 2_000e6 + 3_000e6 + cUnits);
+        assertEq(module.debtBalance(fd, usdc), _debt());
     }
 
     function testBorrowCappedByOfferUnitsCapacity() public {
@@ -1775,6 +1968,51 @@ contract FundingMidnightTest is FundingMidnightFixture {
         vm.prank(address(box));
         vm.expectRevert(ErrorsLib.CannotRemove.selector);
         module.removeFacility(fd);
+    }
+
+    function testRemoveFacilityAfterExternalCutClearsAccretionState() public {
+        (, uint256 units) = _open(100_000e6);
+        vm.warp(block.timestamp + 10 days);
+        // All the collateral is liquidated, then the remaining face is written off, without any module call
+        _liquidateAllCollateral();
+        midnight.reduceDebt(id, address(module), _debt());
+        _stage(fd, _fills(_fill(_bid(lender, TICK, "staged"))));
+        assertEq(_debt(), 0);
+        assertEq(_coll(), 0);
+        (uint256 tracked, uint256 rate) = module.accretionState(fd);
+        assertEq(tracked, units, "external events do not sync the tracked units");
+        assertGt(rate, 0, "discount rate still set");
+
+        vm.prank(curator);
+        box.removeFundingFacility(module, fd);
+        assertFalse(module.isFacility(fd));
+        assertEq(module.facilitiesLength(), 0);
+        assertEq(module.facilityOfMarket(id), bytes32(0));
+        (tracked, rate) = module.accretionState(fd);
+        assertEq(tracked, 0, "tracked units cleared");
+        assertEq(rate, 0, "discount rate cleared");
+        (uint256 validUntil, OfferFill[] memory staged) = module.stagedBorrow(fd);
+        assertEq(validUntil, 0, "staging cleared");
+        assertEq(staged.length, 0);
+
+        // Re-added, the facility starts clean: a new borrow accretes from its own proceeds to its own face only
+        vm.prank(curator);
+        box.addFundingFacilityInstant(module, fd);
+        (tracked, rate) = module.accretionState(fd);
+        assertEq(tracked, 0, "re-added: no tracked units");
+        assertEq(rate, 0, "re-added: no discount rate");
+        (validUntil, ) = module.stagedBorrow(fd);
+        assertEq(validUntil, 0, "re-added: no staging");
+        assertEq(module.debtValue(fd), 0);
+
+        _pledge(fd, 5e8);
+        (uint256 p2, uint256 u2) = _stageAndBorrow(fd, TICK, 50_000e6);
+        (tracked, ) = module.accretionState(fd);
+        assertEq(tracked, u2);
+        assertGe(module.debtValue(fd), p2);
+        assertLe(module.debtValue(fd), p2 + 2, "accretes from the new proceeds");
+        vm.warp(M);
+        assertEq(module.debtValue(fd), u2, "face of the new borrow only");
     }
 
     function testFullLifecycleThroughBoxAndRemoval() public {
