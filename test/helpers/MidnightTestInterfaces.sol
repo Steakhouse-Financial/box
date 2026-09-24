@@ -52,6 +52,20 @@ interface IMidnightTest is IMidnight {
     function totalUnits(bytes32 id) external view returns (uint128);
 }
 
+/// @notice Maker callback of a buy offer, called by `take` after the seller's debt grew and before the payer pays.
+/// @dev When an offer names a callback, the callback is also the payer of the buyer assets.
+interface IBuyCallback {
+    function onBuy(
+        bytes32 id,
+        Market memory market,
+        uint256 buyerAssets,
+        uint256 units,
+        uint256 pendingFeeIncrease,
+        address buyer,
+        bytes memory data
+    ) external returns (bytes32);
+}
+
 /// @notice Ratifies a Merkle root of offers registered on chain by the maker (or an address it authorised on Midnight).
 /// @dev ratifierData = abi.encode(bytes32 root, uint256 leafIndex, bytes32[] proof)
 interface ISetterRatifier {

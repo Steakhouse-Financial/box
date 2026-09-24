@@ -8,6 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Box} from "../src/Box.sol";
 import {FundingMidnight, OfferFill} from "../src/FundingMidnight.sol";
 import {FundingMidnightFactory} from "../src/factories/FundingMidnightFactory.sol";
+import {IBox} from "../src/interfaces/IBox.sol";
 import {IFunding, IOracleCallback} from "../src/interfaces/IFunding.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {CollateralParams, IMidnight, Market, Offer} from "../src/interfaces/midnight/IMidnight.sol";
@@ -17,6 +18,7 @@ import {IdLib} from "../src/libraries/midnight/IdLib.sol";
 import {MidnightMathLib} from "../src/libraries/midnight/MidnightMathLib.sol";
 import {TickLib} from "../src/libraries/midnight/TickLib.sol";
 import {BoxLib} from "../src/periphery/BoxLib.sol";
+import {MidnightBuyCallbackProbe} from "./helpers/MidnightBuyCallbackProbe.sol";
 import {ERC20MockDecimals} from "./mocks/ERC20MockDecimals.sol";
 import {MIDNIGHT_CALLBACK_SUCCESS, MockMidnight} from "./mocks/MockMidnight.sol";
 import {MockMidnightRatifier} from "./mocks/MockMidnightRatifier.sol";
@@ -1791,5 +1793,220 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertFalse(box.isFunding(module));
         // Early repay at face realises the whole discount as a loss
         assertEq(box.totalAssets(), totalBefore - (101_515_329_475 - 100_000_000_000));
+    }
+}
+
+/// @dev Adversarial cases: allocator-staged data, maker callbacks during take, tick and fee extremes, accretion under
+///      mixed operations, and removal after liquidation.
+contract FundingMidnightHardeningTest is FundingMidnightFixture {
+    using BoxLib for Box;
+
+    function _probe() internal returns (MidnightBuyCallbackProbe probe) {
+        probe = new MidnightBuyCallbackProbe(IBox(address(box)), IFunding(address(module)), usdc, address(midnight), fd);
+        usdc.mint(address(probe), 1_000_000e6);
+        // An allocator, so that its reentrant Box calls get past the allocator check
+        vm.prank(curator);
+        box.setIsAllocator(address(probe), true);
+    }
+
+    function _withCallback(Offer memory o, address callback, uint128 maxAssets) internal returns (Offer memory) {
+        o.callback = callback;
+        o.maxAssets = maxAssets;
+        ratifier.setOfferRatified(o, true);
+        return o;
+    }
+
+    /// @dev Lowest accessible tick whose price is at or above the APR floor at the current time. Reads the time through
+    ///      the cheatcode: under via-ir, `block.timestamp` may be reused across a `vm.warp` in the same test.
+    function _floorTick() internal view returns (uint256 tick) {
+        uint256 floor = MidnightMathLib.minSellerPrice(MAX_APR, M - vm.getBlockTimestamp());
+        for (tick = 4000; TickLib.tickToPrice(tick) < floor; tick += 4) {}
+    }
+
+    // ========== maker callbacks during take ==========
+
+    /// @dev Midnight calls the maker callback after the module's debt grew and before the proceeds reach the Box. A
+    ///      Box share price read there (e.g. by a vault holding Box shares) must not see that debt without the proceeds.
+    function testNavUnchangedWhileMakerCallbackRuns() public {
+        MidnightBuyCallbackProbe probe = _probe();
+        _pledge(fd, 5e8);
+        Offer memory a = _withCallback(_bid(lender, TICK, "a"), address(probe), 60_000e6);
+        Offer memory b = _withCallback(_bid(lender2, HIGH_TICK, "b"), address(probe), 5_000_000e6);
+        _stage(fd, _fills(_fill(a), _fill(b)));
+
+        uint256 totalBefore = box.totalAssets();
+        _borrow(fd, 100_000e6);
+        assertEq(probe.observations(), 2, "one callback per fill");
+        assertGt(midnight.consumed(lender2, "b"), 0, "second fill used");
+        for (uint256 i; i < 2; i++) {
+            assertApproxEqAbs(probe.observedTotalAssets(i), totalBefore, 2, "totalAssets during the take (discount rounding)");
+        }
+        assertApproxEqAbs(box.totalAssets(), totalBefore, 2);
+
+        // Again with a non-zero accretion state
+        vm.warp(block.timestamp + 10 days);
+        Offer memory c = _withCallback(_bid(lender, TICK, "c"), address(probe), 5_000_000e6);
+        _stage(fd, _fills(_fill(c)));
+        totalBefore = box.totalAssets();
+        _borrow(fd, 20_000e6);
+        assertEq(probe.observations(), 3);
+        assertApproxEqAbs(probe.observedTotalAssets(2), totalBefore, 2, "totalAssets during a later take");
+        assertApproxEqAbs(box.totalAssets(), totalBefore, 2);
+
+        assertEq(probe.reentryAttempts(), 6);
+        assertEq(probe.reentrySuccesses(), 0, "the Box cannot be reentered from a maker callback");
+        assertEq(usdc.balanceOf(address(module)), 0);
+    }
+
+    function testDebtValueCountsOnlySettledTakes() public {
+        (uint256 proceeds, uint256 units) = _open(100_000e6);
+        (uint256 tracked, ) = module.accretionState(fd);
+        assertEq(tracked, units);
+        assertApproxEqAbs(module.debtValue(fd), proceeds, 1);
+        assertEq(module.debtBalance(fd, usdc), units, "debtBalance stays the face");
+    }
+
+    // ========== staging and allocator role ==========
+
+    function testStagingDroppedWhenStagerLosesAllocatorRole() public {
+        address allocator2 = makeAddr("allocator2");
+        vm.prank(curator);
+        box.setIsAllocator(allocator2, true);
+        _pledge(fd, 5e8);
+        _stage(fd, _fills(_fill(_bid(lender, TICK, "old"))));
+
+        vm.prank(curator);
+        box.setIsAllocator(allocator, false);
+        vm.prank(allocator2);
+        vm.expectRevert(ErrorsLib.NoValidStaging.selector);
+        box.borrow(module, fd, usdc, 1_000e6);
+        assertEq(midnight.takeCount(), 0);
+
+        vm.startPrank(allocator2);
+        module.stageBorrow(fd, _fills(_fill(_bid(lender2, TICK, "new"))), block.timestamp + 1 hours);
+        box.borrow(module, fd, usdc, 1_000e6);
+        vm.stopPrank();
+        assertEq(midnight.consumed(lender, "old"), 0, "removed allocator's bid never taken");
+        assertGt(midnight.consumed(lender2, "new"), 0);
+    }
+
+    function testStagingUsableAgainWhenRoleRestored() public {
+        _pledge(fd, 5e8);
+        _stage(fd, _fills(_fill(_bid(lender, TICK, "a"))));
+        vm.startPrank(curator);
+        box.setIsAllocator(allocator, false);
+        box.setIsAllocator(allocator, true);
+        vm.stopPrank();
+        _borrow(fd, 1_000e6);
+        assertGt(midnight.consumed(lender, "a"), 0);
+    }
+
+    // ========== tick and fee extremes ==========
+
+    function testMaxTickBidBorrowsAtPar() public {
+        _pledge(fd, 5e8);
+        _stage(fd, _fills(_fill(_bid(lender, TickLib.MAX_TICK, "par"))));
+        _borrow(fd, 10_000e6);
+        assertEq(_debt(), 10_000e6, "price 1: units = proceeds");
+        (, uint256 rate) = module.accretionState(fd);
+        assertEq(rate, 0);
+        assertEq(module.debtValue(fd), 10_000e6);
+    }
+
+    function testFuzz_BorrowWithSettlementFeeDeliversExactly(uint256 amount, uint256 fee, uint256 tickStep) public {
+        amount = bound(amount, 1, 300_000e6);
+        fee = bound(fee, 0, 0.005e18); // Midnight's settlement fee is capped at 0.5%
+        uint256 tick = 4400 + 4 * bound(tickStep, 0, 586);
+        uint256 sellerPrice = TickLib.tickToPrice(tick) - fee;
+        midnight.setSettlementFee(id, fee);
+        _pledge(fd, 5e8);
+        _stage(fd, _fills(_fill(_bid(lender, tick, "fee"))));
+
+        uint256 boxBefore = usdc.balanceOf(address(box));
+        _borrow(fd, amount);
+        assertEq(usdc.balanceOf(address(box)) - boxBefore, amount, "uncapped fill delivers exactly the amount");
+        assertEq(_debt(), MidnightMathLib.unitsForSellerAssets(amount, sellerPrice));
+        assertEq(usdc.balanceOf(address(module)), 0);
+        assertGe(module.debtValue(fd), amount);
+        assertLe(module.debtValue(fd), _debt());
+    }
+
+    // ========== accretion under mixed operations ==========
+
+    function testFuzz_AccretionBoundedAndMonotonic(
+        uint256 amount1,
+        uint256 amount2,
+        uint256 wait1,
+        uint256 repayPart,
+        uint256 cutPart,
+        uint256 wait2
+    ) public {
+        amount1 = bound(amount1, 1e6, 150_000e6);
+        amount2 = bound(amount2, 1e6, 100_000e6);
+        _pledge(fd, 5e8);
+        (uint256 p1, uint256 u1) = _stageAndBorrow(fd, TICK, amount1);
+        assertGe(module.debtValue(fd), p1);
+        assertLe(module.debtValue(fd), u1);
+
+        uint256 before = module.debtValue(fd);
+        vm.warp(T1 + bound(wait1, 0, M - T1 - 1));
+        assertGe(module.debtValue(fd), before, "non-decreasing in time");
+
+        before = module.debtValue(fd);
+        (uint256 p2, ) = _stageAndBorrow(fd, _floorTick(), amount2);
+        assertGe(module.debtValue(fd), before + p2, "a borrow adds at least its proceeds");
+        assertApproxEqAbs(module.debtValue(fd), before + p2, 2, "and at most rounding more");
+        assertLe(module.debtValue(fd), _debt());
+
+        _repay(fd, bound(repayPart, 0, _debt() - 1));
+        assertLe(module.debtValue(fd), _debt());
+        midnight.reduceDebt(id, address(module), bound(cutPart, 0, _debt()));
+        assertLe(module.debtValue(fd), _debt());
+
+        before = module.debtValue(fd);
+        uint256 now_ = vm.getBlockTimestamp();
+        vm.warp(now_ + bound(wait2, 0, M + 30 days - now_));
+        assertGe(module.debtValue(fd), before, "non-decreasing in time");
+        assertLe(module.debtValue(fd), _debt());
+        vm.warp(M);
+        assertEq(module.debtValue(fd), _debt(), "face at maturity");
+        _nav();
+        box.totalAssets();
+    }
+
+    // ========== removal after liquidation ==========
+
+    function testRemovalAfterFullPostMaturityLiquidation() public {
+        (, uint256 units) = _open(100_000e6);
+        vm.warp(M + 1 hours);
+        address liquidator = makeAddr("liquidator");
+        usdc.mint(liquidator, units);
+        vm.startPrank(liquidator);
+        usdc.approve(address(midnight), units);
+        (uint256 seized, ) = midnight.liquidate(_market(M), 0, 0, units, address(module), true, liquidator, address(0), "");
+        vm.stopPrank();
+
+        assertEq(_debt(), 0);
+        assertEq(_coll(), 5e8 - seized);
+        (uint256 tracked, ) = module.accretionState(fd);
+        assertEq(tracked, units, "not synced until the next mutation");
+        assertEq(module.debtValue(fd), 0);
+        assertEq(module.debtBalance(fd, usdc), 0);
+        assertEq(_nav(), Math.mulDiv(5e8 - seized, CBBTC_PRICE, 1e36));
+
+        uint256 boxUsdc = usdc.balanceOf(address(box));
+        _repay(fd, type(uint256).max);
+        assertEq(usdc.balanceOf(address(box)), boxUsdc, "nothing to repay");
+        _depledge(fd, type(uint256).max);
+        assertEq(cbBtc.balanceOf(address(box)), 10e8 - seized);
+
+        vm.startPrank(curator);
+        box.removeFundingFacility(module, fd);
+        box.removeFundingCollateral(module, cbBtc);
+        box.removeFundingDebt(module, usdc);
+        box.removeFunding(module);
+        vm.stopPrank();
+        (uint256 trackedAfter, uint256 rate) = module.accretionState(fd);
+        assertEq(trackedAfter + rate, 0, "stale accretion state cleared on removal");
     }
 }

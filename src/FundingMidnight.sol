@@ -62,6 +62,7 @@ contract FundingMidnight is FundingBase {
 
     struct Staging {
         uint256 validUntil;
+        address stager; // The staging is void once this address is no longer an allocator
         bytes fills; // abi.encode(OfferFill[])
     }
 
@@ -171,14 +172,15 @@ contract FundingMidnight is FundingBase {
      * @param facilityData A registered facility
      * @param fills Bids tried in order; bids that are not usable at borrow time are skipped
      * @param validUntil Last timestamp at which `borrow` may use this staging (inclusive)
-     * @dev Callable by the Box allocators only. Staging is only read by `borrow`, which deletes it; repay, depledge,
-     *      views and removal never depend on it. Storage costs gas per byte: stage only the bids needed.
+     * @dev Callable by the Box allocators only. `borrow` ignores the staging once its stager is no longer an allocator.
+     *      Staging is only read by `borrow`, which deletes it; repay, depledge, views and removal never depend on it.
+     *      Storage costs gas per byte: stage only the bids needed.
      */
     function stageBorrow(bytes calldata facilityData, OfferFill[] calldata fills, uint256 validUntil) external {
         require(IBox(owner).isAllocator(msg.sender), ErrorsLib.OnlyAllocators());
         require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
         require(validUntil >= block.timestamp, ErrorsLib.InvalidValue());
-        staging[keccak256(facilityData)] = Staging(validUntil, abi.encode(fills));
+        staging[keccak256(facilityData)] = Staging(validUntil, msg.sender, abi.encode(fills));
     }
 
     // ========== ACTIONS ==========
@@ -204,8 +206,8 @@ contract FundingMidnight is FundingBase {
 
     /**
      * @notice Borrows at least `borrowAmount` by selling units into the staged lender bids; proceeds go to the owner
-     * @dev Requires a staging of this facility with `block.timestamp <= validUntil` and `block.timestamp < maturity`.
-     *      The staging is deleted whatever the number of fills used.
+     * @dev Requires a staging of this facility with `block.timestamp <= validUntil`, staged by an address that is still
+     *      a Box allocator, and `block.timestamp < maturity`. The staging is deleted whatever the number of fills used.
      * @dev Fills are skipped (not reverted) when: maxUnits is 0, the offer is not a bid of this market, it is outside
      *      its start/expiry window, its price net of the settlement fee is below the `maxBorrowApr` floor (which also
      *      covers ticks above the maximum, tick 0 and fees at or above the price) or it has no capacity left. Each take
@@ -220,28 +222,25 @@ contract FundingMidnight is FundingBase {
         require(block.timestamp < info.maturity, ErrorsLib.FacilityMatured());
 
         Staging storage staged = staging[facilityHash];
-        require(block.timestamp <= staged.validUntil, ErrorsLib.NoValidStaging());
+        require(block.timestamp <= staged.validUntil && IBox(owner).isAllocator(staged.stager), ErrorsLib.NoValidStaging());
         OfferFill[] memory fills = abi.decode(staged.fills, (OfferFill[]));
         delete staging[facilityHash];
 
         (Market memory market, uint256 collateralIndex, uint256 maxBorrowApr) = decodeFacilityData(facilityData);
-        bytes32 id = info.marketId;
-        _sync(info, midnight.debt(id, address(this)));
+        _sync(info, midnight.debt(info.marketId, address(this)));
 
         uint256 timeToMaturity = info.maturity - block.timestamp;
         uint256 balanceBefore = debtToken.balanceOf(owner);
-        (uint256 proceeds, uint256 unitsSold) = _takeFills(
+        uint256 proceeds = _takeFills(
             fills,
-            id,
+            info,
             borrowAmount,
             MidnightMathLib.minSellerPrice(maxBorrowApr, timeToMaturity),
-            midnight.settlementFee(id, timeToMaturity)
+            midnight.settlementFee(info.marketId, timeToMaturity),
+            timeToMaturity
         );
         require(proceeds >= borrowAmount, ErrorsLib.InsufficientLiquidity());
         require(debtToken.balanceOf(owner) - balanceBefore >= borrowAmount, ErrorsLib.InsufficientLiquidity());
-
-        info.trackedUnits += unitsSold;
-        if (unitsSold > proceeds) info.discountRate += (unitsSold - proceeds).mulDiv(RATE_SCALE, timeToMaturity);
 
         _requireGuard(market, collateralIndex);
     }
@@ -344,6 +343,7 @@ contract FundingMidnight is FundingBase {
     }
 
     /// @notice Staged fills of a facility; validUntil is 0 when nothing is staged
+    /// @dev `borrow` also ignores the staging when its stager is no longer an allocator
     function stagedBorrow(bytes calldata facilityData) external view returns (uint256 validUntil, OfferFill[] memory fills) {
         Staging storage staged = staging[keccak256(facilityData)];
         validUntil = staged.validUntil;
@@ -396,13 +396,17 @@ contract FundingMidnight is FundingBase {
     }
 
     /// @dev Sells units into `fills` until `target` proceeds are reached. Nothing before `take` can revert on offer data.
+    /// @dev The accretion state is updated after each take rather than once at the end: maker callbacks of later fills
+    ///      can read nav, which must then count the settled takes (whose proceeds are already at the owner).
     function _takeFills(
         OfferFill[] memory fills,
-        bytes32 id,
+        FacilityInfo storage info,
         uint256 target,
         uint256 minPrice,
-        uint256 fee
-    ) internal returns (uint256 proceeds, uint256 unitsSold) {
+        uint256 fee,
+        uint256 timeToMaturity
+    ) internal returns (uint256 proceeds) {
+        bytes32 id = info.marketId;
         for (uint256 i = 0; i < fills.length && proceeds < target; i++) {
             Offer memory offer = fills[i].offer;
             if (fills[i].maxUnits == 0 || !offer.buy || offer.maker == address(this)) continue;
@@ -428,7 +432,8 @@ contract FundingMidnight is FundingBase {
                 uint256 sellerAssets
             ) {
                 proceeds += sellerAssets;
-                unitsSold += units;
+                info.trackedUnits += units;
+                if (units > sellerAssets) info.discountRate += (units - sellerAssets).mulDiv(RATE_SCALE, timeToMaturity);
             } catch {
                 continue;
             }
@@ -446,9 +451,13 @@ contract FundingMidnight is FundingBase {
 
     /// @dev face - unearned discount, the discount rounded down (debt rounded up) and scaled by face / tracked when an
     ///      external event reduced the face since the last sync. Never above face; face at and after maturity.
+    /// @dev Midnight's face only exceeds the tracked units while a take is in progress: the maker callback runs after
+    ///      the debt grew and before the proceeds reach the owner. Counting at most the tracked units keeps nav read from
+    ///      that callback equal to nav before the take, instead of counting the new debt without its proceeds.
     function _debtValue(FacilityInfo storage info, uint256 face) internal view returns (uint256) {
         uint256 tracked = info.trackedUnits;
-        if (face == 0 || tracked == 0 || block.timestamp >= info.maturity) return face;
+        if (face > tracked) face = tracked;
+        if (face == 0 || block.timestamp >= info.maturity) return face;
         uint256 discount = info.discountRate.mulDiv(info.maturity - block.timestamp, RATE_SCALE);
         if (face < tracked) discount = discount.mulDiv(face, tracked);
         return discount < face ? face - discount : 0;

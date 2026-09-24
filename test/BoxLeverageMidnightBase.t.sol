@@ -19,6 +19,7 @@ import {MidnightMathLib} from "../src/libraries/midnight/MidnightMathLib.sol";
 import {TickLib} from "../src/libraries/midnight/TickLib.sol";
 import {BoxLib} from "../src/periphery/BoxLib.sol";
 import {MidnightBaseOffers} from "./helpers/MidnightBaseOffers.sol";
+import {MidnightBuyCallbackProbe} from "./helpers/MidnightBuyCallbackProbe.sol";
 import {MidnightForkTest} from "./helpers/MidnightForkTest.sol";
 import {IMidnightTest, IVmEvmVersion} from "./helpers/MidnightTestInterfaces.sol";
 import {ERC20MockDecimals} from "./mocks/ERC20MockDecimals.sol";
@@ -697,6 +698,46 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertEq(module.debtBalance(fd, unrelated), 0, "unrelated token has no facility debt");
         assertEq(module.nav(IOracleCallback(address(box))), 0, "empty position has no nav");
         assertEq(box.totalAssets(), USDC.balanceOf(address(box)) + (COLLATERAL * price) / 1e36, "totalAssets = idle USDC + idle cbBTC");
+    }
+
+    // ========== MAKER CALLBACKS DURING TAKE ==========
+
+    /// @dev Real Midnight calls the maker callback after the module's debt grew and before the proceeds reach the Box:
+    ///      the Box share price read there must still match the price before the borrow, and the Box cannot be reentered.
+    function testTotalAssetsStableInsideMakerCallback() public {
+        MidnightBuyCallbackProbe probe = new MidnightBuyCallbackProbe(
+            IBox(address(box)),
+            IFunding(address(module)),
+            USDC,
+            BASE_MIDNIGHT,
+            fd
+        );
+        deal(address(USDC), address(probe), 1_000_000e6);
+        vm.prank(curator);
+        box.setIsAllocator(address(probe), true);
+
+        Offer memory first = _bid(_dec25Market(), setterRatifier, 4216, "probe-1", 60_000e6);
+        first.callback = address(probe);
+        bytes memory firstRd = _ratifyWithSetter(first);
+        Offer memory second = _bid(_dec25Market(), setterRatifier, 4212, "probe-2", 1_000_000e6);
+        second.callback = address(probe);
+        bytes memory secondRd = _ratifyWithSetter(second);
+
+        uint256 totalBefore = box.totalAssets();
+        uint256 lenderBefore = USDC.balanceOf(lender);
+        vm.startPrank(allocator);
+        box.pledge(module, fd, CBBTC, COLLATERAL);
+        module.stageBorrow(fd, _fills(first, firstRd, second, secondRd), block.timestamp + 1 hours);
+        box.borrow(module, fd, USDC, 100_000e6);
+        vm.stopPrank();
+
+        assertEq(probe.observations(), 2, "both fills called the maker callback");
+        assertEq(USDC.balanceOf(lender), lenderBefore, "the callback paid, not the maker");
+        assertApproxEqAbs(probe.observedTotalAssets(0), totalBefore, 2, "totalAssets inside the first callback");
+        assertApproxEqAbs(probe.observedTotalAssets(1), totalBefore, 2, "totalAssets inside the second callback");
+        assertApproxEqAbs(box.totalAssets(), totalBefore, 2, "totalAssets after the borrow");
+        assertEq(probe.reentryAttempts(), 4);
+        assertEq(probe.reentrySuccesses(), 0, "no Box reentry from the callback");
     }
 
     // ========== HELPERS ==========
