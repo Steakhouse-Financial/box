@@ -4,15 +4,58 @@ pragma solidity ^0.8.28;
 
 import {Test, stdError} from "forge-std/Test.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {CollateralParams, Market, Offer} from "../src/interfaces/midnight/IMidnight.sol";
 import {IdLib} from "../src/libraries/midnight/IdLib.sol";
 import {MidnightMathLib} from "../src/libraries/midnight/MidnightMathLib.sol";
 import {TickLib} from "../src/libraries/midnight/TickLib.sol";
 import {ERC20MockDecimals} from "./mocks/ERC20MockDecimals.sol";
-import {MockMidnight} from "./mocks/MockMidnight.sol";
+import {MIDNIGHT_CALLBACK_SUCCESS, MockMidnight} from "./mocks/MockMidnight.sol";
 import {MockMidnightRatifier} from "./mocks/MockMidnightRatifier.sol";
 import {MockOracle} from "./mocks/MockOracle.sol";
+
+/// @dev Maker callback recording the seller's state when it runs, and trying to liquidate the seller after crashing
+///      the collateral price (which would make it liquidatable outside a take)
+contract RecordingBuyCallback {
+    MockMidnight internal immutable midnight;
+    MockOracle internal immutable oracle;
+    Market internal market;
+    address internal immutable seller;
+    address internal immutable receiver;
+
+    bytes32 public answer = MIDNIGHT_CALLBACK_SUCCESS;
+    uint256 public calls;
+    uint256 public debtSeen;
+    uint256 public receiverBalanceSeen;
+    bool public liquidationBlocked;
+
+    constructor(MockMidnight midnight_, MockOracle oracle_, Market memory market_, address seller_, address receiver_) {
+        midnight = midnight_;
+        oracle = oracle_;
+        market = market_;
+        seller = seller_;
+        receiver = receiver_;
+        IERC20(market_.loanToken).approve(address(midnight_), type(uint256).max);
+    }
+
+    function setAnswer(bytes32 newAnswer) external {
+        answer = newAnswer;
+    }
+
+    function onBuy(bytes32 id, Market memory, uint256, uint256, uint256, address, bytes memory) external returns (bytes32) {
+        calls++;
+        debtSeen = midnight.debt(id, seller);
+        receiverBalanceSeen = IERC20(market.loanToken).balanceOf(receiver);
+        uint256 price = oracle.price();
+        oracle.setPrice(price / 10);
+        try midnight.liquidate(market, 0, 0, 1, seller, false, address(this), address(0), "") {} catch (bytes memory reason) {
+            liquidationBlocked = bytes4(reason) == MockMidnight.NotLiquidatable.selector;
+        }
+        oracle.setPrice(price);
+        return answer;
+    }
+}
 
 /// @dev Sanity tests pinning the Midnight semantics the mock reproduces (library worked example numbers).
 contract MockMidnightTest is Test {
@@ -296,10 +339,35 @@ contract MockMidnightTest is Test {
         ratifier.setOfferRatified(o, true);
         _expectTakeRevert(o, 1e6, abi.encodeWithSelector(MockMidnight.SellOffersNotSupported.selector));
 
-        o = _offer(4212, "g");
-        o.callback = stranger;
+        o = _ratified(4212, "g");
+        vm.prank(borrower);
+        vm.expectRevert(MockMidnight.CallbackNotSupported.selector);
+        midnight.take(o, "", 1e6, borrower, box, stranger, "");
+    }
+
+    function testTakeMakerCallbackPaysAndLocksLiquidation() public {
+        RecordingBuyCallback callback = new RecordingBuyCallback(midnight, oracle, market, borrower, box);
+        usdc.mint(address(callback), 200_000e6);
+        Offer memory o = _offer(4212, "cb");
+        o.callback = address(callback);
         ratifier.setOfferRatified(o, true);
-        _expectTakeRevert(o, 1e6, abi.encodeWithSelector(MockMidnight.CallbackNotSupported.selector));
+
+        uint256 lenderBefore = usdc.balanceOf(lender);
+        (, uint256 sellerAssets) = _take(o, FACE_100K);
+
+        assertEq(callback.calls(), 1);
+        assertEq(callback.debtSeen(), FACE_100K, "debt already grown when the callback runs");
+        assertEq(callback.receiverBalanceSeen(), 0, "proceeds not transferred yet");
+        assertTrue(callback.liquidationBlocked(), "seller locked against liquidation during the take");
+        assertEq(usdc.balanceOf(box), sellerAssets, "receiver paid after the callback");
+        assertEq(usdc.balanceOf(address(callback)), 200_000e6 - sellerAssets, "callback is the payer");
+        assertEq(usdc.balanceOf(lender), lenderBefore, "maker pays nothing");
+        assertFalse(midnight.liquidationLocked(id, borrower), "lock released");
+
+        callback.setAnswer(bytes32(0));
+        o.group = "cb2";
+        ratifier.setOfferRatified(o, true);
+        _expectTakeRevert(o, 1e6, abi.encodeWithSelector(MockMidnight.WrongBuyCallbackReturnValue.selector));
     }
 
     function testTakeTakerChecks() public {

@@ -11,6 +11,7 @@ import {CollateralParams, IMidnight, Market, Offer} from "../../src/interfaces/m
 import {IRatifier} from "../../src/interfaces/midnight/IRatifier.sol";
 import {IdLib} from "../../src/libraries/midnight/IdLib.sol";
 import {TickLib} from "../../src/libraries/midnight/TickLib.sol";
+import {IBuyCallback} from "../helpers/MidnightTestInterfaces.sol";
 
 bytes32 constant MIDNIGHT_CALLBACK_SUCCESS = keccak256("morpho.midnight.callbackSuccess");
 
@@ -23,6 +24,8 @@ bytes32 constant MIDNIGHT_CALLBACK_SUCCESS = keccak256("morpho.midnight.callback
 ///   start/expiry, self take, unused receiver, ratifier authorisation and answer, tick range, consumption, no debt
 ///   increase after maturity, reduce-only), pays `floor(units * (tickPrice - fee))` to `receiverIfTakerIsSeller`,
 ///   keeps the settlement fee, nets seller credit before debt, and requires the seller to be healthy at the end;
+/// - a maker callback (`offer.callback`) is called with `onBuy` after the seller's debt grew and before any transfer,
+///   and then pays instead of the maker; the seller cannot be liquidated during the take;
 /// - borrowing is allowed at `block.timestamp == maturity` and blocked after it, like Midnight;
 /// - `repay` pulls exactly `units` from the caller and panics on `units > debt`; it works after maturity;
 /// - `supplyCollateral` / `withdrawCollateral` / `repay` / `take` require `msg.sender == onBehalf` (or an authorisation);
@@ -30,7 +33,7 @@ bytes32 constant MIDNIGHT_CALLBACK_SUCCESS = keccak256("morpho.midnight.callback
 /// - health: `debt <= sum(floor(floor(collateral * price / 1e36) * lltv / 1e18))`, no oracle call when debt is 0;
 /// - `liquidate`: pre-maturity only when unhealthy (LIF = maxLif), post-maturity only when `block.timestamp > maturity`
 ///   (LIF ramps to maxLif over one hour).
-/// Simplifications: sell offers, maker/taker/repay/liquidate callbacks revert `CallbackNotSupported` or
+/// Simplifications: sell offers, taker/repay/liquidate callbacks revert `CallbackNotSupported` or
 /// `SellOffersNotSupported`; the settlement fee is a flat per-market value; no continuous fee accrual, no gates, no
 /// bad-debt realisation and no recovery close factor.
 contract MockMidnight is IMidnight {
@@ -73,6 +76,7 @@ contract MockMidnight is IMidnight {
     error Unauthorized();
     error UnhealthyBorrower();
     error UnusedReceiverMustBeZero();
+    error WrongBuyCallbackReturnValue();
 
     // Mock-only errors.
     error CallbackNotSupported();
@@ -92,6 +96,8 @@ contract MockMidnight is IMidnight {
     mapping(address maker => mapping(bytes32 group => uint128)) internal _consumed;
     mapping(address authorizer => mapping(address authorized => bool)) public isAuthorized;
     mapping(bytes32 offerHash => bool) public forcedTakeRevert;
+    /// @notice Set on the seller for the duration of a take (Midnight uses transient storage for the same purpose)
+    mapping(bytes32 id => mapping(address user => bool)) public liquidationLocked;
 
     /// @notice Number of successful takes (lets tests check that an offer was skipped rather than taken).
     uint256 public takeCount;
@@ -168,7 +174,7 @@ contract MockMidnight is IMidnight {
         bytes32 id = touchMarket(offer.market);
         require(!forcedTakeRevert[keccak256(abi.encode(offer))], ForcedTakeRevert());
         require(offer.buy, SellOffersNotSupported());
-        require(takerCallback == address(0) && offer.callback == address(0), CallbackNotSupported());
+        require(takerCallback == address(0), CallbackNotSupported());
 
         require((offer.maxAssets == 0) != (offer.maxUnits == 0), InvalidOfferCaps());
         require(_continuousFee[id] <= offer.continuousFeeCap, ContinuousFeeAboveOfferCap());
@@ -190,11 +196,23 @@ contract MockMidnight is IMidnight {
         _consume(offer, units, buyerAssets);
         _settleUnits(offer, id, taker, units);
 
-        IERC20 loanToken = IERC20(offer.market.loanToken);
-        if (buyerAssets > sellerAssets) loanToken.safeTransferFrom(offer.maker, address(this), buyerAssets - sellerAssets);
-        loanToken.safeTransferFrom(offer.maker, receiverIfTakerIsSeller, sellerAssets);
+        bool wasLocked = liquidationLocked[id][taker];
+        liquidationLocked[id][taker] = true;
+        if (offer.callback != address(0)) {
+            require(
+                IBuyCallback(offer.callback).onBuy(id, offer.market, buyerAssets, units, 0, offer.maker, offer.callbackData) ==
+                    MIDNIGHT_CALLBACK_SUCCESS,
+                WrongBuyCallbackReturnValue()
+            );
+        }
 
-        require(_isHealthy(offer.market, id, taker), SellerIsLiquidatable());
+        address payer = offer.callback != address(0) ? offer.callback : offer.maker;
+        IERC20 loanToken = IERC20(offer.market.loanToken);
+        if (buyerAssets > sellerAssets) loanToken.safeTransferFrom(payer, address(this), buyerAssets - sellerAssets);
+        loanToken.safeTransferFrom(payer, receiverIfTakerIsSeller, sellerAssets);
+
+        if (!wasLocked) liquidationLocked[id][taker] = false;
+        require(liquidationLocked[id][taker] || _isHealthy(offer.market, id, taker), SellerIsLiquidatable());
         takeCount++;
     }
 
@@ -253,6 +271,7 @@ contract MockMidnight is IMidnight {
         require(seizedAssets == 0 || repaidUnits == 0, InconsistentInput());
         Position storage position = _positions[id][borrower];
         require(position.debt > 0, NotBorrower());
+        require(!liquidationLocked[id][borrower], NotLiquidatable());
         if (postMaturityMode) require(block.timestamp > market.maturity, NotLiquidatable());
         else require(!_isHealthy(market, id, borrower), NotLiquidatable());
 
