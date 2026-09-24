@@ -90,8 +90,9 @@ Supported modules: **Morpho Blue**, **Aave v3** and **Aave v4**.
 - Only whitelisted tokens from the parent Box can be used as collateral/debt.  
 - Only empty modules (no facilities, collateral, or debt tokens) can be added.  
 - Modules are chain-agnostic: every protocol address (pool, Spoke) is a constructor argument, so a module can be deployed on any chain where its protocol is deployed. Each module has a factory in `src/factories/` that records the modules it created (`isFundingX`) and emits a creation event.  
-- `nav` values positions with the Box oracles (collateral rounded down, debt rounded up, floored at 0 because there is no recourse beyond the collateral) and ignores tokens held idle by the module. `ltv` uses the protocol's own pricing and is only used by the module's post-action guard.  
-- Views never revert for tokens or `facilityData` the module does not know (they return 0), so a winddown `deallocate` cannot be blocked by an attached module.  
+- `nav` values positions with the Box oracles (collateral rounded down, debt rounded up, floored at 0 because there is no recourse beyond the collateral) and ignores tokens held idle by the module. `ltv` uses the protocol's own pricing. The Morpho Blue and Aave v4 modules check it in a post-action guard after `borrow` and `depledge`; the Aave v3 module has no guard of its own and relies on the Aave pool's health checks.  
+- The token-only views `debtBalance(token)` and `collateralBalance(token)` return 0 (and never revert) for tokens the module does not use, so a winddown `deallocate` cannot be blocked by an attached module.  
+- The Aave v4 module also returns 0 instead of reverting from the per-facility views (`debtBalance(facilityData, token)`, `collateralBalance(facilityData, token)`, `ltv(facilityData)`) for tokens the facility does not use and for unregistered `facilityData`. The Morpho Blue module's per-facility views revert on a wrong token or malformed `facilityData`, and the Aave v3 module's per-facility views ignore `facilityData`.  
 
 ### Morpho Module
 - `facilityData` encodes Morpho Blue market parameters.  
