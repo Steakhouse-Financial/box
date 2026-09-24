@@ -98,7 +98,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         _setUpLender(USDC, 10_000_000e6);
     }
 
-    // ========== VAL-MID-031: OSAKA EXECUTION ==========
+    // ========== OSAKA EXECUTION ==========
 
     function testOsakaExecutionWithoutConfigChange() public {
         assertEq(IVmEvmVersion(address(vm)).getEvmVersion(), "osaka", "execution EVM switched to Osaka");
@@ -118,7 +118,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertTrue(midnight.isHealthy(_dec25Market(), DEC25_ID, address(module)), "health check executes");
     }
 
-    // ========== VAL-MID-032: TIMELOCKED ATTACHMENT ==========
+    // ========== TIMELOCKED ATTACHMENT ==========
 
     function testTimelockedAttachOfFactoryModule() public {
         FundingMidnight fresh = factory.createFundingMidnight(address(box), BASE_MIDNIGHT, LLTV_CAP);
@@ -204,7 +204,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertLe(fresh.ltv(freshFd), (LLTV * LLTV_CAP) / WAD, "guard holds");
     }
 
-    // ========== VAL-MID-033: TEST-CREATED OFFERS ==========
+    // ========== TEST-CREATED OFFERS ==========
 
     function testBorrowWithinBoundUsesSetterAndEcrecoverOffers() public {
         vm.prank(allocator);
@@ -268,7 +268,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertEq(validUntil, 0, "staging consumed");
     }
 
-    // ========== VAL-MID-034: CAPTURED REAL OFFERS ==========
+    // ========== CAPTURED REAL OFFERS ==========
 
     function testRealOffersFixtureDecodes() public view {
         bytes memory encoded = MidnightBaseOffers.encodedFills();
@@ -414,7 +414,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertEq(module.debtBalance(fd, USDC), sold, "debt = units sold");
     }
 
-    // ========== VAL-MID-035: ONLY ABOVE-BOUND OFFERS ==========
+    // ========== ONLY ABOVE-BOUND OFFERS ==========
 
     function testBorrowRevertsWhenOnlyAboveBoundRealOffers() public {
         OfferFill[] memory fills = _realFills();
@@ -468,7 +468,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertEq(USDC.balanceOf(lender), lenderBefore, "lender USDC unchanged");
     }
 
-    // ========== VAL-MID-036: EARLY REPAY ==========
+    // ========== EARLY REPAY ==========
 
     function testEarlyPartialAndFullRepay() public {
         _open(module, fd, _dec25Market(), COLLATERAL, 100_000e6, 4212, "repay");
@@ -510,7 +510,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertEq(rate, 0, "accretion rate reset");
     }
 
-    // ========== VAL-MID-037: MATURITY AND CLEANUP ==========
+    // ========== MATURITY AND CLEANUP ==========
 
     function testRepayAtMaturityDepledgeAndCleanup() public {
         _assertNoMidnightAuthorisations(module);
@@ -553,7 +553,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         _assertNoMidnightAuthorisations(module);
     }
 
-    // ========== VAL-MID-038: POST-MATURITY LIQUIDATION ==========
+    // ========== POST-MATURITY LIQUIDATION ==========
 
     function testLiquidationExposureAfterMaturity() public {
         _open(module, fd, _dec25Market(), COLLATERAL, 100_000e6, 4212, "liquidation");
@@ -631,7 +631,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertEq(tracked + rate, 0, "accretion state cleared");
     }
 
-    // ========== VAL-MID-039: TWO MATURITIES ==========
+    // ========== TWO MATURITIES ==========
 
     function testTwoMaturitiesAsSeparateFacilities() public {
         bytes memory octFd = abi.encode(_oct30Market(), uint256(1), MAX_APR);
@@ -695,7 +695,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
         assertEq(CBBTC.balanceOf(address(box)), COLLATERAL, "all cbBTC back in the Box");
     }
 
-    // ========== VAL-MID-040: WINDDOWN ==========
+    // ========== WINDDOWN ==========
 
     function testWinddownCloseByRandomAddress() public {
         ERC20MockDecimals unrelated = new ERC20MockDecimals(18);

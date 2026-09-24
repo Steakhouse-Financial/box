@@ -321,7 +321,7 @@ abstract contract FundingMidnightFixture is Test {
 contract FundingMidnightTest is FundingMidnightFixture {
     using BoxLib for Box;
 
-    // ========== VAL-MID-001: constructor ==========
+    // ========== constructor ==========
 
     function testConstructorRejectsZeroOwner() public {
         vm.expectRevert(ErrorsLib.InvalidAddress.selector);
@@ -350,7 +350,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(m.debtTokensLength(), 0);
     }
 
-    // ========== VAL-MID-003: canonical facilityData ==========
+    // ========== canonical facilityData ==========
 
     function testCanonicalFacilityDataRegisters() public {
         FundingMidnight m = _freshModule();
@@ -484,7 +484,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         for (uint256 i = start; i < end; i++) out[i - start] = data[i];
     }
 
-    // ========== VAL-MID-004: facility parameters ==========
+    // ========== facility parameters ==========
 
     function testInvalidFacilityParametersRejected() public {
         FundingMidnight m = _freshModule();
@@ -532,7 +532,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertTrue(m.isFacility(data));
     }
 
-    // ========== VAL-MID-005: facility tokens ==========
+    // ========== facility tokens ==========
 
     function testFacilityTokensMustBeRegistered() public {
         (Market memory mk, uint256 cbIdx) = _market2(M);
@@ -564,7 +564,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertTrue(otherIdx.isFacility(data));
     }
 
-    // ========== VAL-MID-006: one facility per market ==========
+    // ========== one facility per market ==========
 
     function testOneFacilityPerMarket() public {
         // Same market, different maxBorrowApr
@@ -596,7 +596,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(module.facilitiesLength(), 3);
     }
 
-    // ========== VAL-MID-007: owner-only ==========
+    // ========== owner-only ==========
 
     function _ownerGatedCalls() internal view returns (bytes[] memory calls) {
         IERC20 c = IERC20(address(cbBtc));
@@ -647,7 +647,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertGt(validUntil, 0, "staging untouched");
     }
 
-    // ========== VAL-MID-008: stageBorrow ==========
+    // ========== stageBorrow ==========
 
     function testStageBorrowAccessAndValidation() public {
         OfferFill[] memory fills = _fills(_fill(_bid(lender, TICK, "a")));
@@ -694,7 +694,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(_debt(), MidnightMathLib.unitsForSellerAssets(10_000e6, TickLib.tickToPrice(TICK)));
     }
 
-    // ========== VAL-MID-009: action tokens ==========
+    // ========== action tokens ==========
 
     function testActionTokensMustMatchFacility() public {
         // Another facility borrowing WETH against cbBTC makes WETH a registered module token
@@ -752,7 +752,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(weth.balanceOf(address(module)), 1e18);
     }
 
-    // ========== VAL-MID-010: pledge ==========
+    // ========== pledge ==========
 
     function testPledgeSuppliesExactlyTheCollateral() public {
         _pledge(fd, 2e8);
@@ -785,7 +785,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(cbBtc.allowance(address(m), address(midnight)), 0);
     }
 
-    // ========== VAL-MID-011: depledge ==========
+    // ========== depledge ==========
 
     function testDepledgeDeliversToBox() public {
         _pledge(fd, 5e8);
@@ -838,7 +838,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(cbBtc.balanceOf(address(box)), 8e8);
     }
 
-    // ========== VAL-MID-012: staging required and consumed ==========
+    // ========== staging required and consumed ==========
 
     function testBorrowWithoutStagingReverts() public {
         _pledge(fd, 5e8);
@@ -897,7 +897,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(keccak256(abi.encode(staged)), keccak256(abi.encode(fillsA)));
     }
 
-    // ========== VAL-MID-013: non-bids and other markets are skipped ==========
+    // ========== non-bids and other markets are skipped ==========
 
     function testNonBidsAndOtherMarketsAreSkipped() public {
         // Collateral in the other-maturity market, so Midnight itself would accept a take there: only the module's
@@ -993,7 +993,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(_debt(), units);
     }
 
-    // ========== VAL-MID-014: APR floor ==========
+    // ========== APR floor ==========
 
     function _pMin() internal view returns (uint256) {
         uint256 ttm = M - block.timestamp;
@@ -1100,7 +1100,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(_debt(), validUnits);
     }
 
-    // ========== VAL-MID-015: failing takes are skipped ==========
+    // ========== failing takes are skipped ==========
 
     /// @dev `prefiltered`: the module skips `bad` without calling Midnight. Otherwise the module calls `take`, which fails
     ///      inside the module's try/catch.
@@ -1198,7 +1198,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         _assertFailingFillSkipped(_fill(o), false);
     }
 
-    // ========== VAL-MID-016: delivery ==========
+    // ========== delivery ==========
 
     function testBorrowSendsProceedsStraightToBox() public {
         _pledge(fd, 5e8);
@@ -1317,7 +1317,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(midnight.takeCount(), 0);
     }
 
-    // ========== VAL-MID-017: guard after borrow ==========
+    // ========== guard after borrow ==========
 
     function testBorrowGuard() public {
         _pledge(fd, 5e8);
@@ -1333,7 +1333,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertGt(module.ltv(fd), 0.7e18);
     }
 
-    // ========== VAL-MID-018: repay ==========
+    // ========== repay ==========
 
     function testPartialRepay() public {
         (, uint256 units) = _open(100_000e6);
@@ -1377,7 +1377,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(usdc.balanceOf(address(module)), 0);
     }
 
-    // ========== VAL-MID-019: staging never affects repay/depledge ==========
+    // ========== staging never affects repay/depledge ==========
 
     function _repayDepledgeOutcome() internal returns (uint256[4] memory out) {
         _repay(fd, 20_000e6);
@@ -1437,7 +1437,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(_nav(), 0);
     }
 
-    // ========== VAL-MID-020: debtBalance is face; aggregation ==========
+    // ========== debtBalance is face; aggregation ==========
 
     function testDebtBalanceIsFaceAndAggregates() public {
         vm.prank(curator);
@@ -1471,7 +1471,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(module.collateralBalance(cbBtc), coll1 + coll2);
     }
 
-    // ========== VAL-MID-021: unknown tokens and facilityData ==========
+    // ========== unknown tokens and facilityData ==========
 
     function testUnknownTokensAndFacilitiesReadZero() public {
         _open(100_000e6);
@@ -1499,7 +1499,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         }
     }
 
-    // ========== VAL-MID-022: ltv ==========
+    // ========== ltv ==========
 
     function testLtvZeroWithoutDebtEvenIfOracleReverts() public {
         assertEq(module.ltv(fd), 0);
@@ -1548,7 +1548,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(module.ltv(fd), type(uint256).max);
     }
 
-    // ========== VAL-MID-023: maturity ==========
+    // ========== maturity ==========
 
     function testMaturityViews() public {
         assertEq(module.maturity(fd), M);
@@ -1610,7 +1610,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(module.debtValue(fd), 1_000e6);
     }
 
-    // ========== VAL-MID-024: nav ==========
+    // ========== nav ==========
 
     function testNavValuation() public {
         _open(100_000e6);
@@ -1668,7 +1668,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(_nav(), v1, "underwater facility contributes 0");
     }
 
-    // ========== VAL-MID-025: accretion at borrow time ==========
+    // ========== accretion at borrow time ==========
 
     function testBorrowKeepsNavUnchanged() public {
         uint256 totalBefore = box.totalAssets();
@@ -1688,7 +1688,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertGe(module.debtValue(fd), dvBefore + proceeds2);
     }
 
-    // ========== VAL-MID-026: accretion over time ==========
+    // ========== accretion over time ==========
 
     function testAccretionIsLinearAndReachesFace() public {
         (uint256 proceeds, uint256 units) = _open(100_000e6);
@@ -1744,7 +1744,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(module.debtValue(fd), u1 + u2);
     }
 
-    // ========== VAL-MID-027: accretion on repay ==========
+    // ========== accretion on repay ==========
 
     function testPartialRepayScalesDebtValue() public {
         _open(100_000e6);
@@ -1806,7 +1806,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(module.debtValue(fd), u2);
     }
 
-    // ========== VAL-MID-028: external face reduction ==========
+    // ========== external face reduction ==========
 
     function testExternalFaceReduction() public {
         _open(100_000e6);
@@ -1876,7 +1876,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(module.debtValue(fd), _debt());
     }
 
-    // ========== VAL-MID-029: nav never reverts ==========
+    // ========== nav never reverts ==========
 
     function testNavNeverReverts() public {
         FundingMidnight empty = _freshModule();
@@ -1923,7 +1923,7 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(tracked, 0);
     }
 
-    // ========== VAL-MID-030: removal ==========
+    // ========== removal ==========
 
     function testRemoveFacilityOnlyWhenEmpty() public {
         _open(100_000e6);

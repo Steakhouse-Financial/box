@@ -139,6 +139,7 @@ contract FundingMidnight is FundingBase {
         delete staging[facilityHash];
     }
 
+    /// @notice facilityData of the facility at `index`
     function facilities(uint256 index) external view returns (bytes memory) {
         return facilityDataMap[facilitiesSet.at(index)];
     }
@@ -376,6 +377,7 @@ contract FundingMidnight is FundingBase {
         require(keccak256(abi.encode(market, collateralIndex, maxBorrowApr)) == keccak256(facilityData), ErrorsLib.InvalidFacilityData());
     }
 
+    /// @notice Canonical facilityData for a Midnight market, a collateral index and a borrow APR bound
     function encodeFacilityData(Market memory market, uint256 collateralIndex, uint256 maxBorrowApr) external pure returns (bytes memory) {
         return abi.encode(market, collateralIndex, maxBorrowApr);
     }
