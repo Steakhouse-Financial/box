@@ -1835,6 +1835,22 @@ contract FundingMidnightTest is FundingMidnightFixture {
         assertEq(module.debtValue(fd), face + u2);
     }
 
+    /// @dev Before the next sync, the debt value already scales the discount rate the way the sync will store it, so the
+    ///      sync alone (here a zero repay) moves neither the debt value nor totalAssets
+    function testSyncAfterFaceReductionKeepsDebtValue() public {
+        _open(100_000e6);
+        vm.warp(block.timestamp + 20 days);
+        midnight.reduceDebt(id, address(module), 97_000_001);
+        uint256 debtValue = module.debtValue(fd);
+        uint256 totalAssets = box.totalAssets();
+
+        _repay(fd, 0);
+        (uint256 tracked, ) = module.accretionState(fd);
+        assertEq(tracked, _debt(), "synced by the zero repay");
+        assertEq(module.debtValue(fd), debtValue, "the sync does not move the debt value");
+        assertEq(box.totalAssets(), totalAssets, "nor totalAssets");
+    }
+
     function testRepayAfterFaceReductionClosesExactly() public {
         _open(100_000e6);
         vm.warp(block.timestamp + 20 days);

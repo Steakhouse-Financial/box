@@ -449,8 +449,9 @@ contract FundingMidnight is FundingBase {
         }
     }
 
-    /// @dev face - unearned discount, the discount rounded down (debt rounded up) and scaled by face / tracked when an
-    ///      external event reduced the face since the last sync. Never above face; face at and after maturity.
+    /// @dev face - unearned discount, the discount rounded down (debt rounded up). Never above face; face at and after
+    ///      maturity. When an external event reduced the face since the last sync, the discount rate is scaled by
+    ///      face / tracked exactly as `_sync` will store it, so that the next sync does not move the value.
     /// @dev Midnight's face only exceeds the tracked units while a take is in progress: the maker callback runs after
     ///      the debt grew and before the proceeds reach the owner. Counting at most the tracked units keeps nav read from
     ///      that callback equal to nav before the take, instead of counting the new debt without its proceeds.
@@ -458,8 +459,9 @@ contract FundingMidnight is FundingBase {
         uint256 tracked = info.trackedUnits;
         if (face > tracked) face = tracked;
         if (face == 0 || block.timestamp >= info.maturity) return face;
-        uint256 discount = info.discountRate.mulDiv(info.maturity - block.timestamp, RATE_SCALE);
-        if (face < tracked) discount = discount.mulDiv(face, tracked);
+        uint256 rate = info.discountRate;
+        if (face < tracked) rate = rate.mulDiv(face, tracked);
+        uint256 discount = rate.mulDiv(info.maturity - block.timestamp, RATE_SCALE);
         return discount < face ? face - discount : 0;
     }
 
