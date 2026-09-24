@@ -428,6 +428,56 @@ contract BoxLeverageEulerMainnetTest is EulerForkTest {
         _assertNavConsistent();
     }
 
+    // ========== FORK FUZZ ==========
+
+    /// @dev Borrows 1% to 90% of Euler's capacity (the guard cap is 95% of it) and warps at most 1 hour, inside the
+    ///      feed budget. Over the round trip totalAssets moves only by the interest paid and the lending yield of the
+    ///      ewstETH-2 shares; share rounding loses at most 2 wei of wstETH (3 wei of value, plus 1 wei of flooring).
+    /// forge-config: default.fuzz.runs = 16
+    function testFuzz_PledgeBorrowRepayDepledgeRoundTrip(uint256 collateral, uint256 borrowBps, uint256 elapsed) public {
+        collateral = bound(collateral, 0.01e18, 100e18);
+        borrowBps = bound(borrowBps, 100, 9_000);
+        elapsed = bound(elapsed, 0, 1 hours);
+
+        deal(address(WSTETH), address(box), collateral);
+        uint256 navBefore = box.totalAssets();
+
+        vm.prank(allocator);
+        box.pledge(module, fdWeth, WSTETH, collateral);
+        uint256 borrowAmount = (_capacity(module, fdWeth) * borrowBps) / 10_000;
+        uint256 wethBefore = WETH.balanceOf(address(box));
+        vm.prank(allocator);
+        box.borrow(module, fdWeth, WETH, borrowAmount);
+
+        assertEq(WETH.balanceOf(address(box)) - wethBefore, borrowAmount, "Box received exactly the borrowed WETH");
+        assertApproxEqAbs(box.totalAssets(), navBefore, 10, "pledge + borrow keeps totalAssets within 10 wei");
+        assertLe(module.ltv(fdWeth), WSTETH_WETH_CAP, "ltv within the module cap");
+        _assertNavConsistent();
+
+        vm.warp(vm.getBlockTimestamp() + elapsed);
+        vm.roll(block.number + elapsed / 12);
+        uint256 debt = module.debtBalance(fdWeth, WETH);
+        assertGe(debt, borrowAmount, "debt never below the borrowed amount");
+        uint256 interest = debt - borrowAmount;
+
+        wethBefore = WETH.balanceOf(address(box));
+        vm.startPrank(allocator);
+        box.repay(module, fdWeth, WETH, type(uint256).max);
+        box.depledge(module, fdWeth, WSTETH, type(uint256).max);
+        vm.stopPrank();
+
+        assertEq(wethBefore - WETH.balanceOf(address(box)), debt, "repay(max) paid exactly the debt");
+        assertEq(_debt(module, fdWeth), 0, "no Euler debt left");
+        assertEq(_controllers(module, fdWeth).length, 0, "controller released");
+        assertEq(_shares(module, fdWeth), 0, "no shares left");
+        assertEq(module.nav(IOracleCallback(address(box))), 0, "module nav 0");
+
+        uint256 returned = WSTETH.balanceOf(address(box));
+        assertGe(returned + 2, collateral, "collateral back within 2 wei of share rounding");
+        uint256 yieldValue = returned > collateral ? ((returned - collateral) * wstethOracle.price()) / 1e36 : 0;
+        assertApproxEqAbs(box.totalAssets() + interest, navBefore + yieldValue, 4, "totalAssets = start - interest + yield");
+    }
+
     // ========== HELPERS ==========
 
     function _open(uint256 collateral, uint256 debt) internal {
