@@ -1232,6 +1232,35 @@ contract FundingEulerTest is Test {
         assertEq(module.ltv(fdWeth), 0.5e18, "follows the Euler quote");
     }
 
+    function testLtvUsesBorrowVaultOracleNotCollateralVaultOracle() public {
+        // The collateral vault keeps `router` (USD unit of account); the borrow vault has its own router in WETH
+        MockEulerRouter borrowRouter = new MockEulerRouter();
+        MockEVault bvWethOwnOracle = new MockEVault(address(evc), address(weth), address(borrowRouter), address(weth));
+        bvWethOwnOracle.setLTV(address(cvWsteth), 9300, 9500);
+        borrowRouter.setResolvedVault(address(cvWsteth), true);
+        borrowRouter.setPrice(address(wsteth), address(weth), 1.1e18);
+        _seed(bvWethOwnOracle, weth, 1_000e18);
+        assertEq(cvWsteth.oracle(), address(router));
+
+        bytes memory fd = abi.encode(address(cvWsteth), address(bvWethOwnOracle));
+        _add(fd);
+        address sub = module.subAccount(fd);
+        _pledge(fd, wsteth, 10e18);
+        _borrow(fd, weth, 5e18);
+        bvWethOwnOracle.accrue(sub, 7);
+
+        uint256 shares = cvWsteth.balanceOf(sub);
+        uint256 debt = bvWethOwnOracle.debtOf(sub);
+        uint256 expected = Math.mulDiv(debt, 1e18, borrowRouter.getQuote(shares, address(cvWsteth), address(weth)), Math.Rounding.Ceil);
+        assertEq(expected, 454545454545454546, "5 WETH over 11 WETH, rounded up");
+
+        router.setReverts(true);
+        vm.expectCall(address(router), abi.encodeWithSelector(MockEulerRouter.getQuote.selector), 0);
+        vm.expectCall(address(borrowRouter), abi.encodeCall(MockEulerRouter.getQuote, (debt, address(weth), address(weth))), 0);
+        vm.expectCall(address(borrowRouter), abi.encodeCall(MockEulerRouter.getQuote, (shares, address(cvWsteth), address(weth))), 1);
+        assertEq(module.ltv(fd), expected);
+    }
+
     // ========== VAL-EUL-018: removal ==========
 
     function testRemoveFacilityOnlyWhenEmpty() public {
@@ -1353,5 +1382,160 @@ contract FundingEulerTest is Test {
         vm.stopPrank();
         assertEq(module.collateralTokensLength(), 0);
         assertEq(module.debtTokensLength(), 0);
+    }
+
+    // ========== VAL-EUL-029: zero-value share dust ==========
+
+    uint256 internal constant DUST_SHARES = 1e6;
+
+    /// @dev fdWeth's sub-account ends with DUST_SHARES collateral-vault shares worth 0 assets and no debt, as after a
+    ///      liquidation followed by bad-debt socialisation on both vaults. With `withController`, the borrow vault stays
+    ///      enabled as controller (debt written off, never repaid).
+    function _setUpZeroValueDust(bool withController) internal returns (address sub) {
+        sub = module.subAccount(fdWeth);
+        _seed(cvWsteth, wsteth, 1_000e18);
+        _pledge(fdWeth, wsteth, 10e18);
+        if (withController) {
+            _borrow(fdWeth, weth, 5e18);
+            bvWeth.accrue(sub, 1);
+        }
+        cvWsteth.seize(sub, liquidator, 10e18 - DUST_SHARES);
+        if (withController) bvWeth.writeOff(sub);
+        cvWsteth.socializeLoss(cvWsteth.cash());
+
+        assertEq(cvWsteth.balanceOf(sub), DUST_SHARES, "dust shares");
+        assertEq(cvWsteth.convertToAssets(DUST_SHARES), 0, "worth 0");
+        assertEq(bvWeth.debtOf(sub), 0, "no debt");
+        assertEq(bvWeth.debtOfExact(sub), 0, "no sub-wei debt");
+        assertEq(evc.isControllerEnabled(sub, address(bvWeth)), withController, "controller");
+        assertTrue(evc.isCollateralEnabled(sub, address(cvWsteth)), "collateral enabled");
+    }
+
+    /// @dev Raises the collateral-vault share price so that DUST_SHARES are worth exactly 1 wei
+    function _makeDustWorthOneWei() internal {
+        uint256 needed = Math.ceilDiv(cvWsteth.totalSupply() + 1e6, DUST_SHARES) - 1e6 - cvWsteth.totalAssets();
+        wsteth.mint(address(this), needed);
+        wsteth.approve(address(cvWsteth), needed);
+        cvWsteth.addYield(needed);
+        assertEq(cvWsteth.convertToAssets(DUST_SHARES), 1, "worth 1 wei");
+    }
+
+    function _checkRemovalWithZeroValueDust(bool withController) internal {
+        address sub = _setUpZeroValueDust(withController);
+        uint256 dustId = module.subAccountId(fdWeth);
+        assertEq(module.collateralBalance(fdWeth, wsteth), 0);
+        assertEq(module.collateralBalance(wsteth), 0);
+        assertEq(module.debtBalance(weth), 0);
+        assertEq(module.nav(provider), 0);
+
+        // A full depledge cannot clear the dust: Euler refuses to redeem shares for 0 assets
+        vm.prank(address(box));
+        vm.expectRevert(MockEVault.E_ZeroAssets.selector);
+        module.depledge(fdWeth, wsteth, 0);
+
+        _remove(fdWeth);
+
+        assertFalse(module.isFacility(fdWeth));
+        assertEq(module.facilitiesLength(), 0);
+        assertEq(module.subAccountId(fdWeth), 0);
+        assertEq(evc.getControllers(sub).length, 0, "controller released");
+        assertEq(evc.getCollaterals(sub).length, 0, "collateral disabled");
+        assertEq(cvWsteth.balanceOf(sub), DUST_SHARES, "dust stays on the sub-account");
+        assertEq(module.collateralBalance(fdWeth, wsteth), 0);
+        assertEq(module.collateralBalance(wsteth), 0);
+        assertEq(module.debtBalance(weth), 0);
+
+        // The token registrations can be removed afterwards
+        uint256 snapshot = vm.snapshotState();
+        vm.startPrank(address(box));
+        module.removeCollateralToken(wsteth);
+        module.removeDebtToken(weth);
+        vm.stopPrank();
+        assertFalse(module.isCollateralToken(wsteth));
+        assertFalse(module.isDebtToken(weth));
+        vm.revertToState(snapshot);
+
+        // The dust becomes worth something again, and is never counted by a later facility
+        wsteth.mint(address(this), 10e18);
+        wsteth.approve(address(cvWsteth), 10e18);
+        cvWsteth.addYield(10e18);
+        uint256 dustValue = cvWsteth.convertToAssets(DUST_SHARES);
+        assertGt(dustValue, 0, "dust worth more than 0");
+        assertEq(module.collateralBalance(wsteth), 0, "removed facility not counted");
+
+        _add(fdWeth);
+        uint256 readdedId = module.subAccountId(fdWeth);
+        assertTrue(readdedId != dustId, "dust id not reused");
+        assertTrue(module.subAccount(fdWeth) != sub);
+        assertEq(module.collateralBalance(fdWeth, wsteth), 0, "re-added facility starts empty");
+        assertEq(module.collateralBalance(wsteth), 0);
+
+        _add(fdUsdc);
+        assertTrue(module.subAccountId(fdUsdc) != dustId && module.subAccountId(fdUsdc) != readdedId);
+        assertTrue(module.subAccount(fdUsdc) != sub);
+        assertEq(module.collateralBalance(fdUsdc, wsteth), 0);
+
+        _pledge(fdWeth, wsteth, 10e18);
+        uint256 readded = module.collateralBalance(fdWeth, wsteth);
+        assertApproxEqAbs(readded, 10e18, 2, "share rounding only");
+        assertLe(readded, 10e18);
+        _pledge(fdUsdc, wsteth, 3e18);
+        uint256 other = module.collateralBalance(fdUsdc, wsteth);
+        assertApproxEqAbs(other, 3e18, 2, "share rounding only");
+        assertLe(other, 3e18);
+        assertGt(cvWsteth.convertToAssets(cvWsteth.balanceOf(sub)), 0, "dust still worth more than 0");
+        assertEq(module.collateralBalance(wsteth), readded + other, "sum over registered facilities, dust excluded");
+        assertEq(module.nav(provider), _expectedNav(provider));
+    }
+
+    function testRemoveFacilityWithZeroValueDustAndController() public {
+        _checkRemovalWithZeroValueDust(true);
+    }
+
+    function testRemoveFacilityWithZeroValueDustWithoutController() public {
+        _checkRemovalWithZeroValueDust(false);
+    }
+
+    function testRemoveFacilityBlockedByDustWorthOneWei() public {
+        _setUpZeroValueDust(false);
+        _makeDustWorthOneWei();
+        assertEq(module.collateralBalance(fdWeth, wsteth), 1);
+
+        vm.prank(address(box));
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        module.removeFacility(fdWeth);
+        assertTrue(module.isFacility(fdWeth));
+    }
+
+    function testRemoveFacilityBlockedByDustWorthOneWeiWithController() public {
+        _setUpZeroValueDust(true);
+        _makeDustWorthOneWei();
+
+        vm.prank(address(box));
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        module.removeFacility(fdWeth);
+        assertTrue(module.isFacility(fdWeth));
+    }
+
+    function testRemoveFacilityBlockedByZeroValueDustAndOneWeiDebt() public {
+        address sub = _setUpZeroValueDust(true);
+        bvWeth.accrue(sub, 1e9);
+        assertEq(bvWeth.debtOf(sub), 1);
+        assertEq(module.debtBalance(weth), 1);
+
+        vm.prank(address(box));
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        module.removeFacility(fdWeth);
+        assertTrue(module.isFacility(fdWeth));
+    }
+
+    function testRemoveFacilityBlockedByZeroValueDustAndSubWeiDebt() public {
+        address sub = _setUpZeroValueDust(true);
+        bvWeth.accrue(sub, 1);
+        assertEq(bvWeth.debtOf(sub), 1, "rounded up");
+
+        vm.prank(address(box));
+        vm.expectRevert(ErrorsLib.CannotRemove.selector);
+        module.removeFacility(fdWeth);
     }
 }
