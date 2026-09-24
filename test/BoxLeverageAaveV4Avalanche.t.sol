@@ -552,6 +552,52 @@ contract BoxLeverageAaveV4AvalancheTest is Test {
         );
     }
 
+    /// @dev Borrows stay at or below 1 WAVAX per sAVAX (ltv about 0.78), inside the 0.9025 guard cap. The only nav
+    ///      change over the round trip is the interest paid; sAVAX returns to the Box within 1 wei of supply rounding.
+    /// forge-config: default.fuzz.runs = 16
+    function testFuzz_PledgeBorrowRepayDepledgeRoundTrip(uint256 collateral, uint256 borrowAmount, uint256 elapsed) public {
+        collateral = bound(collateral, 1e18, 1_000e18);
+        borrowAmount = bound(borrowAmount, 1e15, collateral);
+        elapsed = bound(elapsed, 0, 30 days);
+
+        uint256 savaxBefore = SAVAX.balanceOf(address(box));
+        uint256 navBefore = box.totalAssets();
+
+        vm.startPrank(allocator);
+        box.pledge(module, EMPTY, SAVAX, collateral);
+        uint256 wavaxBefore = WAVAX.balanceOf(address(box));
+        box.borrow(module, EMPTY, WAVAX, borrowAmount);
+        vm.stopPrank();
+
+        assertEq(WAVAX.balanceOf(address(box)) - wavaxBefore, borrowAmount, "Box received exactly the borrowed amount");
+        // Supply rounds down 1 wei of sAVAX (up to 2 wei of value), debt rounds up 1 wei, and the Box and module sAVAX
+        // values are floored separately (1 wei)
+        assertApproxEqAbs(box.totalAssets(), navBefore, 4, "pledge + borrow nav neutral within 4 wei");
+        assertLe(module.ltv(EMPTY), (0.95e18 * LLTV_CAP) / 1e18, "ltv within collateral factor x lltvCap");
+        _assertViewsMatchSpoke();
+        _assertNoIdle(module);
+
+        vm.warp(block.timestamp + elapsed);
+        uint256 debt = module.debtBalance(EMPTY, WAVAX);
+        assertGe(debt, borrowAmount, "debt never below the borrowed amount");
+        uint256 interest = debt - borrowAmount;
+
+        wavaxBefore = WAVAX.balanceOf(address(box));
+        vm.startPrank(allocator);
+        box.repay(module, EMPTY, WAVAX, type(uint256).max);
+        box.depledge(module, EMPTY, SAVAX, type(uint256).max);
+        vm.stopPrank();
+
+        assertEq(wavaxBefore - WAVAX.balanceOf(address(box)), debt, "repay(max) paid exactly the debt");
+        assertEq(AVAX_SPOKE.getUserTotalDebt(WAVAX_ID, address(module)), 0, "no debt left");
+        assertEq(AVAX_SPOKE.getUserSuppliedShares(SAVAX_ID, address(module)), 0, "no supplied shares left");
+        assertEq(module.debtBalance(EMPTY, WAVAX), 0, "facility debt 0");
+        assertEq(module.collateralBalance(EMPTY, SAVAX), 0, "facility collateral 0");
+        assertApproxEqAbs(SAVAX.balanceOf(address(box)), savaxBefore, 1, "all sAVAX back in the Box within 1 wei");
+        _assertNoIdle(module);
+        assertApproxEqAbs(box.totalAssets(), navBefore - interest, 2, "totalAssets = start - interest paid within 2 wei");
+    }
+
     // ========== WINDDOWN ==========
 
     function testWinddownAnyoneRepaysAndDepledgesWithGuard() public {
