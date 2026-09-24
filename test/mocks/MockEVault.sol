@@ -94,6 +94,19 @@ contract MockEVault {
         cashInternal += amount;
     }
 
+    /// @notice Bad-debt socialisation stand-in on the borrower side: forgives `account`'s whole debt without repayment
+    function writeOff(address account) external {
+        totalBorrowsExact -= debtExact[account];
+        debtExact[account] = 0;
+    }
+
+    /// @notice Bad-debt socialisation stand-in on the supplier side: lowers the share price by sending `amount` of cash
+    ///         to the caller
+    function socializeLoss(uint256 amount) external {
+        cashInternal -= amount;
+        IERC20(asset).safeTransfer(msg.sender, amount);
+    }
+
     // ========== VIEWS ==========
 
     function balanceOf(address account) external view returns (uint256) {

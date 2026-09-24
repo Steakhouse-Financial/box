@@ -19,8 +19,9 @@ import {ErrorsLib} from "./libraries/ErrorsLib.sol";
  * @notice Funding module borrowing from Euler v2 (EVC + EVK vaults), one isolated EVC sub-account per facility
  * @dev facilityData = abi.encode(address collateralVault, address borrowVault), exactly 64 bytes. Collateral is held as
  *      collateral-vault shares and debt is owed to the borrow vault, both on the facility's sub-account
- *      `address(this) ^ id` with id in 1..255 (the lowest free id at registration, freed on removal). The module's own
- *      address (id 0) never holds positions. An EVC account has a single controller, hence one sub-account per pair.
+ *      `address(this) ^ id` with id in 1..255 (the lowest free id at registration, freed on removal unless zero-value
+ *      shares remain on the sub-account). The module's own address (id 0) never holds positions. An EVC account has a
+ *      single controller, hence one sub-account per pair.
  * @dev Borrowed and withdrawn assets go straight to the owner. The module never sets EVC operators or permits.
  * @dev Euler's balance and debt views revert while the vault runs an operation (e.g. inside its flash-loan callback).
  *      `nav`, and therefore the Box's totalAssets, revert in that window rather than return a wrong value.
@@ -50,7 +51,8 @@ contract FundingEuler is FundingBase {
 
     mapping(bytes32 facilityHash => bytes) public facilityDataMap;
     mapping(bytes32 facilityHash => FacilityInfo) internal facilityInfo;
-    /// @dev Bit i is set while sub-account id i is assigned to a facility
+    /// @dev Bit i is set while sub-account id i is assigned to a facility, and stays set forever once a removed
+    ///      facility left zero-value collateral-vault shares on it
     uint256 internal usedSubAccountIds;
 
     /**
@@ -95,8 +97,11 @@ contract FundingEuler is FundingBase {
         });
     }
 
-    /// @dev Only when the sub-account holds no collateral-vault shares (donated shares included) and owes no debt.
-    ///      Releases the controller and the collateral on the EVC and frees the sub-account id.
+    /// @dev Only when the sub-account owes no debt and its collateral-vault shares (donated shares included) are worth 0
+    ///      assets. Releases the controller and the collateral on the EVC.
+    /// @dev Shares worth 0 assets can remain after Euler socialises bad debt (share price below 1). Euler refuses to
+    ///      redeem them (E_ZeroAssets), so they are left on the sub-account and its id is never assigned again: a later
+    ///      facility can never count them if they regain value. Without shares, the id is freed.
     function removeFacility(bytes calldata facilityData) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         bytes32 facilityHash = keccak256(facilityData);
@@ -105,11 +110,12 @@ contract FundingEuler is FundingBase {
 
         FacilityInfo memory info = facilityInfo[facilityHash];
         address account = _subAccount(info.subAccountId);
+        uint256 shares = IEVault(info.collateralVault).balanceOf(account);
         _releaseController(account, info.borrowVault);
         if (evc.isCollateralEnabled(account, info.collateralVault)) evc.disableCollateral(account, info.collateralVault);
 
         facilitiesSet.remove(facilityHash);
-        usedSubAccountIds &= ~(uint256(1) << info.subAccountId);
+        if (shares == 0) usedSubAccountIds &= ~(uint256(1) << info.subAccountId);
         delete facilityInfo[facilityHash];
         delete facilityDataMap[facilityHash];
     }
@@ -393,9 +399,10 @@ contract FundingEuler is FundingBase {
         }
     }
 
+    /// @dev Shares worth 0 assets do not count as use (see removeFacility)
     function _isFacilityUsed(bytes calldata facilityData) internal view override returns (bool) {
         FacilityInfo storage info = facilityInfo[keccak256(facilityData)];
         address account = _subAccount(info.subAccountId);
-        return IEVault(info.collateralVault).balanceOf(account) > 0 || IEVault(info.borrowVault).debtOf(account) > 0;
+        return _collateralAssets(info.collateralVault, account) > 0 || IEVault(info.borrowVault).debtOf(account) > 0;
     }
 }
