@@ -40,6 +40,35 @@ interface ISpokeAdmin {
     function updateReserveConfig(uint256 reserveId, IAaveV4Spoke.ReserveConfig calldata params) external;
 
     function addDynamicReserveConfig(uint256 reserveId, IAaveV4Spoke.DynamicReserveConfig calldata config) external returns (uint32);
+
+    function updateDynamicReserveConfig(uint256 reserveId, uint32 key, IAaveV4Spoke.DynamicReserveConfig calldata config) external;
+}
+
+/// @dev Spoke entry points a third party can call about another user's position (test only)
+interface IAaveV4SpokeThirdParty {
+    struct PositionManagerUpdate {
+        address positionManager;
+        bool approve;
+    }
+
+    struct SetUserPositionManagers {
+        address onBehalfOf;
+        PositionManagerUpdate[] updates;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
+    function setUserPositionManagersWithSig(SetUserPositionManagers calldata params, bytes calldata signature) external;
+
+    function isPositionManager(address user, address positionManager) external view returns (bool);
+
+    function liquidationCall(
+        uint256 collateralReserveId,
+        uint256 debtReserveId,
+        address user,
+        uint256 debtToCover,
+        bool receiveShares
+    ) external;
 }
 
 interface IHubAdmin {
@@ -115,6 +144,7 @@ contract BoxLeverageAaveV4AvalancheTest is Test {
     bytes4 internal constant RESERVE_FROZEN = bytes4(keccak256("ReserveFrozen()"));
     bytes4 internal constant SPOKE_HALTED = bytes4(keccak256("SpokeHalted()"));
     bytes4 internal constant DRAW_CAP_EXCEEDED = bytes4(keccak256("DrawCapExceeded(uint256)"));
+    bytes4 internal constant INVALID_SIGNATURE = bytes4(keccak256("InvalidSignature()"));
 
     bytes internal constant EMPTY = "";
 
@@ -187,6 +217,89 @@ contract BoxLeverageAaveV4AvalancheTest is Test {
         assertFalse(borrowing, "collateral reserve not borrowed");
         assertEq(SAVAX.balanceOf(anyone), 10e18, "third party kept its sAVAX");
         assertEq(WAVAX.balanceOf(anyone), 10e18, "third party kept its WAVAX");
+    }
+
+    /// @dev The module has code but no ERC-1271 `isValidSignature` (its fallback returns no data), so no signed intent
+    ///      can approve a position manager on its behalf
+    function testSignedIntentCannotApprovePositionManagerForModule() public {
+        _open(1_000e18);
+        IAaveV4SpokeThirdParty spoke = IAaveV4SpokeThirdParty(address(AVAX_SPOKE));
+        IAaveV4SpokeThirdParty.PositionManagerUpdate[] memory updates = new IAaveV4SpokeThirdParty.PositionManagerUpdate[](1);
+        updates[0] = IAaveV4SpokeThirdParty.PositionManagerUpdate({positionManager: anyone, approve: true});
+        IAaveV4SpokeThirdParty.SetUserPositionManagers memory params = IAaveV4SpokeThirdParty.SetUserPositionManagers({
+            onBehalfOf: address(module),
+            updates: updates,
+            nonce: 0,
+            deadline: block.timestamp + 1 hours
+        });
+
+        bytes[3] memory signatures = [
+            bytes(""),
+            abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)), uint8(27)),
+            abi.encode(bytes4(0x1626ba7e)) // the ERC-1271 magic value itself
+        ];
+        vm.startPrank(anyone);
+        for (uint256 i = 0; i < signatures.length; i++) {
+            vm.expectRevert(INVALID_SIGNATURE);
+            spoke.setUserPositionManagersWithSig(params, signatures[i]);
+        }
+        vm.stopPrank();
+
+        assertFalse(spoke.isPositionManager(address(module), anyone), "no position manager approved");
+        vm.prank(anyone);
+        vm.expectRevert(UNAUTHORIZED);
+        AVAX_SPOKE.borrow(WAVAX_ID, 1e18, address(module));
+    }
+
+    /// @dev Liquidation is the only third-party write on the module's position. Afterwards the views still track the
+    ///      Spoke, nav computes, nothing lands in the module, and the Box can still close and remove the position.
+    function testThirdPartyLiquidationLeavesPositionClosable() public {
+        _open(1_000e18);
+        uint256 navBefore = box.totalAssets();
+        uint256 debtBefore = module.debtBalance(EMPTY, WAVAX);
+        uint256 collateralBefore = module.collateralBalance(EMPTY, SAVAX);
+
+        // Governance edits the collateral factor of the key the position is bound to (95% -> 60%): HF about 0.77
+        uint32 key = AVAX_SPOKE.getUserPosition(SAVAX_ID, address(module)).dynamicConfigKey;
+        IAaveV4Spoke.DynamicReserveConfig memory config = AVAX_SPOKE.getDynamicReserveConfig(SAVAX_ID, key);
+        config.collateralFactor = 6000;
+        vm.prank(SPOKE_CONFIGURATOR);
+        ISpokeAdmin(address(AVAX_SPOKE)).updateDynamicReserveConfig(SAVAX_ID, key, config);
+        assertLt(AVAX_SPOKE.getUserAccountData(address(module)).healthFactor, 1e18, "liquidatable");
+
+        deal(address(WAVAX), anyone, 100e18);
+        vm.startPrank(anyone);
+        WAVAX.approve(address(AVAX_SPOKE), 100e18);
+        IAaveV4SpokeThirdParty(address(AVAX_SPOKE)).liquidationCall(SAVAX_ID, WAVAX_ID, address(module), 100e18, false);
+        vm.stopPrank();
+
+        uint256 repaid = 100e18 - WAVAX.balanceOf(anyone);
+        uint256 seized = SAVAX.balanceOf(anyone);
+        assertGt(repaid, 0, "liquidator repaid debt");
+        assertGt(seized, 0, "liquidator seized collateral");
+        assertApproxEqAbs(module.debtBalance(EMPTY, WAVAX), debtBefore - repaid, 1, "debt reduced by the repaid amount");
+        assertLe(module.collateralBalance(EMPTY, SAVAX), collateralBefore - seized, "collateral reduced by at least the seized amount");
+        _assertViewsMatchSpoke();
+        _assertNoIdle(module);
+        uint256 navAfter = box.totalAssets();
+        assertLt(navAfter, navBefore, "the liquidation bonus is a loss for the Box");
+        assertEq(module.nav(IOracleCallback(address(box))), navAfter - WAVAX.balanceOf(address(box)), "module nav is the rest");
+
+        vm.startPrank(allocator);
+        box.repay(module, EMPTY, WAVAX, type(uint256).max);
+        box.depledge(module, EMPTY, SAVAX, type(uint256).max);
+        vm.stopPrank();
+        assertEq(AVAX_SPOKE.getUserTotalDebt(WAVAX_ID, address(module)), 0, "debt closed");
+        assertEq(AVAX_SPOKE.getUserSuppliedShares(SAVAX_ID, address(module)), 0, "collateral withdrawn");
+        _assertNoIdle(module);
+
+        vm.startPrank(curator);
+        box.removeFundingFacility(module, EMPTY);
+        box.removeFundingCollateral(module, SAVAX);
+        box.removeFundingDebt(module, WAVAX);
+        box.removeFunding(module);
+        vm.stopPrank();
+        assertFalse(box.isFunding(module), "module detached");
     }
 
     /// @dev A factory-created module becomes usable only once the timelocked addFunding has been executed

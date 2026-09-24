@@ -5,17 +5,19 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Box} from "../src/Box.sol";
 import {FundingAaveV4} from "../src/FundingAaveV4.sol";
 import {FundingAaveV4Factory} from "../src/factories/FundingAaveV4Factory.sol";
 import {IAaveV4Spoke} from "../src/interfaces/aave-v4/IAaveV4Spoke.sol";
-import {IOracleCallback} from "../src/interfaces/IFunding.sol";
+import {IFunding, IOracleCallback} from "../src/interfaces/IFunding.sol";
 import {ErrorsLib} from "../src/libraries/ErrorsLib.sol";
 import {BoxLib} from "../src/periphery/BoxLib.sol";
 import {ERC20MockDecimals} from "./mocks/ERC20MockDecimals.sol";
 import {MockAaveV4Spoke} from "./mocks/MockAaveV4Spoke.sol";
 import {MockOracle} from "./mocks/MockOracle.sol";
 import {MockOracleProvider} from "./mocks/MockOracleProvider.sol";
+import {ReentrantHookToken} from "./mocks/ReentrantHookToken.sol";
 
 /// @dev Shared fixture: a mock Spoke with 5 reserves and a module owned by a mock oracle provider (Box stand-in).
 abstract contract FundingAaveV4Fixture is Test {
@@ -1196,6 +1198,117 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
         module.repay(EMPTY, debtB, 1e18);
         assertEq(module.debtBalance(EMPTY, debtB), 9e18, "repay works when frozen");
     }
+
+    /// @dev Governance can zero the latest collateral factor or clear `borrowable` after the token was registered. The
+    ///      registration stays valid: pledge, repay, depledge and removal still work and nav keeps valuing the collateral.
+    function testReserveConfigChangesAfterRegistration() public {
+        _register(module);
+        vm.prank(owner);
+        module.addCollateralToken(tokC);
+        _pledge(module, collA, 100e18);
+        _borrow(module, debtB, 40e18);
+
+        spoke.addDynamicReserveConfig(TOK_C, 0);
+        spoke.setBorrowable(DEBT_B, false);
+
+        // Refused for new registrations, kept for existing ones
+        FundingAaveV4 fresh = _deploy(0.8e18);
+        vm.startPrank(owner);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        fresh.addCollateralToken(tokC);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        fresh.addDebtToken(debtB);
+        vm.stopPrank();
+        assertTrue(module.isCollateralToken(tokC));
+        assertTrue(module.isDebtToken(debtB));
+
+        // The first pledge enables tokC on its zero collateral factor key: ignored by the Spoke, valued by the Box oracle
+        uint256 navBefore = module.nav(provider);
+        uint256 ltvBefore = module.ltv(EMPTY);
+        uint256 hfBefore = _hf(module);
+        _pledge(module, tokC, 50e6);
+        (bool usingAsCollateral, ) = spoke.getUserReserveStatus(TOK_C, address(module));
+        assertTrue(usingAsCollateral, "enabled");
+        assertEq(module.collateralBalance(EMPTY, tokC), 50e6);
+        assertEq(module.nav(provider), navBefore + 50e18, "valued by the Box oracle (1e48 for 6 decimals)");
+        assertEq(module.ltv(EMPTY), ltvBefore, "no collateral value at the Spoke");
+        assertEq(_hf(module), hfBefore);
+
+        vm.prank(owner);
+        vm.expectRevert(MockAaveV4Spoke.ReserveNotBorrowable.selector);
+        module.borrow(EMPTY, debtB, 1e18);
+
+        _repay(module, debtB, module.debtBalance(EMPTY, debtB));
+        vm.startPrank(owner);
+        module.depledge(EMPTY, tokC, 50e6);
+        module.depledge(EMPTY, collA, module.collateralBalance(EMPTY, collA));
+        module.removeCollateralToken(tokC);
+        module.removeCollateralToken(collA);
+        module.removeDebtToken(debtB);
+        module.removeFacility(EMPTY);
+        vm.stopPrank();
+        assertEq(tokC.balanceOf(owner), 50e6);
+        assertEq(collA.balanceOf(owner), 100e18);
+        assertEq(module.facilitiesLength(), 0);
+    }
+
+    /////////////////////////////
+    /// NAV: DECIMALS AND EXTREME PRICES
+    /////////////////////////////
+
+    uint256 internal constant PRICE_BTC_6 = 1_000_012_345_678_901_234_567_890_123_456_789_012_345; // ~100,001 per 8-dec token
+    uint256 internal constant PRICE_A_6 = 3_000_123_456_789_012_345_678_901_234; // ~3,000 per 18-dec token
+    uint256 internal constant PRICE_B_6 = 1_000_111_222_333_444_555_666_777; // ~1 per 18-dec token
+
+    /// @dev 6-decimal Box asset, 8- and 18-decimal collateral, 18- and 6-decimal debt (the latter being the asset)
+    function testNavMixedDecimalsAndExtremePrices() public {
+        ERC20MockDecimals btc = new ERC20MockDecimals(8);
+        uint256 btcId = spoke.addReserve(address(btc), 8, 7000, false);
+        spoke.setPrice(btcId, 100_000e8);
+        spoke.setPrice(COLL_A, 3_000e8);
+        uint256[] memory ids = new uint256[](4);
+        ids[0] = COLL_A;
+        ids[1] = DEBT_B;
+        ids[2] = TOK_C;
+        ids[3] = btcId;
+        FundingAaveV4 m = new FundingAaveV4(owner, address(spoke), ids, 0.8e18);
+        vm.startPrank(owner);
+        m.addFacility(EMPTY);
+        m.addCollateralToken(btc);
+        m.addCollateralToken(collA);
+        m.addDebtToken(debtB);
+        m.addDebtToken(tokC);
+        vm.stopPrank();
+        _pledge(m, btc, 2e8 + 3);
+        _pledge(m, collA, 10e18 + 1);
+        _borrow(m, debtB, 1_000e18 + 5);
+        _borrow(m, tokC, 5_000e6 + 1);
+
+        MockOracleProvider p6 = new MockOracleProvider(address(tokC));
+        MockOracle btcOracle = new MockOracle(PRICE_BTC_6);
+        MockOracle debtOracle = new MockOracle(PRICE_B_6);
+        p6.setOracle(btc, btcOracle);
+        p6.setOracle(collA, new MockOracle(PRICE_A_6));
+        p6.setOracle(debtB, debtOracle);
+
+        uint256 balBtc = m.collateralBalance(btc);
+        uint256 balA = m.collateralBalance(collA);
+        uint256 debt18 = m.debtBalance(debtB);
+        uint256 debt6 = m.debtBalance(tokC);
+        uint256 collateralValue = Math.mulDiv(balBtc, PRICE_BTC_6, 1e36) + Math.mulDiv(balA, PRICE_A_6, 1e36);
+        uint256 expected = collateralValue - Math.mulDiv(debt18, PRICE_B_6, 1e36, Math.Rounding.Ceil) - debt6;
+        assertEq(m.nav(p6), expected);
+        assertApproxEqRel(expected, 224_000e6, 0.001e18, "200k + 30k - 1k - 5k in 6-decimal units");
+
+        // A zero debt price values that debt at 0 without reverting
+        debtOracle.setPrice(0);
+        assertEq(m.nav(p6), collateralValue - debt6);
+
+        // balance * price exceeds 2^256 but the value fits: no overflow thanks to the 512-bit mulDiv
+        btcOracle.setPrice(1e70);
+        assertGt(balBtc, type(uint256).max / 1e70);
+        assertEq(m.nav(p6), Math.mulDiv(balBtc, 1e70, 1e36) + Math.mulDiv(balA, PRICE_A_6, 1e36) - debt6);
+    }
 }
 
 /// @dev The module driven by a real Box: token flows, repay max / depledge max resolution, winddown and removal.
@@ -1321,6 +1434,93 @@ contract FundingAaveV4BoxTest is FundingAaveV4Fixture {
         assertEq(collA.balanceOf(address(box)), 500e18);
         assertEq(m.collateralBalance(EMPTY, collA), 0);
         assertEq(box.totalAssets(), 1_500e18);
+    }
+
+    function testBoxWinddownStallsWhileDebtReservePausedThenCompletes() public {
+        _open();
+        vm.prank(guardian);
+        box.shutdown();
+        vm.warp(block.timestamp + box.shutdownWarmup() + 1);
+        uint256 totalAssetsBefore = box.totalAssets();
+
+        // Paused debt reserve: the Spoke blocks repay, nav and views still work, an in-cap depledge still works
+        spoke.setPaused(DEBT_B, true);
+        vm.prank(anyone);
+        vm.expectRevert(MockAaveV4Spoke.ReservePaused.selector);
+        box.repay(m, EMPTY, debtB, type(uint256).max);
+        assertEq(box.totalAssets(), totalAssetsBefore);
+        assertEq(m.debtBalance(debtB), 300e18);
+        // HF after = 0.8 * 490 / 300 = 1.3067 >= 1.111
+        vm.prank(anyone);
+        box.depledge(m, EMPTY, collA, 10e18);
+        assertEq(collA.balanceOf(address(box)), 10e18);
+
+        // Frozen reserves do not block the winddown
+        spoke.setPaused(DEBT_B, false);
+        spoke.setFrozen(DEBT_B, true);
+        spoke.setFrozen(COLL_A, true);
+        vm.startPrank(anyone);
+        box.repay(m, EMPTY, debtB, type(uint256).max);
+        box.depledge(m, EMPTY, collA, type(uint256).max);
+        vm.stopPrank();
+        assertEq(m.debtBalance(debtB), 0);
+        assertEq(m.collateralBalance(collA), 0);
+
+        // Without debt a repay is a no-op that never reaches the (paused) Spoke reserve
+        spoke.setPaused(DEBT_B, true);
+        uint256 actions = spoke.actionCount();
+        vm.prank(anyone);
+        box.repay(m, EMPTY, debtB, type(uint256).max);
+        assertEq(spoke.actionCount(), actions, "no Spoke call");
+        assertEq(collA.balanceOf(address(box)), 500e18);
+        assertEq(box.totalAssets(), totalAssetsBefore);
+    }
+
+    /// @dev A token whose transfer hook calls back cannot re-enter a Box action (Box lock) nor the module (owner only)
+    function testActionsCannotBeReenteredThroughTokenHooks() public {
+        ReentrantHookToken hook = new ReentrantHookToken();
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = spoke.addReserve(address(hook), 18, 8000, false);
+        ids[1] = DEBT_B;
+        FundingAaveV4 hm = new FundingAaveV4(address(box), address(spoke), ids, 0.9e18);
+
+        vm.startPrank(curator);
+        box.addTokenInstant(hook, new MockOracle(1e36));
+        box.addFundingInstant(hm);
+        box.addFundingFacilityInstant(hm, EMPTY);
+        box.addFundingCollateralInstant(hm, hook);
+        box.addFundingDebtInstant(hm, debtB);
+        // The hook gets the allocator role, so only the reentrancy protection can stop it
+        box.setIsAllocator(address(hook), true);
+        vm.stopPrank();
+
+        hook.mint(address(box), 100e18);
+        vm.startPrank(allocator);
+        box.pledge(hm, EMPTY, hook, 90e18);
+        box.borrow(hm, EMPTY, debtB, 10e18);
+        vm.stopPrank();
+
+        // Re-entering Box.borrow while the Spoke sends collateral to the module during a depledge
+        hook.arm(address(hm), address(box), abi.encodeCall(Box.borrow, (IFunding(address(hm)), EMPTY, IERC20(address(debtB)), 1e18)));
+        vm.prank(allocator);
+        box.depledge(hm, EMPTY, hook, 10e18);
+        assertTrue(hook.reentryAttempted());
+        assertFalse(hook.reentrySucceeded());
+        assertEq(bytes4(hook.reentryReturnData()), ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
+
+        // Calling the module directly while the Box sends it collateral during a pledge
+        hook.arm(address(hm), address(hm), abi.encodeCall(FundingAaveV4.borrow, (EMPTY, IERC20(address(debtB)), 1e18)));
+        vm.prank(allocator);
+        box.pledge(hm, EMPTY, hook, 20e18);
+        assertTrue(hook.reentryAttempted());
+        assertFalse(hook.reentrySucceeded());
+        assertEq(bytes4(hook.reentryReturnData()), ErrorsLib.OnlyOwner.selector);
+
+        assertEq(hm.debtBalance(EMPTY, debtB), 10e18, "no extra debt");
+        assertEq(hm.collateralBalance(EMPTY, hook), 100e18);
+        assertEq(hook.balanceOf(address(box)), 0);
+        assertEq(hook.balanceOf(address(hm)), 0);
+        assertEq(debtB.balanceOf(address(hm)), 0);
     }
 
     function testBoxWinddownDebtBalanceOfUnknownTokens() public {
