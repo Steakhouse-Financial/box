@@ -889,7 +889,11 @@ contract BoxLeverageAaveV4AvalancheTest is Test {
         assertEq(premiumBps, 5, "0.05% flash premium");
         vm.prank(curator);
         box.setIsAllocator(address(flash), true);
-        deal(address(WAVAX), address(flash), 1e18);
+
+        // The allocator pays the premium of both flash loans
+        deal(address(WAVAX), allocator, 1e18);
+        vm.prank(allocator);
+        WAVAX.approve(address(flash), type(uint256).max);
 
         uint256 loan = 1_000e18;
         uint256 collateralBefore = module.collateralBalance(EMPTY, SAVAX);
@@ -910,7 +914,9 @@ contract BoxLeverageAaveV4AvalancheTest is Test {
         console2.log("totalAssets", navBefore, "->", navAfter);
 
         assertApproxEqAbs(collateralAfter - collateralBefore, expectedBought, 1, "collateral rises by the sAVAX bought");
-        assertApproxEqAbs(debtAfter - debtBefore, loan + (loan * premiumBps) / 10_000, 1, "debt rises by loan + premium");
+        assertApproxEqAbs(debtAfter - debtBefore, loan, 1, "debt rises by the loan, the allocator pays the premium");
+        assertEq(WAVAX.balanceOf(allocator), 1e18 - (loan * premiumBps) / 10_000, "allocator paid exactly the premium");
+        assertEq(WAVAX.balanceOf(address(flash)), 0, "helper keeps no float");
         assertLe(ltv, (0.95e18 * LLTV_CAP) / 1e18, "ltv inside the cap");
         assertGe(AVAX_SPOKE.getUserAccountData(address(module)).healthFactor, module.minHealthFactor(), "guard holds");
         _assertNoIdle(module);
