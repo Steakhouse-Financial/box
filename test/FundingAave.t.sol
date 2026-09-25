@@ -339,6 +339,24 @@ contract FundingAaveTest is Test {
         assertEq(module.nav(provider), 0, "negative equity floored at 0");
     }
 
+    // ========== SKIM ==========
+
+    /// @dev nav is floored at 0 (Box oracles) while the pool still values the position: the nav check alone would let
+    /// the collateral aToken go.
+    function testSkimRefusesCollateralATokenWhenNavIsZero() public {
+        _registerAll();
+        _pledge(coll, 100e18);
+        _borrow(loan, 100e18);
+        collOracle.setPrice(0.5e36);
+        assertEq(module.nav(provider), 0, "nav floored at 0");
+
+        IERC20 aToken = _aToken(coll);
+        vm.prank(owner);
+        vm.expectRevert(ErrorsLib.CannotSkimToken.selector);
+        module.skim(aToken);
+        assertEq(aToken.balanceOf(address(module)), 100e18, "collateral kept");
+    }
+
     // ========== HEALTH GUARD ==========
 
     /// @dev 100e18 coll at a price of 2 is 200 base units: the pool lends up to 160 (its 80% ltv), the guard stops
