@@ -107,6 +107,7 @@ contract BoxAdapterCached is IBoxAdapter {
 
     /// @dev Updates the cached total assets of the adapter.
     /// @dev Allowed: Vault allocator, sentinel or anyone after 24 hours of inactivity
+    /// @dev Anyone can also refresh the cache at any time through VaultV2.forceDeallocate with 0 assets
     function updateTotalAssets() external {
         require(
             IVaultV2(parentVault).isAllocator(msg.sender) ||
