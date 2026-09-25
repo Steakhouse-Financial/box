@@ -229,7 +229,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum assets that can be deposited
     function maxDeposit(address) external view returns (uint256) {
-        return (isShutdown()) ? 0 : type(uint256).max;
+        return (isShutdown() || _cachedNavDepth > 0) ? 0 : type(uint256).max;
     }
 
     /// @inheritdoc IERC4626
@@ -249,7 +249,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum shares that can be minted
     function maxMint(address) external view returns (uint256) {
-        return (isShutdown()) ? 0 : type(uint256).max;
+        return (isShutdown() || _cachedNavDepth > 0) ? 0 : type(uint256).max;
     }
 
     /// @inheritdoc IERC4626
@@ -283,6 +283,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum assets owner can withdraw
     function maxWithdraw(address owner_) external view returns (uint256) {
+        if (_cachedNavDepth > 0) return 0;
         uint256 ownerAssets = convertToAssets(balanceOf(owner_));
         uint256 availableLiquidity = IERC20(asset).balanceOf(address(this));
         return ownerAssets < availableLiquidity ? ownerAssets : availableLiquidity;
@@ -306,6 +307,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum shares owner can redeem
     function maxRedeem(address owner_) external view returns (uint256) {
+        if (_cachedNavDepth > 0) return 0;
         uint256 ownerShares = balanceOf(owner_);
         uint256 availableLiquidity = IERC20(asset).balanceOf(address(this));
         uint256 liquidityShares = convertToShares(availableLiquidity);

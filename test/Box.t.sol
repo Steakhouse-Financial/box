@@ -1709,6 +1709,12 @@ contract BoxTest is Test {
         // totalAssets() should return the cached NAV during flash, not revert
         uint256 assetsInFlash = box.totalAssets();
         assertEq(assetsInFlash, 50e18, "totalAssets during flash returns cached value");
+
+        // Deposits and withdrawals revert during flash, so their limits are 0
+        assertEq(box.maxDeposit(feeder), 0, "maxDeposit during flash");
+        assertEq(box.maxMint(feeder), 0, "maxMint during flash");
+        assertEq(box.maxWithdraw(feeder), 0, "maxWithdraw during flash");
+        assertEq(box.maxRedeem(feeder), 0, "maxRedeem during flash");
     }
 
     function testFlashNav() public {
@@ -1740,6 +1746,8 @@ contract BoxTest is Test {
         box.flash(asset, 100e18, "");
 
         assertEq(box.totalAssets(), 50e18, "After flash, total assets is 50e18");
+        assertEq(box.maxWithdraw(feeder), 50e18, "maxWithdraw after flash");
+        assertEq(box.maxDeposit(feeder), type(uint256).max, "maxDeposit after flash");
     }
 
     function testFlashWrongToken() public {
