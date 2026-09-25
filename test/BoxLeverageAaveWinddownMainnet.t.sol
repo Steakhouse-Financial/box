@@ -24,6 +24,8 @@ contract BoxLeverageAaveWinddownMainnetTest is Test {
     address allocator = address(0x4);
     address stranger = address(0xbeef);
 
+    uint256 constant LLTV_CAP = 99e16;
+
     IPool constant POOL = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2); // Aave v3 Pool (Ethereum)
     IERC20 constant USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
 
@@ -41,7 +43,7 @@ contract BoxLeverageAaveWinddownMainnetTest is Test {
         assertEq(aToken, address(0), "token is not an Aave reserve (aToken)");
         assertEq(variableDebtToken, address(0), "token is not an Aave reserve (debt token)");
 
-        FundingAave module = new FundingAave(address(box), POOL, 0);
+        FundingAave module = new FundingAave(address(box), POOL, 0, LLTV_CAP);
 
         vm.startPrank(curator);
         box.setIsAllocator(allocator, true);

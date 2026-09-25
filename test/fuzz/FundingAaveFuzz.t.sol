@@ -28,6 +28,8 @@ contract FundingAaveFuzzTest is Test {
     uint256 internal constant FIXTURE_ASSET_POOL_PRICE = 1e8;
     uint256 internal constant FIXTURE_COLL_POOL_PRICE = 2e8;
     uint256 internal constant FIXTURE_OTHER_POOL_PRICE = 1e8;
+    /// @dev Leaves the pool's own max LTV (80% of a liquidation threshold of 85%) as the binding limit
+    uint256 internal constant LLTV_CAP = 0.95e18;
 
     address internal owner = address(0x1);
     address internal allocator = address(0x2);
@@ -90,7 +92,7 @@ contract FundingAaveFuzzTest is Test {
         otherOracle = new MockOracle(_parityPrice(otherDecimals));
 
         box = IBox(address(new Box(address(asset), owner, curator, "Box Aave Fuzz", "BOXAF", 0.01 ether, 7 days, 10 days, 7 days)));
-        module = new FundingAave(address(box), IPool(address(pool)), 0);
+        module = new FundingAave(address(box), IPool(address(pool)), 0, LLTV_CAP);
 
         vm.startPrank(curator);
         box.setIsAllocator(allocator, true);
@@ -323,7 +325,7 @@ contract FundingAaveFuzzTest is Test {
     function testFuzz_OnlyEmptyFacilityDataIsAccepted(bytes memory fd, uint256 c, uint256 b, uint256 interest, uint256 amount) public {
         if (fd.length == 0) fd = hex"00";
 
-        FundingAave fresh = new FundingAave(address(box), IPool(address(pool)), 0);
+        FundingAave fresh = new FundingAave(address(box), IPool(address(pool)), 0, LLTV_CAP);
         vm.startPrank(address(box));
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
         fresh.addFacility(fd);
