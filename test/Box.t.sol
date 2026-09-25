@@ -2084,6 +2084,40 @@ contract BoxTest is Test {
         vm.stopPrank();
     }
 
+    function testWinddownRepayOfUnderwaterFacilityOnlyByAllocator() public {
+        morpho.supply(marketParamsLtv80, 100e18, 0, address(this), "");
+
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
+        vm.stopPrank();
+
+        vm.startPrank(allocator);
+        box.allocate(token1, 80e18, swapper, "");
+        box.pledge(fundingMorpho, facilityDataLtv80, token1, 80e18);
+        box.borrow(fundingMorpho, facilityDataLtv80, asset, 40e18);
+        vm.stopPrank();
+
+        vm.prank(guardian);
+        box.shutdown();
+        vm.warp(block.timestamp + box.shutdownWarmup());
+
+        // Healthy facility: anyone can repay
+        vm.prank(nonAuthorized);
+        box.repay(fundingMorpho, facilityDataLtv80, asset, 10e18);
+
+        // Collateral now worth 24 against a debt of about 30
+        oracle1.setPrice(0.3e36);
+
+        vm.prank(nonAuthorized);
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        box.repay(fundingMorpho, facilityDataLtv80, asset, type(uint256).max);
+
+        vm.prank(allocator);
+        box.repay(fundingMorpho, facilityDataLtv80, asset, type(uint256).max);
+        assertEq(fundingMorpho.debtBalance(facilityDataLtv80, asset), 0, "allocator repaid");
+    }
+
     /////////////////////////////
     /// TIMELOCK GOVERNANCE TESTS
     /////////////////////////////

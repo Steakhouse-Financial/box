@@ -224,11 +224,11 @@ contract FundingAave is FundingBase {
     // ========== POSITION ==========
 
     /// @dev ltv can also use non whitelisted collaterals (donated)
-    /// @dev returns 0 if there is no collateral
+    /// @dev Returns 0 without debt and type(uint256).max with debt but no collateral
     function ltv(bytes calldata data) external view override returns (uint256) {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
-
-        return totalCollateralBase == 0 ? 0 : totalDebtBase.wDivUp(totalCollateralBase);
+        if (totalDebtBase == 0) return 0;
+        return totalCollateralBase == 0 ? type(uint256).max : totalDebtBase.wDivUp(totalCollateralBase);
     }
 
     function debtBalance(bytes calldata facilityData, IERC20 debtToken) external view override returns (uint256) {
