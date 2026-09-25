@@ -178,9 +178,6 @@ contract BoxTimelockFuzzTest is Test {
     }
 
     function testFuzz_AbdicatedSelectorCannotBeSubmitted(bytes4 selector, bytes memory args, uint256 duration) public {
-        // A decreaseTimelock submission is delayed by its target selector, so abdicating it has no effect on submit
-        vm.assume(selector != IBox.decreaseTimelock.selector);
-
         vm.prank(curator);
         box.abdicateTimelock(selector);
         assertEq(box.timelock(selector), TIMELOCK_DISABLED, "disabled");
