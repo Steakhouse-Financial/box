@@ -25,6 +25,17 @@ interface IPoolAddressesProvider {
     function getPool() external view returns (address);
 }
 
+/// @notice A Box impersonator that welcomes any allocator and keeps whatever it is lent
+contract GreedyBox {
+    function isAllocator(address) external pure returns (bool) {
+        return true;
+    }
+
+    function flash(IERC20 token, uint256 amount, bytes calldata) external {
+        token.transferFrom(msg.sender, address(this), amount);
+    }
+}
+
 /**
  * @title Testing suite for leverage features of Box using Aave on Mainnet
  */
@@ -445,9 +456,6 @@ contract BoxLeverageAaveMainnetTest is Test {
         FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
         box.setIsAllocator(address(flashloanProvider), true);
 
-        // Pre-fund the flash loan provider with a small amount to cover premiums
-        deal(address(usdc), address(flashloanProvider), 50e6); // 50 USDC for premiums
-
         vm.stopPrank();
 
         // Fund Box with initial USDC and provide some initial collateral
@@ -471,6 +479,11 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         uint256 navBefore = box.totalAssets();
         uint256 leverageAmount = 500e6; // Flash loan 500 USDC for additional leverage
+
+        // The allocator pays the Aave premium out of its own pocket
+        uint256 premium = (leverageAmount * flashloanProvider.POOL().FLASHLOAN_PREMIUM_TOTAL()) / 10_000;
+        deal(address(usdc), allocator, premium);
+        usdc.approve(address(flashloanProvider), premium);
 
         // Setup MockSwapper for testing
         MockSwapper mockSwapper = new MockSwapper();
@@ -500,9 +513,11 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Verify leverage worked
         assertGt(finalCollateral, 0, "Should have collateral");
-        assertGt(finalDebt, 0, "Should have debt");
+        assertApproxEqAbs(finalDebt, leverageAmount, 1, "Debt is the flash loan only, not the premium");
         assertGt(finalLTV, 0.3e18, "Should have leverage > 30%");
         assertApproxEqRel(navAfter, navBefore, 0.02e18, "NAV preserved");
+        assertEq(usdc.balanceOf(address(flashloanProvider)), 0, "Helper keeps no float");
+        assertEq(usdc.balanceOf(allocator), 0, "Allocator paid exactly the premium");
 
         vm.stopPrank();
     }
@@ -530,10 +545,12 @@ contract BoxLeverageAaveMainnetTest is Test {
         FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
         box.setIsAllocator(address(flashloanProvider), true);
 
-        // Pre-fund the flash loan provider with a small amount to cover premiums
-        deal(address(usdc), address(flashloanProvider), 50e6); // 50 USDC for premiums
-
         vm.stopPrank();
+
+        // The allocator pays the Aave premium of both flash loans
+        deal(address(usdc), allocator, 50e6);
+        vm.prank(allocator);
+        usdc.approve(address(flashloanProvider), type(uint256).max);
 
         // Fund and create initial leveraged position
         deal(address(usdc), address(this), 1000e6);
@@ -608,6 +625,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         assertLt(finalCollateral, initialCollateral, "Collateral reduced");
         assertLt(finalDebt, initialDebt, "Debt reduced");
         assertApproxEqRel(navAfter, navBefore, 0.02e18, "NAV preserved");
+        assertEq(usdc.balanceOf(address(flashloanProvider)), 0, "Helper keeps no float");
 
         vm.stopPrank();
     }
@@ -637,6 +655,25 @@ contract BoxLeverageAaveMainnetTest is Test {
         flashloanProvider.refinance(box, fundingModule, facilityData, fundingModule, facilityData, ptSusde25Sep, 100e18, usdc, 100e6);
     }
 
+    function testFakeBoxCannotKeepTheFlashLoan() public {
+        FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
+        GreedyBox greedyBox = new GreedyBox();
+
+        uint256 loanAmount = 500e6;
+        uint256 premium = (loanAmount * flashloanProvider.POOL().FLASHLOAN_PREMIUM_TOTAL()) / 10_000;
+        deal(address(usdc), user, premium);
+
+        vm.startPrank(user);
+        usdc.approve(address(flashloanProvider), premium);
+        vm.expectRevert();
+        flashloanProvider.leverage(IBox(address(greedyBox)), IFunding(address(0)), "", swapper, "", ptSusde25Sep, usdc, loanAmount);
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(address(greedyBox)), 0, "Fake box kept nothing");
+        assertEq(usdc.balanceOf(address(flashloanProvider)), 0, "Helper had nothing to lose");
+        assertEq(usdc.balanceOf(user), premium, "Premium payer untouched");
+    }
+
     function testMaxLeveragePTsUSDe() public {
         Box box = new Box(address(usdc), owner, curator, "Max Leverage Box", "MAXBOX", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
@@ -655,8 +692,11 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
         box.setIsAllocator(address(flashloanProvider), true);
-        deal(address(usdc), address(flashloanProvider), 500e6);
         vm.stopPrank();
+
+        deal(address(usdc), allocator, 500e6);
+        vm.prank(allocator);
+        usdc.approve(address(flashloanProvider), type(uint256).max);
 
         deal(address(usdc), address(this), 5000e6);
         usdc.approve(address(box), 5000e6);
