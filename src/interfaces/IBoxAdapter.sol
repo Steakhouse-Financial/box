@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Steakhouse
 pragma solidity >=0.8.0;
 
-import {IAdapter} from "../../lib/vault-v2/src/interfaces/IAdapter.sol";
+import {IAdapter} from "@vault-v2/src/interfaces/IAdapter.sol";
 import {IBox} from "./IBox.sol";
 
 interface IBoxAdapter is IAdapter {

@@ -26,8 +26,8 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @dev Box is not inflation or donation resistant as deposits are strictly controlled via the isFeeder role.
  * @dev Should deposit happen in an automated way (liquidity on a Vault V2) and from multiple feeders, it should be seeded first.
  * @dev Oracles can be manipulated to give an unfair price
- * @dev It is recommanded to create resiliency by using the BoxAdapterCached
- * @dev and/or by using a Vault V2 as a parent vault, which can have a reported price a but lower the NAV price and a setMaxRate()
+ * @dev A Vault V2 parent vault adds resiliency with setMaxRate(). BoxAdapterCached smooths the reported value, but anyone can
+ * @dev refresh it (e.g. VaultV2.forceDeallocate with 0 assets), so it is no protection against oracle manipulation
  * @dev During flash operations there is no totalAssets() calculation possible to avoid NAV based attacks
  * @dev There is no protection against ERC4626 inflation attacks, as deposits are controlled via the isFeeder role.
  * @dev Users shouldn't be able to deposited directly or indirectly to a Box.
@@ -127,12 +127,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     receive() external payable {}
 
     /**
-     * @notice Fallback function to receive native currency
-     * @dev Required for skimming native currency from funding modules
-     */
-    fallback() external payable {}
-
-    /**
      * @notice Initializes the Box vault
      * @param _asset Base currency token (e.g., USDC)
      * @param _owner Initial owner address
@@ -229,7 +223,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum assets that can be deposited
     function maxDeposit(address) external view returns (uint256) {
-        return (isShutdown()) ? 0 : type(uint256).max;
+        return (isShutdown() || _cachedNavDepth > 0) ? 0 : type(uint256).max;
     }
 
     /// @inheritdoc IERC4626
@@ -249,7 +243,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum shares that can be minted
     function maxMint(address) external view returns (uint256) {
-        return (isShutdown()) ? 0 : type(uint256).max;
+        return (isShutdown() || _cachedNavDepth > 0) ? 0 : type(uint256).max;
     }
 
     /// @inheritdoc IERC4626
@@ -283,6 +277,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum assets owner can withdraw
     function maxWithdraw(address owner_) external view returns (uint256) {
+        if (_cachedNavDepth > 0) return 0;
         uint256 ownerAssets = convertToAssets(balanceOf(owner_));
         uint256 availableLiquidity = IERC20(asset).balanceOf(address(this));
         return ownerAssets < availableLiquidity ? ownerAssets : availableLiquidity;
@@ -306,6 +301,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     /// @inheritdoc IERC4626
     /// @notice Maximum shares owner can redeem
     function maxRedeem(address owner_) external view returns (uint256) {
+        if (_cachedNavDepth > 0) return 0;
         uint256 ownerShares = balanceOf(owner_);
         uint256 availableLiquidity = IERC20(asset).balanceOf(address(this));
         uint256 liquidityShares = convertToShares(availableLiquidity);
@@ -426,8 +422,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Track slippage if we are not in winddown and have positive slippage
         if (!winddown && tokensReceived < expectedTokens) {
-            uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
+            _increaseSlippage((expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil));
         }
 
         emit EventsLib.Allocation(token, assetsSpent, expectedTokens, tokensReceived, slippagePct, swapper, data);
@@ -446,6 +441,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @return received Actual amount of base asset received from the deallocation
      * @dev Enforces slippage protection based on oracle prices
      * @dev During wind-down, anyone can deallocate tokens with no outstanding debt
+     * @dev During wind-down, the slippage tolerance applies to each amount sold with no cumulative limit, so unwinding
+     *      a position levered L times can cost up to L times the tolerance in NAV
      */
     function deallocate(
         IERC20 token,
@@ -475,8 +472,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage if not in winddown and we have positive slippage
         if (!winddown && assetsReceived < expectedAssets) {
             // slippage is already in asset units
-            uint256 slippageValue = expectedAssets - assetsReceived;
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
+            _increaseSlippage(expectedAssets - assetsReceived);
         }
 
         emit EventsLib.Deallocation(token, tokensSpent, expectedAssets, assetsReceived, slippagePct, swapper, data);
@@ -527,8 +523,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage if we have positive slippage
         // Note: No winddown check needed as reallocate cannot be called during winddown
         if (toReceived < expectedToTokens) {
-            uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
+            _increaseSlippage((expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil));
         }
 
         emit EventsLib.Reallocation(from, to, fromSpent, expectedToTokens, toReceived, slippagePct, swapper, data);
@@ -614,10 +609,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param debtToken Token to repay
      * @param repayAmount Amount to repay (max uint256 = full debt)
      * @dev Transfers tokens from vault to module, reduces debt position
+     * @dev A facility whose debt exceeds its collateral (ltv above 100%) is left to liquidators: only allocators can repay it
      */
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external nonReentrant {
         _onlyAllocatorOrWinddown();
         _requireIsFunding(fundingModule);
+        require(isAllocator[msg.sender] || fundingModule.ltv(facilityData) <= PRECISION, ErrorsLib.ExcessiveLTV());
 
         uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
 
@@ -731,6 +728,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @notice Sets a new curator for the vault
      * @param newCurator Address that will manage tokens and funding
      * @dev Only owner can update the curator
+     * @dev Calls submitted by the previous curator stay executable: the new curator or the guardian should revoke them
      */
     function setCurator(address newCurator) external {
         _onlyOwner();
@@ -814,6 +812,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev WARNING: Timelock periods are 0 by default. Users and the box owner should ensure that
      *      sufficiently long timelock periods are set for all critical functions (especially setGuardian)
      *      to allow the guardian time to react if the curator is compromised.
+     * @dev A decreaseTimelock call is delayed by the timelock it decreases, and can't be submitted once
+     *      either decreaseTimelock or that function is abdicated
      */
     function submit(bytes calldata data) external {
         _onlyCurator();
@@ -821,6 +821,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(data.length >= 4, ErrorsLib.InvalidAmount());
 
         bytes4 selector = bytes4(data);
+        require(timelock[selector] != TIMELOCK_DISABLED, ErrorsLib.FunctionDisabled());
         uint256 delay = selector == IBox.decreaseTimelock.selector ? timelock[bytes4(data[4:8])] : timelock[selector];
         require(delay != TIMELOCK_DISABLED, ErrorsLib.FunctionDisabled());
         executableAt[data] = block.timestamp + delay;
@@ -942,6 +943,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param token Token contract to add
      * @param oracle Price feed for the token
      * @dev Requires timelock, oracle must return prices in base asset terms
+     * @dev The token must be a plain ERC-20: no rebasing, transfer hooks or transfer fees (use wrapped versions, e.g. wstETH)
      */
     function addToken(IERC20 token, IOracle oracle) external {
         timelocked();
@@ -986,16 +988,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @notice Updates the price oracle for a whitelisted token
      * @param token Token to update oracle for
      * @param oracle New price feed contract
-     * @dev Requires timelock in normal operation, guardian can update during final wind-down
+     * @dev Requires timelock, not during wind-down
      */
     function changeTokenOracle(IERC20 token, IOracle oracle) external {
-        if (isWinddown()) {
-            require(block.timestamp >= shutdownTime + shutdownWarmup + shutdownSlippageDuration, ErrorsLib.NotAllowed());
-            _onlyGuardian();
-        } else {
-            _onlyCurator();
-            timelocked();
-        }
+        _requireNotWinddown();
+        _onlyCurator();
+        timelocked();
         _requireNonZeroAddress(address(oracle));
         _requireIsToken(token);
         _requireNotEqualAddress(address(oracles[token]), address(oracle));
@@ -1275,13 +1273,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
     }
 
     /**
-     * @dev Checks if msg.sender is the guardian
-     */
-    function _onlyGuardian() internal view {
-        require(msg.sender == guardian, ErrorsLib.OnlyGuardian());
-    }
-
-    /**
      * @dev Checks if msg.sender is allocator
      */
     function _onlyAllocator() internal view {
@@ -1391,10 +1382,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /**
      * @dev Tracks slippage within current epoch and enforces limits
-     * @param slippagePct Slippage to add scaled by PRECISION
+     * @param slippageValue Value lost to slippage, in asset units
      * @dev Resets epoch if duration has passed
+     * @dev Nothing to track when total assets are 0, the per-swap tolerance still applies
      */
-    function _increaseSlippage(uint256 slippagePct) internal {
+    function _increaseSlippage(uint256 slippageValue) internal {
+        uint256 nav = totalAssets();
+        if (nav == 0) return;
+        uint256 slippagePct = slippageValue.mulDiv(PRECISION, nav, Math.Rounding.Ceil);
+
         // Reset epoch if expired
         if (block.timestamp >= slippageEpochStart + slippageEpochDuration) {
             slippageEpochStart = block.timestamp;

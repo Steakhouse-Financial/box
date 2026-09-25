@@ -70,6 +70,11 @@ interface IScaledBalanceToken {
     function scaledBalanceOf(address user) external view returns (uint256);
 }
 
+/**
+ * @dev Aave v3 lets a position withdraw collateral down to a health factor of exactly 1, so borrow and depledge are
+ *      followed by a guard requiring `healthFactor >= ceil(1e36 / lltvCap)`, i.e.
+ *      `ltv <= liquidationThreshold * lltvCap / 1e18`.
+ */
 contract FundingAave is FundingBase {
     using SafeERC20 for IERC20;
     using MathLib for uint256;
@@ -77,13 +82,29 @@ contract FundingAave is FundingBase {
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.AddressSet;
 
+    uint256 internal constant WAD = 1e18;
+
     IPool public immutable pool;
     uint256 public immutable rateMode = 2; // 1 = Stable, 2 = Variable (Aave v3 constant)
     uint8 public immutable eMode; // 0 = no e-mode
+    /// @notice Fraction (1e18 = 100%) of the Aave liquidation threshold the module may use
+    uint256 public immutable lltvCap;
+    /// @notice Health factor floor enforced after borrow and depledge: ceil(1e36 / lltvCap)
+    uint256 public immutable minHealthFactor;
 
-    constructor(address _owner, IPool _pool, uint8 _eMode) FundingBase(_owner) {
+    /**
+     * @param _owner The Box owning this module
+     * @param _pool The Aave v3 pool
+     * @param _eMode The e-mode category of the position, 0 for none
+     * @param _lltvCap Fraction of the Aave liquidation threshold the module may use, in (0, 1e18]
+     */
+    constructor(address _owner, IPool _pool, uint8 _eMode, uint256 _lltvCap) FundingBase(_owner) {
+        require(_lltvCap > 0 && _lltvCap <= WAD, ErrorsLib.InvalidValue());
+
         pool = _pool;
         eMode = _eMode;
+        lltvCap = _lltvCap;
+        minHealthFactor = Math.ceilDiv(WAD * WAD, _lltvCap);
         if (pool.getUserEMode(address(this)) != eMode) {
             pool.setUserEMode(eMode);
         }
@@ -115,6 +136,22 @@ contract FundingAave is FundingBase {
         return "";
     }
 
+    /// @dev Only Aave reserves (non-zero aToken) are accepted, otherwise nav could not value the token
+    function addCollateralToken(IERC20 collateralToken) external override {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(address(collateralToken));
+        require(aTokenAddress != address(0), ErrorsLib.TokenNotWhitelisted());
+        require(collateralTokensSet.add(address(collateralToken)), ErrorsLib.AlreadyWhitelisted());
+    }
+
+    /// @dev Only Aave reserves (non-zero variable debt token) are accepted, otherwise nav could not value the token
+    function addDebtToken(IERC20 debtToken) external override {
+        require(msg.sender == owner, ErrorsLib.OnlyOwner());
+        (, , , , , , , , , , address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
+        require(variableDebtToken != address(0), ErrorsLib.TokenNotWhitelisted());
+        require(debtTokensSet.add(address(debtToken)), ErrorsLib.AlreadyWhitelisted());
+    }
+
     function removeCollateralToken(IERC20 collateralToken) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_collateralBalance(collateralToken) == 0, ErrorsLib.CannotRemove());
@@ -140,12 +177,14 @@ contract FundingAave is FundingBase {
         pool.setUserUseReserveAsCollateral(address(collateralToken), true);
     }
 
+    /// @dev Followed by the health guard, also during winddown when anyone can trigger it through the Box.
     function depledge(bytes calldata facilityData, IERC20 collateralToken, uint256 collateralAmount) external override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(isFacility(facilityData), ErrorsLib.NotWhitelisted());
         require(isCollateralToken(collateralToken), ErrorsLib.TokenNotWhitelisted());
 
         pool.withdraw(address(collateralToken), collateralAmount, owner);
+        _requireHealthy();
     }
 
     function borrow(bytes calldata facilityData, IERC20 debtToken, uint256 borrowAmount) external override {
@@ -155,6 +194,7 @@ contract FundingAave is FundingBase {
 
         pool.borrow(address(debtToken), borrowAmount, rateMode, 0, address(this));
         debtToken.safeTransfer(owner, borrowAmount);
+        _requireHealthy();
     }
 
     /// @dev Assume caller did transfer the debt tokens to this contract before calling
@@ -171,14 +211,24 @@ contract FundingAave is FundingBase {
         }
     }
 
+    /// @dev The aToken of a registered collateral is the position itself: it can't be skimmed, even when nav is floored at 0
+    function skim(IERC20 token) public override {
+        uint256 length = collateralTokensSet.length();
+        for (uint256 i; i < length; i++) {
+            (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(collateralTokensSet.at(i));
+            require(address(token) != aTokenAddress, ErrorsLib.CannotSkimToken());
+        }
+        super.skim(token);
+    }
+
     // ========== POSITION ==========
 
     /// @dev ltv can also use non whitelisted collaterals (donated)
-    /// @dev returns 0 if there is no collateral
+    /// @dev Returns 0 without debt and type(uint256).max with debt but no collateral
     function ltv(bytes calldata data) external view override returns (uint256) {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
-
-        return totalCollateralBase == 0 ? 0 : totalDebtBase.wDivUp(totalCollateralBase);
+        if (totalDebtBase == 0) return 0;
+        return totalCollateralBase == 0 ? type(uint256).max : totalDebtBase.wDivUp(totalCollateralBase);
     }
 
     function debtBalance(bytes calldata facilityData, IERC20 debtToken) external view override returns (uint256) {
@@ -238,13 +288,17 @@ contract FundingAave is FundingBase {
         }
     }
 
+    /// @dev Returns 0 for tokens Aave does not list: Box calls debtBalance for arbitrary tokens during winddown
     function _debtBalance(IERC20 debtToken) internal view override returns (uint256 balance) {
         (, , , , , , , , , , address variableDebtToken, , , , ) = pool.getReserveData(address(debtToken));
+        if (variableDebtToken == address(0)) return 0;
         return IERC20(variableDebtToken).balanceOf(address(this));
     }
 
+    /// @dev Returns 0 for tokens Aave does not list
     function _collateralBalance(IERC20 collateralToken) internal view override returns (uint256 balance) {
         (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(address(collateralToken));
+        if (aTokenAddress == address(0)) return 0;
         return IERC20(aTokenAddress).balanceOf(address(this));
     }
 
@@ -252,5 +306,11 @@ contract FundingAave is FundingBase {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
         return totalCollateralBase > 0 || totalDebtBase > 0;
+    }
+
+    /// @dev Health factor is type(uint256).max without debt.
+    function _requireHealthy() internal view {
+        (, , , , , uint256 healthFactor) = pool.getUserAccountData(address(this));
+        require(healthFactor >= minHealthFactor, ErrorsLib.ExcessiveLTV());
     }
 }

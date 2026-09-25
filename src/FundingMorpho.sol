@@ -5,12 +5,12 @@ pragma solidity 0.8.28;
 import {IMorpho, Id, MarketParams, Position} from "@morpho-blue/interfaces/IMorpho.sol";
 import "@morpho-blue/libraries/ConstantsLib.sol";
 import {MarketParamsLib} from "@morpho-blue/libraries/MarketParamsLib.sol";
+import {MathLib} from "@morpho-blue/libraries/MathLib.sol";
 import {MorphoBalancesLib} from "@morpho-blue/libraries/periphery/MorphoBalancesLib.sol";
 import {MorphoLib} from "@morpho-blue/libraries/periphery/MorphoLib.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {MathLib} from "./../lib/morpho-blue/src/libraries/MathLib.sol";
 import {FundingBase} from "./FundingBase.sol";
 import {IOracleCallback} from "./interfaces/IFunding.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
@@ -163,17 +163,18 @@ contract FundingMorpho is FundingBase {
 
     // ========== POSITION ==========
 
-    /// @dev returns 0 if there is no collateral
+    /// @dev Returns 0 without debt and type(uint256).max with debt but no collateral value
     function ltv(bytes calldata facilityData) public view override returns (uint256) {
         MarketParams memory market = decodeFacilityData(facilityData);
         Id marketId = market.id();
         uint256 borrowedAssets = morpho.expectedBorrowAssets(market, address(this));
+        if (borrowedAssets == 0) return 0;
         uint256 collateralAmount = morpho.collateral(marketId, address(this));
-        if (collateralAmount == 0) return 0;
+        if (collateralAmount == 0) return type(uint256).max;
         require(market.oracle != address(0), ErrorsLib.NoOracleForToken());
         uint256 collateralPrice = IOracle(market.oracle).price();
         uint256 collateralValue = collateralAmount.mulDivDown(collateralPrice, ORACLE_PRICE_SCALE);
-        return (collateralValue == 0) ? 0 : borrowedAssets.wDivUp(collateralValue);
+        return (collateralValue == 0) ? type(uint256).max : borrowedAssets.wDivUp(collateralValue);
     }
 
     function debtBalance(bytes calldata facilityData, IERC20 debtToken) external view override returns (uint256) {

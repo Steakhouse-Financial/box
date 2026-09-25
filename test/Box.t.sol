@@ -538,6 +538,8 @@ contract BoxTest is Test {
         bytes32 salt
     ) public {
         vm.assume(asset_ != address(0));
+        // Mocking decimals() on the console or cheatcode address fails, and the fuzzer finds them in its dictionary
+        assumeNotForgeAddress(asset_);
         vm.assume(owner_ != address(0));
         vm.assume(curator_ != address(0));
         vm.assume(maxSlippage_ <= MAX_SLIPPAGE_LIMIT);
@@ -681,6 +683,21 @@ contract BoxTest is Test {
         assertTrue(success, "ETH transfer should succeed");
 
         assertEq(address(box).balance, balanceBefore + amount, "Box should receive ETH");
+    }
+
+    function testMulticallRevertsOnUnknownSelector() public {
+        bytes memory data = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.005 ether);
+        vm.startPrank(curator);
+        box.submit(data);
+
+        // A misspelled revoke fails the whole batch instead of doing nothing
+        bytes[] memory calls = new bytes[](1);
+        calls[0] = abi.encodeWithSignature("revok(bytes)", data);
+        vm.expectRevert();
+        box.multicall(calls);
+        vm.stopPrank();
+
+        assertGt(box.executableAt(data), 0, "still queued");
     }
 
     /////////////////////////////
@@ -1700,13 +1717,27 @@ contract BoxTest is Test {
     }
 
     IERC20 public flashToken;
-    function onBoxFlash(IERC20 token, uint256, bytes calldata) external {
+    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external {
         require(msg.sender == address(box), "Only Box can call");
         require(token == flashToken, "Only asset token");
+
+        if (data.length > 0) {
+            // Sell the flashed tokens at a loss, buy them back and cover the loss so the flash can be repaid
+            box.deallocate(token, amount, badSwapper, "");
+            box.allocate(token, asset.balanceOf(address(box)), swapper, "");
+            token.safeTransfer(address(box), amount - token.balanceOf(address(box)));
+            return;
+        }
 
         // totalAssets() should return the cached NAV during flash, not revert
         uint256 assetsInFlash = box.totalAssets();
         assertEq(assetsInFlash, 50e18, "totalAssets during flash returns cached value");
+
+        // Deposits and withdrawals revert during flash, so their limits are 0
+        assertEq(box.maxDeposit(feeder), 0, "maxDeposit during flash");
+        assertEq(box.maxMint(feeder), 0, "maxMint during flash");
+        assertEq(box.maxWithdraw(feeder), 0, "maxWithdraw during flash");
+        assertEq(box.maxRedeem(feeder), 0, "maxRedeem during flash");
     }
 
     function testFlashNav() public {
@@ -1738,6 +1769,22 @@ contract BoxTest is Test {
         box.flash(asset, 100e18, "");
 
         assertEq(box.totalAssets(), 50e18, "After flash, total assets is 50e18");
+        assertEq(box.maxWithdraw(feeder), 50e18, "maxWithdraw after flash");
+        assertEq(box.maxDeposit(feeder), type(uint256).max, "maxDeposit after flash");
+    }
+
+    function testSlippageNotTrackedWhenNavIsZero() public {
+        vm.prank(curator);
+        box.setIsAllocator(address(this), true);
+        badSwapper.setSlippage(0.005 ether);
+
+        // Empty Box: the NAV cached by flash is 0
+        assertEq(box.totalAssets(), 0);
+        token1.approve(address(box), 100e18);
+        flashToken = token1;
+        box.flash(token1, 100e18, "swap");
+
+        assertEq(box.accumulatedSlippage(), 0, "no slippage tracked against a zero NAV");
     }
 
     function testFlashWrongToken() public {
@@ -2043,7 +2090,7 @@ contract BoxTest is Test {
         vm.warp(block.timestamp + box.shutdownWarmup());
         assertEq(box.isWinddown(), true);
 
-        vm.expectRevert(ErrorsLib.NotAllowed.selector);
+        vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
         box.changeTokenOracle(token1, oracle3);
 
         vm.stopPrank();
@@ -2051,7 +2098,7 @@ contract BoxTest is Test {
         // Check that the curator lost control of change of oracle
         vm.startPrank(curator);
 
-        vm.expectRevert(ErrorsLib.NotAllowed.selector);
+        vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
         box.changeTokenOracle(token1, oracle3);
 
         vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
@@ -2059,27 +2106,50 @@ contract BoxTest is Test {
 
         vm.stopPrank();
 
-        vm.startPrank(guardian);
-
-        // Guardian can change oracle only after the slippage duration
+        // Nobody can change an oracle after the slippage duration either
         vm.warp(block.timestamp + box.shutdownSlippageDuration());
 
-        vm.expectEmit(true, true, true, true);
-        emit EventsLib.TokenOracleChanged(token1, oracle3);
-        box.changeTokenOracle(token1, oracle3);
-
-        vm.stopPrank();
-
-        // Curator still guardian after wind-down + slippage duration
-        vm.startPrank(curator);
-
-        vm.expectRevert(ErrorsLib.OnlyGuardian.selector);
-        box.changeTokenOracle(token1, oracle3);
-
+        vm.prank(guardian);
         vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
-        box.setGuardian(curator);
+        box.changeTokenOracle(token1, oracle3);
 
+        vm.prank(curator);
+        vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
+        box.changeTokenOracle(token1, oracle3);
+    }
+
+    function testWinddownRepayOfUnderwaterFacilityOnlyByAllocator() public {
+        morpho.supply(marketParamsLtv80, 100e18, 0, address(this), "");
+
+        vm.startPrank(feeder);
+        asset.approve(address(box), 100e18);
+        box.deposit(100e18, feeder);
         vm.stopPrank();
+
+        vm.startPrank(allocator);
+        box.allocate(token1, 80e18, swapper, "");
+        box.pledge(fundingMorpho, facilityDataLtv80, token1, 80e18);
+        box.borrow(fundingMorpho, facilityDataLtv80, asset, 40e18);
+        vm.stopPrank();
+
+        vm.prank(guardian);
+        box.shutdown();
+        vm.warp(block.timestamp + box.shutdownWarmup());
+
+        // Healthy facility: anyone can repay
+        vm.prank(nonAuthorized);
+        box.repay(fundingMorpho, facilityDataLtv80, asset, 10e18);
+
+        // Collateral now worth 24 against a debt of about 30
+        oracle1.setPrice(0.3e36);
+
+        vm.prank(nonAuthorized);
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        box.repay(fundingMorpho, facilityDataLtv80, asset, type(uint256).max);
+
+        vm.prank(allocator);
+        box.repay(fundingMorpho, facilityDataLtv80, asset, type(uint256).max);
+        assertEq(fundingMorpho.debtBalance(facilityDataLtv80, asset), 0, "allocator repaid");
     }
 
     /////////////////////////////
@@ -2241,6 +2311,17 @@ contract BoxTest is Test {
         bytes memory data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setGuardian.selector, 2 days);
 
         vm.expectRevert();
+        box.submit(data);
+
+        vm.stopPrank();
+    }
+
+    function testAbdicatedDecreaseTimelockCannotBeSubmitted() public {
+        vm.startPrank(curator);
+        box.abdicateTimelock(box.decreaseTimelock.selector);
+
+        bytes memory data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setMaxSlippage.selector, 0);
+        vm.expectRevert(ErrorsLib.FunctionDisabled.selector);
         box.submit(data);
 
         vm.stopPrank();
