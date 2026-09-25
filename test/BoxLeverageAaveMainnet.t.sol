@@ -795,12 +795,12 @@ contract BoxLeverageAaveMainnetTest is Test {
         (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(address(usdc));
         IERC20 aToken = IERC20(aTokenAddress);
 
-        // Try to skim the aToken - should fail because it changes NAV
+        // Try to skim the aToken - should fail because it is the collateral position
         uint256 aTokenBalance = aToken.balanceOf(address(fundingModule));
         assertGt(aTokenBalance, 0, "Should have aToken balance");
 
         vm.prank(allocator);
-        vm.expectRevert(abi.encodeWithSelector(ErrorsLib.SkimChangedNav.selector));
+        vm.expectRevert(abi.encodeWithSelector(ErrorsLib.CannotSkimToken.selector));
         box.skimFunding(fundingModule, aToken);
     }
 }

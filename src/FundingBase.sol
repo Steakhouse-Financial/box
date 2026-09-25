@@ -113,7 +113,7 @@ abstract contract FundingBase is IFunding {
 
     // ========== COMMON ACTIONS ==========
 
-    function skim(IERC20 token) external override {
+    function skim(IERC20 token) public virtual override {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
 
         uint256 navBefore = nav(IOracleCallback(owner));

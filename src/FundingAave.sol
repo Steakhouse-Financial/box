@@ -211,6 +211,16 @@ contract FundingAave is FundingBase {
         }
     }
 
+    /// @dev The aToken of a registered collateral is the position itself: it can't be skimmed, even when nav is floored at 0
+    function skim(IERC20 token) public override {
+        uint256 length = collateralTokensSet.length();
+        for (uint256 i; i < length; i++) {
+            (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(collateralTokensSet.at(i));
+            require(address(token) != aTokenAddress, ErrorsLib.CannotSkimToken());
+        }
+        super.skim(token);
+    }
+
     // ========== POSITION ==========
 
     /// @dev ltv can also use non whitelisted collaterals (donated)
