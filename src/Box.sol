@@ -988,16 +988,12 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @notice Updates the price oracle for a whitelisted token
      * @param token Token to update oracle for
      * @param oracle New price feed contract
-     * @dev Requires timelock in normal operation, guardian can update during final wind-down
+     * @dev Requires timelock, not during wind-down
      */
     function changeTokenOracle(IERC20 token, IOracle oracle) external {
-        if (isWinddown()) {
-            require(block.timestamp >= shutdownTime + shutdownWarmup + shutdownSlippageDuration, ErrorsLib.NotAllowed());
-            _onlyGuardian();
-        } else {
-            _onlyCurator();
-            timelocked();
-        }
+        _requireNotWinddown();
+        _onlyCurator();
+        timelocked();
         _requireNonZeroAddress(address(oracle));
         _requireIsToken(token);
         _requireNotEqualAddress(address(oracles[token]), address(oracle));
@@ -1274,13 +1270,6 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      */
     function _requireNotEqualAddress(address a, address b) internal pure {
         require(a != b, ErrorsLib.InvalidValue());
-    }
-
-    /**
-     * @dev Checks if msg.sender is the guardian
-     */
-    function _onlyGuardian() internal view {
-        require(msg.sender == guardian, ErrorsLib.OnlyGuardian());
     }
 
     /**

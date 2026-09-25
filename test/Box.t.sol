@@ -2090,7 +2090,7 @@ contract BoxTest is Test {
         vm.warp(block.timestamp + box.shutdownWarmup());
         assertEq(box.isWinddown(), true);
 
-        vm.expectRevert(ErrorsLib.NotAllowed.selector);
+        vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
         box.changeTokenOracle(token1, oracle3);
 
         vm.stopPrank();
@@ -2098,7 +2098,7 @@ contract BoxTest is Test {
         // Check that the curator lost control of change of oracle
         vm.startPrank(curator);
 
-        vm.expectRevert(ErrorsLib.NotAllowed.selector);
+        vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
         box.changeTokenOracle(token1, oracle3);
 
         vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
@@ -2106,27 +2106,16 @@ contract BoxTest is Test {
 
         vm.stopPrank();
 
-        vm.startPrank(guardian);
-
-        // Guardian can change oracle only after the slippage duration
+        // Nobody can change an oracle after the slippage duration either
         vm.warp(block.timestamp + box.shutdownSlippageDuration());
 
-        vm.expectEmit(true, true, true, true);
-        emit EventsLib.TokenOracleChanged(token1, oracle3);
-        box.changeTokenOracle(token1, oracle3);
-
-        vm.stopPrank();
-
-        // Curator still guardian after wind-down + slippage duration
-        vm.startPrank(curator);
-
-        vm.expectRevert(ErrorsLib.OnlyGuardian.selector);
-        box.changeTokenOracle(token1, oracle3);
-
+        vm.prank(guardian);
         vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
-        box.setGuardian(curator);
+        box.changeTokenOracle(token1, oracle3);
 
-        vm.stopPrank();
+        vm.prank(curator);
+        vm.expectRevert(ErrorsLib.CannotDuringWinddown.selector);
+        box.changeTokenOracle(token1, oracle3);
     }
 
     function testWinddownRepayOfUnderwaterFacilityOnlyByAllocator() public {
