@@ -37,12 +37,6 @@ abstract contract FundingBase is IFunding {
      */
     receive() external payable {}
 
-    /**
-     * @notice Fallback function to receive native currency
-     * @dev Required for skimming native currency back to the Box
-     */
-    fallback() external payable {}
-
     constructor(address _owner) {
         require(_owner != address(0), ErrorsLib.InvalidAddress());
         owner = _owner;
