@@ -75,7 +75,6 @@ Notice that a Box holder don't need to be a `feeder` to redeem and transfer a Bo
 - `revoke`a timelocked action from the curator (cancel it before execution)  
 - Trigger a `shutdown` process
 - `recover` from a shutdown back to normal mode (only before `winddown` begins)  
-- Change an existing token’s oracle  (only during `winddown`)
 
 ### Anyone (during `winddown`)
 - `repay` debt
