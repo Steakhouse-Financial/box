@@ -685,6 +685,21 @@ contract BoxTest is Test {
         assertEq(address(box).balance, balanceBefore + amount, "Box should receive ETH");
     }
 
+    function testMulticallRevertsOnUnknownSelector() public {
+        bytes memory data = abi.encodeWithSelector(box.setMaxSlippage.selector, 0.005 ether);
+        vm.startPrank(curator);
+        box.submit(data);
+
+        // A misspelled revoke fails the whole batch instead of doing nothing
+        bytes[] memory calls = new bytes[](1);
+        calls[0] = abi.encodeWithSignature("revok(bytes)", data);
+        vm.expectRevert();
+        box.multicall(calls);
+        vm.stopPrank();
+
+        assertGt(box.executableAt(data), 0, "still queued");
+    }
+
     /////////////////////////////
     /// BASIC ERC4626 TESTS
     /////////////////////////////

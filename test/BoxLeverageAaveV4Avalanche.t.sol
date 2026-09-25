@@ -219,7 +219,7 @@ contract BoxLeverageAaveV4AvalancheTest is Test {
         assertEq(WAVAX.balanceOf(anyone), 10e18, "third party kept its WAVAX");
     }
 
-    /// @dev The module has code but no ERC-1271 `isValidSignature` (its fallback returns no data), so no signed intent
+    /// @dev The module has code but no ERC-1271 `isValidSignature`, so no signed intent
     ///      can approve a position manager on its behalf
     function testSignedIntentCannotApprovePositionManagerForModule() public {
         _open(1_000e18);
