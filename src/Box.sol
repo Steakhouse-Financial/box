@@ -26,8 +26,8 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @dev Box is not inflation or donation resistant as deposits are strictly controlled via the isFeeder role.
  * @dev Should deposit happen in an automated way (liquidity on a Vault V2) and from multiple feeders, it should be seeded first.
  * @dev Oracles can be manipulated to give an unfair price
- * @dev It is recommanded to create resiliency by using the BoxAdapterCached
- * @dev and/or by using a Vault V2 as a parent vault, which can have a reported price a but lower the NAV price and a setMaxRate()
+ * @dev A Vault V2 parent vault adds resiliency with setMaxRate(). BoxAdapterCached smooths the reported value, but anyone can
+ * @dev refresh it (e.g. VaultV2.forceDeallocate with 0 assets), so it is no protection against oracle manipulation
  * @dev During flash operations there is no totalAssets() calculation possible to avoid NAV based attacks
  * @dev There is no protection against ERC4626 inflation attacks, as deposits are controlled via the isFeeder role.
  * @dev Users shouldn't be able to deposited directly or indirectly to a Box.
@@ -441,6 +441,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @return received Actual amount of base asset received from the deallocation
      * @dev Enforces slippage protection based on oracle prices
      * @dev During wind-down, anyone can deallocate tokens with no outstanding debt
+     * @dev During wind-down, the slippage tolerance applies to each amount sold with no cumulative limit, so unwinding
+     *      a position levered L times can cost up to L times the tolerance in NAV
      */
     function deallocate(
         IERC20 token,
@@ -726,6 +728,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @notice Sets a new curator for the vault
      * @param newCurator Address that will manage tokens and funding
      * @dev Only owner can update the curator
+     * @dev Calls submitted by the previous curator stay executable: the new curator or the guardian should revoke them
      */
     function setCurator(address newCurator) external {
         _onlyOwner();
@@ -940,6 +943,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param token Token contract to add
      * @param oracle Price feed for the token
      * @dev Requires timelock, oracle must return prices in base asset terms
+     * @dev The token must be a plain ERC-20: no rebasing, transfer hooks or transfer fees (use wrapped versions, e.g. wstETH)
      */
     function addToken(IERC20 token, IOracle oracle) external {
         timelocked();

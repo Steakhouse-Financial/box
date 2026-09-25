@@ -20,6 +20,8 @@ It allows to:
 - Allocators will not manipulate weak oracles during allocations.  
 - Guardian will veto malicious curator proposals.  
 - Allocators will not deliberately set excessive LTVs that harm depositors.  
+- Whitelisted tokens are plain ERC-20s: no rebasing, transfer hooks or transfer fees.  
+- `BoxAdapterCached` smooths the value reported to the parent vault but is no protection against oracle manipulation: anyone can refresh it, e.g. through `VaultV2.forceDeallocate` with 0 assets.  
 
 ⚠️ Deposits are restricted to whitelisted **feeder** addresses to prevent arbitrage. Liquidity is not expected under normal conditions, so that `redeem` can't be used as an arbitrage path.  
 
@@ -52,7 +54,7 @@ Each Box has one `curator`, it can:
 - Decrease timelocks (timelocked)
 - `revoke`a timelocked action (cancel it before execution)  
 
-The `curator` is an important role that should be strongly protected, but all critical actions can be revoked during a timelock and a compromised curator can be removed by the `owner`.
+The `curator` is an important role that should be strongly protected, but all critical actions can be revoked during a timelock and a compromised curator can be removed by the `owner`. Once its timelock has passed, a submitted action can be executed by anyone, and replacing the curator does not cancel its pending actions: the new curator or the guardian must `revoke` them.
 
 ### Feeders
 Direct depositor in the Box are given the role `feeder`
@@ -167,4 +169,5 @@ A Box moves through three possible states:
 3. **Winddown mode**  
    - Permissionless recovery process.  
    - Increasing slippage tolerance allows full exit for all feeders.  
+   - The tolerance applies to each amount sold, with no cumulative limit: unwinding a position levered L times can cost up to L × 1% of NAV, so allocators should deleverage during the shutdown warmup.  
    - Anyone may help unwind positions and repay debt.  
