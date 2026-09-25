@@ -90,7 +90,7 @@ Supported modules: **Morpho Blue**, **Aave v3**, **Aave v4**, **Morpho Midnight*
 - Only whitelisted tokens from the parent Box can be used as collateral/debt.  
 - Only empty modules (no facilities, collateral, or debt tokens) can be added.  
 - Modules are chain-agnostic: every protocol address (pool, Spoke, Midnight, EVC) is a constructor argument, so a module can be deployed on any chain where its protocol is deployed. Each module has a factory in `src/factories/` that records the modules it created (`isFundingX`) and emits a creation event.  
-- `nav` values positions with the Box oracles (collateral rounded down, debt rounded up, floored at 0 because there is no recourse beyond the collateral) and ignores tokens held idle by the module. `ltv` uses the protocol's own pricing. The Morpho Blue, Aave v4, Midnight and Euler modules check it in a post-action guard after `borrow` and `depledge`; the Aave v3 module has no guard of its own and relies on the Aave pool's health checks.  
+- `nav` values positions with the Box oracles (collateral rounded down, debt rounded up, floored at 0 because there is no recourse beyond the collateral) and ignores tokens held idle by the module. `ltv` uses the protocol's own pricing. Every module checks it in a post-action guard after `borrow` and `depledge`.  
 - The token-only views `debtBalance(token)` and `collateralBalance(token)` return 0 (and never revert) for tokens the module does not use, so a winddown `deallocate` cannot be blocked by an attached module.  
 - The Aave v4, Midnight and Euler modules also return 0 instead of reverting from the per-facility views (`debtBalance(facilityData, token)`, `collateralBalance(facilityData, token)`, `ltv(facilityData)`) for tokens the facility does not use and for unregistered `facilityData`. The Morpho Blue module's per-facility views revert on a wrong token or malformed `facilityData`, and the Aave v3 module's per-facility views ignore `facilityData`.  
 
@@ -102,6 +102,9 @@ Supported modules: **Morpho Blue**, **Aave v3**, **Aave v4**, **Morpho Midnight*
 ### Aave Module
 - `facilityData` is always empty (`""`).  
 - Each module is tied to an Aave pool address and a given `eMode` parameter.  
+- Constructor / factory: `createFundingAave(owner, pool, eMode, lltvCap)`.  
+  - `lltvCap`: fraction (1e18 = 100%) of the Aave liquidation threshold the module may use, in `(0, 1e18]`.  
+- `borrow` and `depledge` are followed by a health guard: `healthFactor >= ceil(1e36 / lltvCap)`, i.e. `ltv <= liquidationThreshold * lltvCap / 1e18` (Aave v3 on its own lets a position withdraw collateral down to a health factor of exactly 1).  
 - `debtBalance` / `collateralBalance` return 0 for tokens that are not listed on the Aave pool (instead of reverting).  
 - `addCollateralToken` / `addDebtToken` only accept listed Aave reserves (non-zero aToken / variable debt token), so an unlisted token can no longer make `nav` revert.  
 

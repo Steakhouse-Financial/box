@@ -18,6 +18,9 @@ import {MockSwapper} from "./mocks/MockSwapper.sol";
 
 /// @dev Module-level tests: the module is owned by a mock oracle provider standing in for the Box.
 contract FundingAaveTest is Test {
+    /// @dev 80% of the pool's liquidation threshold of 85%, so the guard caps the position at an ltv of 68%
+    uint256 internal constant LLTV_CAP = 0.8e18;
+
     MockAaveV3Pool internal pool;
     ERC20MockDecimals internal loan; // Box asset stand-in, 18 decimals
     ERC20MockDecimals internal coll; // listed, 18 decimals
@@ -51,7 +54,7 @@ contract FundingAaveTest is Test {
         provider.setOracle(debtX, debtXOracle);
         owner = address(provider);
 
-        module = new FundingAave(owner, IPool(address(pool)), 0);
+        module = new FundingAave(owner, IPool(address(pool)), 0, LLTV_CAP);
     }
 
     // ========== HELPERS ==========
@@ -113,6 +116,26 @@ contract FundingAaveTest is Test {
     function _debtToken(IERC20 token) internal view returns (IERC20 debtToken) {
         (, , , , , , , , , , address d, , , , ) = pool.getReserveData(address(token));
         return IERC20(d);
+    }
+
+    function _healthFactor() internal view returns (uint256) {
+        (, , , , , uint256 healthFactor) = pool.getUserAccountData(address(module));
+        return healthFactor;
+    }
+
+    // ========== CONSTRUCTOR ==========
+
+    function testConstructorLltvCap() public {
+        assertEq(module.lltvCap(), LLTV_CAP, "lltvCap");
+        assertEq(module.minHealthFactor(), 1.25e18, "ceil(1e36 / 0.8e18)");
+
+        FundingAave full = new FundingAave(owner, IPool(address(pool)), 0, 1e18);
+        assertEq(full.minHealthFactor(), 1e18, "a full cap is the pool's own liquidation boundary");
+
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        new FundingAave(owner, IPool(address(pool)), 0, 0);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        new FundingAave(owner, IPool(address(pool)), 0, 1e18 + 1);
     }
 
     // ========== MOCK FIDELITY ==========
@@ -315,11 +338,55 @@ contract FundingAaveTest is Test {
         collOracle.setPrice(0.5e36);
         assertEq(module.nav(provider), 0, "negative equity floored at 0");
     }
+
+    // ========== HEALTH GUARD ==========
+
+    /// @dev 100e18 coll at a price of 2 is 200 base units: the pool lends up to 160 (its 80% ltv), the guard stops
+    /// at 136 (68% of the collateral).
+    function testBorrowGuardStopsBeforeThePoolLimit() public {
+        _registerAll();
+        _pledge(coll, 100e18);
+
+        vm.startPrank(owner);
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        module.borrow("", loan, 160e18);
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        module.borrow("", loan, 137e18);
+        vm.stopPrank();
+        assertEq(module.debtBalance("", loan), 0, "no debt taken");
+
+        _borrow(loan, 136e18);
+        assertEq(_healthFactor(), 1.25e18, "exactly at the cap");
+    }
+
+    /// @dev 100e18 coll (200 base) against 102e18 debt: the guard leaves 25e18 withdrawable, the pool on its own
+    /// would hand out 40e18 and leave the position one wei of price away from liquidation.
+    function testDepledgeGuardStopsBeforeTheLiquidationBoundary() public {
+        _registerAll();
+        _pledge(coll, 100e18);
+        _borrow(loan, 102e18);
+
+        vm.startPrank(owner);
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        module.depledge("", coll, 30e18);
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        module.depledge("", coll, 25e18 + 1);
+        vm.stopPrank();
+        assertEq(module.collateralBalance("", coll), 100e18, "collateral unchanged");
+
+        vm.prank(owner);
+        module.depledge("", coll, 25e18);
+        assertEq(module.collateralBalance("", coll), 75e18, "collateral withdrawn");
+        assertEq(coll.balanceOf(owner), 25e18, "collateral sent to the owner");
+        assertEq(_healthFactor(), 1.25e18, "exactly at the cap");
+    }
 }
 
 /// @dev Real Box + FundingAave on the mock pool: the scenarios that bricked the Box before the fix.
 contract FundingAaveBoxTest is Test {
     using BoxLib for Box;
+
+    uint256 internal constant LLTV_CAP = 0.8e18;
 
     address internal owner = address(0x1);
     address internal curator = address(0x2);
@@ -361,7 +428,7 @@ contract FundingAaveBoxTest is Test {
         box.addTokenInstant(listed, one);
         vm.stopPrank();
 
-        module = new FundingAave(address(box), IPool(address(pool)), 0);
+        module = new FundingAave(address(box), IPool(address(pool)), 0, LLTV_CAP);
 
         asset.mint(address(this), 100e18);
         asset.approve(address(box), 100e18);

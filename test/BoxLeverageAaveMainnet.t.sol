@@ -37,6 +37,9 @@ contract BoxLeverageAaveMainnetTest is Test {
     address allocator = address(0x4);
     address user = address(0x5);
 
+    // Leverage up to the Aave pool's own limit, like the Morpho modules of the other leverage suites
+    uint256 constant LLTV_CAP = 99e16;
+
     // Mainnet addresses
     address constant PROVIDER = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e; // Aave v3 PoolAddressesProvider (Mainnet)
     IERC20 usdc = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48); // Mainnet USDC
@@ -70,7 +73,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Use e-mode 17 for borrowing stablecoins (including USDC)
         uint8 eModeCategory = 17;
-        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
+        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -142,7 +145,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Use e-mode 18 for borrowing USDe (better max LTV)
         uint8 eModeCategory = 18;
-        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
+        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -205,7 +208,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.prank(curator);
         box.setIsAllocator(allocator, true);
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0, LLTV_CAP);
         bytes memory facilityData = "";
 
         address[] memory testAddresses = new address[](4);
@@ -261,9 +264,9 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Create two separate FundingAave adapters
         // Configure funding for PT-sUSDe with e-mode 17
-        FundingAave fundingModulePTsUSDe = new FundingAave(address(box), pool, 17);
+        FundingAave fundingModulePTsUSDe = new FundingAave(address(box), pool, 17, LLTV_CAP);
         // Configure funding for sUSDe with e-mode 2
-        FundingAave fundingModuleSUSDe = new FundingAave(address(box), pool, 2);
+        FundingAave fundingModuleSUSDe = new FundingAave(address(box), pool, 2, LLTV_CAP);
 
         bytes memory facilityDataPTsUSDe = "";
         box.addFundingInstant(fundingModulePTsUSDe);
@@ -348,7 +351,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Use e-mode 17 for borrowing stablecoins (allows both USDC and USDe)
         uint8 eModeCategory = 17;
-        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
+        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -431,7 +434,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.addFeederInstant(address(this));
 
         // Setup funding module with e-mode 17
-        FundingAave fundingModule = new FundingAave(address(box), pool, 17);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 17, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -517,7 +520,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.setIsAllocator(allocator, true);
         box.addFeederInstant(address(this));
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 17);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 17, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -615,7 +618,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.prank(curator);
         box.setIsAllocator(allocator, true);
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0, LLTV_CAP);
         bytes memory facilityData = "";
         FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
 
@@ -643,7 +646,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.setIsAllocator(allocator, true);
         box.addFeederInstant(address(this));
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 17);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 17, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -702,7 +705,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.addFeederInstant(address(this));
         vm.stopPrank();
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0, LLTV_CAP);
 
         vm.startPrank(curator);
         box.addFundingInstant(fundingModule);
@@ -741,7 +744,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.setIsAllocator(allocator, true);
         vm.stopPrank();
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0, LLTV_CAP);
 
         vm.startPrank(curator);
         box.addFundingInstant(fundingModule);
@@ -771,7 +774,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.addFeederInstant(address(this));
         vm.stopPrank();
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0, LLTV_CAP);
 
         vm.startPrank(curator);
         box.addFundingInstant(fundingModule);

@@ -32,7 +32,7 @@ contract FundingFactoriesFuzzTest is Test {
     using BoxLib for IBox;
 
     event CreateFundingMorpho(address indexed owner, address indexed morpho, uint256 lltvCap, FundingMorpho fundingMorpho);
-    event CreateFundingAave(address indexed owner, address indexed pool, uint8 indexed eMode, FundingAave fundingAave);
+    event CreateFundingAave(address indexed owner, address indexed pool, uint8 indexed eMode, uint256 lltvCap, FundingAave fundingAave);
     event CreateFundingAaveV4(
         address indexed owner,
         address indexed spoke,
@@ -222,50 +222,59 @@ contract FundingFactoriesFuzzTest is Test {
     /// FUNDING AAVE (V3) FACTORY
     /////////////////////////////
 
-    function _assertAaveModule(FundingAave module, address owner_, uint8 eMode) internal view {
+    function _assertAaveModule(FundingAave module, address owner_, uint8 eMode, uint256 cap) internal view {
         assertEq(module.owner(), owner_, "owner");
         assertEq(address(module.pool()), address(aavePool), "pool");
         assertEq(module.eMode(), eMode, "eMode");
         assertEq(module.rateMode(), 2, "variable rate mode");
+        assertEq(module.lltvCap(), cap, "lltvCap");
+        assertEq(module.minHealthFactor(), Math.ceilDiv(WAD * WAD, cap), "minHealthFactor = ceil(1e36 / lltvCap)");
         assertEq(aavePool.getUserEMode(address(module)), eMode, "e-mode set on the pool by the constructor");
         _assertEmpty(module);
         assertTrue(aaveFactory.isFundingAave(address(module)), "registered");
     }
 
-    function testFuzz_AaveFactoryDeploysAndRegisters(address owner_, uint8 eMode) public {
+    function testFuzz_AaveFactoryDeploysAndRegisters(address owner_, uint8 eMode, uint256 cap) public {
         owner_ = _nonZero(owner_);
+        cap = bound(cap, 1, WAD);
 
         address predicted = _nextAddress(address(aaveFactory));
         vm.expectEmit(true, true, true, true, address(aaveFactory));
-        emit CreateFundingAave(owner_, address(aavePool), eMode, FundingAave(payable(predicted)));
-        FundingAave module = aaveFactory.createFundingAave(owner_, IPool(address(aavePool)), eMode);
+        emit CreateFundingAave(owner_, address(aavePool), eMode, cap, FundingAave(payable(predicted)));
+        FundingAave module = aaveFactory.createFundingAave(owner_, IPool(address(aavePool)), eMode, cap);
         assertEq(address(module), predicted, "deployed at the predicted address");
-        _assertAaveModule(module, owner_, eMode);
+        _assertAaveModule(module, owner_, eMode, cap);
 
         predicted = _nextAddress(address(aaveFactory));
         vm.expectEmit(true, true, true, true, address(aaveFactory));
-        emit CreateFundingAave(owner_, address(aavePool), eMode, FundingAave(payable(predicted)));
-        FundingAave second = aaveFactory.createFundingAave(owner_, IPool(address(aavePool)), eMode);
+        emit CreateFundingAave(owner_, address(aavePool), eMode, cap, FundingAave(payable(predicted)));
+        FundingAave second = aaveFactory.createFundingAave(owner_, IPool(address(aavePool)), eMode, cap);
         assertEq(address(second), predicted, "second deployed at the next address");
         assertTrue(address(second) != address(module), "distinct modules");
-        _assertAaveModule(second, owner_, eMode);
+        _assertAaveModule(second, owner_, eMode, cap);
         assertTrue(aaveFactory.isFundingAave(address(module)), "first still registered");
     }
 
-    function testFuzz_AaveFactoryRejectsInvalidParams(address owner_, uint8 eMode) public {
+    function testFuzz_AaveFactoryRejectsInvalidParams(address owner_, uint8 eMode, uint256 cap, uint256 badCap) public {
         owner_ = _nonZero(owner_);
+        cap = bound(cap, 1, WAD);
+        badCap = bound(badCap, WAD + 1, type(uint256).max);
         address predicted = _nextAddress(address(aaveFactory));
         uint256 nonceBefore = vm.getNonce(address(aaveFactory));
 
         vm.expectRevert(ErrorsLib.InvalidAddress.selector);
-        aaveFactory.createFundingAave(address(0), IPool(address(aavePool)), eMode);
+        aaveFactory.createFundingAave(address(0), IPool(address(aavePool)), eMode, cap);
         // No explicit pool check: the constructor's getUserEMode call to a codeless pool reverts without data
         vm.expectRevert();
-        aaveFactory.createFundingAave(owner_, IPool(address(0)), eMode);
+        aaveFactory.createFundingAave(owner_, IPool(address(0)), eMode, cap);
         address codeless = makeAddr("codeless pool");
         assertEq(codeless.code.length, 0, "codeless");
         vm.expectRevert();
-        aaveFactory.createFundingAave(owner_, IPool(codeless), eMode);
+        aaveFactory.createFundingAave(owner_, IPool(codeless), eMode, cap);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        aaveFactory.createFundingAave(owner_, IPool(address(aavePool)), eMode, 0);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        aaveFactory.createFundingAave(owner_, IPool(address(aavePool)), eMode, badCap);
 
         _assertNothingDeployed(address(aaveFactory), predicted, nonceBefore, aaveFactory.isFundingAave(predicted));
     }
@@ -479,7 +488,7 @@ contract FundingFactoriesFuzzTest is Test {
 
         IFunding[5] memory modules = [
             IFunding(morphoFactory.createFundingMorpho(address(box), address(morpho), cap)),
-            IFunding(aaveFactory.createFundingAave(address(box), IPool(address(aavePool)), eMode)),
+            IFunding(aaveFactory.createFundingAave(address(box), IPool(address(aavePool)), eMode, cap)),
             IFunding(aaveV4Factory.createFundingAaveV4(address(box), address(spoke), _validReserveIds(seed), cap)),
             IFunding(midnightFactory.createFundingMidnight(address(box), address(midnight), cap)),
             IFunding(eulerFactory.createFundingEuler(address(box), address(evc), cap))

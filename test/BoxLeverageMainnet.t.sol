@@ -36,6 +36,9 @@ contract BoxLeverageMainnetTest is Test {
     address allocator = address(0x4);
     address user = address(0x5);
 
+    // Leverage up to the Aave pool's own limit, like the Morpho module below
+    uint256 constant LLTV_CAP = 99e16;
+
     // Mainnet addresses
     address constant AAVE_PROVIDER = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e; // Aave v3 PoolAddressesProvider (Mainnet)
     address constant MORPHO_ADDRESS = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb; // Morpho Blue (Mainnet)
@@ -85,7 +88,7 @@ contract BoxLeverageMainnetTest is Test {
 
         // Setup Aave adapter with e-mode 17 for stablecoins
         uint8 eModeCategory = 17;
-        FundingAave aaveModule = new FundingAave(address(box), aavePool, eModeCategory);
+        FundingAave aaveModule = new FundingAave(address(box), aavePool, eModeCategory, LLTV_CAP);
         bytes memory aaveFacilityData = ""; // No extra data needed for Aave
         box.addFundingInstant(aaveModule);
         box.addFundingCollateralInstant(aaveModule, ptSusde25Sep);

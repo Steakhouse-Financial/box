@@ -218,7 +218,7 @@ contract MultiFundingWinddownTest is Test {
         aavePool.listReserve(address(weth), 3_000e8);
         weth.mint(address(aavePool), 10_000e18);
 
-        modules[1] = new FundingAave(address(box), IPool(address(aavePool)), 0);
+        modules[1] = new FundingAave(address(box), IPool(address(aavePool)), 0, 0.9e18);
         fds[1] = "";
         debtTokens[1] = weth;
     }
