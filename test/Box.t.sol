@@ -1702,9 +1702,17 @@ contract BoxTest is Test {
     }
 
     IERC20 public flashToken;
-    function onBoxFlash(IERC20 token, uint256, bytes calldata) external {
+    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external {
         require(msg.sender == address(box), "Only Box can call");
         require(token == flashToken, "Only asset token");
+
+        if (data.length > 0) {
+            // Sell the flashed tokens at a loss, buy them back and cover the loss so the flash can be repaid
+            box.deallocate(token, amount, badSwapper, "");
+            box.allocate(token, asset.balanceOf(address(box)), swapper, "");
+            token.safeTransfer(address(box), amount - token.balanceOf(address(box)));
+            return;
+        }
 
         // totalAssets() should return the cached NAV during flash, not revert
         uint256 assetsInFlash = box.totalAssets();
@@ -1748,6 +1756,20 @@ contract BoxTest is Test {
         assertEq(box.totalAssets(), 50e18, "After flash, total assets is 50e18");
         assertEq(box.maxWithdraw(feeder), 50e18, "maxWithdraw after flash");
         assertEq(box.maxDeposit(feeder), type(uint256).max, "maxDeposit after flash");
+    }
+
+    function testSlippageNotTrackedWhenNavIsZero() public {
+        vm.prank(curator);
+        box.setIsAllocator(address(this), true);
+        badSwapper.setSlippage(0.005 ether);
+
+        // Empty Box: the NAV cached by flash is 0
+        assertEq(box.totalAssets(), 0);
+        token1.approve(address(box), 100e18);
+        flashToken = token1;
+        box.flash(token1, 100e18, "swap");
+
+        assertEq(box.accumulatedSlippage(), 0, "no slippage tracked against a zero NAV");
     }
 
     function testFlashWrongToken() public {

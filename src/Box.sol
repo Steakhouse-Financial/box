@@ -428,8 +428,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
         // Track slippage if we are not in winddown and have positive slippage
         if (!winddown && tokensReceived < expectedTokens) {
-            uint256 slippageValue = (expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
+            _increaseSlippage((expectedTokens - tokensReceived).mulDiv(oraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil));
         }
 
         emit EventsLib.Allocation(token, assetsSpent, expectedTokens, tokensReceived, slippagePct, swapper, data);
@@ -477,8 +476,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage if not in winddown and we have positive slippage
         if (!winddown && assetsReceived < expectedAssets) {
             // slippage is already in asset units
-            uint256 slippageValue = expectedAssets - assetsReceived;
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
+            _increaseSlippage(expectedAssets - assetsReceived);
         }
 
         emit EventsLib.Deallocation(token, tokensSpent, expectedAssets, assetsReceived, slippagePct, swapper, data);
@@ -529,8 +527,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         // Track slippage if we have positive slippage
         // Note: No winddown check needed as reallocate cannot be called during winddown
         if (toReceived < expectedToTokens) {
-            uint256 slippageValue = (expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil);
-            _increaseSlippage(slippageValue.mulDiv(PRECISION, totalAssets(), Math.Rounding.Ceil));
+            _increaseSlippage((expectedToTokens - toReceived).mulDiv(toOraclePrice, ORACLE_PRECISION, Math.Rounding.Ceil));
         }
 
         emit EventsLib.Reallocation(from, to, fromSpent, expectedToTokens, toReceived, slippagePct, swapper, data);
@@ -1395,10 +1392,15 @@ contract Box is IBox, ERC20, ReentrancyGuard {
 
     /**
      * @dev Tracks slippage within current epoch and enforces limits
-     * @param slippagePct Slippage to add scaled by PRECISION
+     * @param slippageValue Value lost to slippage, in asset units
      * @dev Resets epoch if duration has passed
+     * @dev Nothing to track when total assets are 0, the per-swap tolerance still applies
      */
-    function _increaseSlippage(uint256 slippagePct) internal {
+    function _increaseSlippage(uint256 slippageValue) internal {
+        uint256 nav = totalAssets();
+        if (nav == 0) return;
+        uint256 slippagePct = slippageValue.mulDiv(PRECISION, nav, Math.Rounding.Ceil);
+
         // Reset epoch if expired
         if (block.timestamp >= slippageEpochStart + slippageEpochDuration) {
             slippageEpochStart = block.timestamp;
