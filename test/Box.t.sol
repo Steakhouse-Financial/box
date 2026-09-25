@@ -2312,6 +2312,17 @@ contract BoxTest is Test {
         vm.stopPrank();
     }
 
+    function testAbdicatedDecreaseTimelockCannotBeSubmitted() public {
+        vm.startPrank(curator);
+        box.abdicateTimelock(box.decreaseTimelock.selector);
+
+        bytes memory data = abi.encodeWithSelector(box.decreaseTimelock.selector, box.setMaxSlippage.selector, 0);
+        vm.expectRevert(ErrorsLib.FunctionDisabled.selector);
+        box.submit(data);
+
+        vm.stopPrank();
+    }
+
     function testTimelockNotCurator() public {
         vm.startPrank(nonAuthorized);
 

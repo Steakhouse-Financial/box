@@ -815,6 +815,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev WARNING: Timelock periods are 0 by default. Users and the box owner should ensure that
      *      sufficiently long timelock periods are set for all critical functions (especially setGuardian)
      *      to allow the guardian time to react if the curator is compromised.
+     * @dev A decreaseTimelock call is delayed by the timelock it decreases, and can't be submitted once
+     *      either decreaseTimelock or that function is abdicated
      */
     function submit(bytes calldata data) external {
         _onlyCurator();
@@ -822,6 +824,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
         require(data.length >= 4, ErrorsLib.InvalidAmount());
 
         bytes4 selector = bytes4(data);
+        require(timelock[selector] != TIMELOCK_DISABLED, ErrorsLib.FunctionDisabled());
         uint256 delay = selector == IBox.decreaseTimelock.selector ? timelock[bytes4(data[4:8])] : timelock[selector];
         require(delay != TIMELOCK_DISABLED, ErrorsLib.FunctionDisabled());
         executableAt[data] = block.timestamp + delay;
