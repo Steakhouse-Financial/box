@@ -14,7 +14,7 @@ It allows to:
 
 ### Curator checks and limits
 - **Slippage controls**: Every swap is bounded by an oracle-based slippage check. Cumulative slippage over time is also limited.  
-- **Shutdown mechanism**: In case of curator misbehavior, anyone can trigger a `shutdown`. This ensures depositors can eventually withdraw through a permissionless `winddown` process.  
+- **Shutdown mechanism**: In case of curator misbehavior, the guardian or curator can trigger a `shutdown`. This ensures depositors can eventually withdraw through a permissionless `winddown` process.  
 
 ### Remaining assumptions
 - Allocators will not manipulate weak oracles during allocations.  
@@ -80,6 +80,8 @@ Notice that a Box holder don't need to be a `feeder` to redeem and transfer a Bo
 - `depledge` collateral
 - `deallocate` from tokens without a debt balance
 - `allocate` to a token with a debt balance (so the debt balance can be repaid)
+- `skimFunding` to recover non-position tokens from a funding module (NAV must remain unchanged)
+- `flash` to use temporary liquidity from the Box (the caller must implement the flash callback and return the tokens in the same transaction)
 
 ## Funding Modules
 
