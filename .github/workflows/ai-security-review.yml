@@ -1,0 +1,21 @@
+# From Steakhouse-Financial/pr-security-review (examples/caller.yml). Rolled out for SHF-3033.
+name: AI security review
+
+on:
+  pull_request:
+    # New commits, reopen, and draft -> ready. Not comments, labels or edits.
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+jobs:
+  review:
+    # Must be @main: the Anthropic federation rule is pinned to this ref.
+    uses: Steakhouse-Financial/pr-security-review/.github/workflows/ai-review.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    secrets:
+      # Org secret. Without it the review still runs, but nothing goes to Slack.
+      SLACK_BOT_TOKEN: ${{ secrets.PR_REVIEW_SLACK_BOT_TOKEN }}
