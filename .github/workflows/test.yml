@@ -42,8 +42,7 @@ jobs:
 
       - name: Run Forge tests
         env:
-          ETH_RPC_URL: ${{ secrets.ETH_RPC_URL }}
-          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
         run: |
           forge test -vvv
         id: test

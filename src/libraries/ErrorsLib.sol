@@ -10,12 +10,10 @@ library ErrorsLib {
     error AlreadyWhitelisted();
     error NotWhitelisted();
     error NotClean();
-    error NotAllowed();
 
     // Access control errors
     error OnlyOwner();
     error OnlyCurator();
-    error OnlyGuardian();
     error OnlyCuratorOrGuardian();
     error OnlyAllocators();
     error OnlyFeeders();

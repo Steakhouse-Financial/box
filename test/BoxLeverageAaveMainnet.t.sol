@@ -25,6 +25,17 @@ interface IPoolAddressesProvider {
     function getPool() external view returns (address);
 }
 
+/// @notice A Box impersonator that welcomes any allocator and keeps whatever it is lent
+contract GreedyBox {
+    function isAllocator(address) external pure returns (bool) {
+        return true;
+    }
+
+    function flash(IERC20 token, uint256 amount, bytes calldata) external {
+        token.transferFrom(msg.sender, address(this), amount);
+    }
+}
+
 /**
  * @title Testing suite for leverage features of Box using Aave on Mainnet
  */
@@ -36,6 +47,9 @@ contract BoxLeverageAaveMainnetTest is Test {
     address guardian = address(0x3);
     address allocator = address(0x4);
     address user = address(0x5);
+
+    // Leverage up to the Aave pool's own limit, like the Morpho modules of the other leverage suites
+    uint256 constant LLTV_CAP = 99e16;
 
     // Mainnet addresses
     address constant PROVIDER = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e; // Aave v3 PoolAddressesProvider (Mainnet)
@@ -70,7 +84,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Use e-mode 17 for borrowing stablecoins (including USDC)
         uint8 eModeCategory = 17;
-        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
+        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -142,7 +156,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Use e-mode 18 for borrowing USDe (better max LTV)
         uint8 eModeCategory = 18;
-        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
+        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -205,7 +219,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.prank(curator);
         box.setIsAllocator(allocator, true);
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0, LLTV_CAP);
         bytes memory facilityData = "";
 
         address[] memory testAddresses = new address[](4);
@@ -261,9 +275,9 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Create two separate FundingAave adapters
         // Configure funding for PT-sUSDe with e-mode 17
-        FundingAave fundingModulePTsUSDe = new FundingAave(address(box), pool, 17);
+        FundingAave fundingModulePTsUSDe = new FundingAave(address(box), pool, 17, LLTV_CAP);
         // Configure funding for sUSDe with e-mode 2
-        FundingAave fundingModuleSUSDe = new FundingAave(address(box), pool, 2);
+        FundingAave fundingModuleSUSDe = new FundingAave(address(box), pool, 2, LLTV_CAP);
 
         bytes memory facilityDataPTsUSDe = "";
         box.addFundingInstant(fundingModulePTsUSDe);
@@ -348,7 +362,7 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Use e-mode 17 for borrowing stablecoins (allows both USDC and USDe)
         uint8 eModeCategory = 17;
-        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory);
+        FundingAave fundingModule = new FundingAave(address(box), pool, eModeCategory, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -431,7 +445,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.addFeederInstant(address(this));
 
         // Setup funding module with e-mode 17
-        FundingAave fundingModule = new FundingAave(address(box), pool, 17);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 17, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -441,9 +455,6 @@ contract BoxLeverageAaveMainnetTest is Test {
         // Create and authorize flash loan provider
         FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
         box.setIsAllocator(address(flashloanProvider), true);
-
-        // Pre-fund the flash loan provider with a small amount to cover premiums
-        deal(address(usdc), address(flashloanProvider), 50e6); // 50 USDC for premiums
 
         vm.stopPrank();
 
@@ -468,6 +479,11 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         uint256 navBefore = box.totalAssets();
         uint256 leverageAmount = 500e6; // Flash loan 500 USDC for additional leverage
+
+        // The allocator pays the Aave premium out of its own pocket
+        uint256 premium = (leverageAmount * flashloanProvider.POOL().FLASHLOAN_PREMIUM_TOTAL()) / 10_000;
+        deal(address(usdc), allocator, premium);
+        usdc.approve(address(flashloanProvider), premium);
 
         // Setup MockSwapper for testing
         MockSwapper mockSwapper = new MockSwapper();
@@ -497,9 +513,11 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         // Verify leverage worked
         assertGt(finalCollateral, 0, "Should have collateral");
-        assertGt(finalDebt, 0, "Should have debt");
+        assertApproxEqAbs(finalDebt, leverageAmount, 1, "Debt is the flash loan only, not the premium");
         assertGt(finalLTV, 0.3e18, "Should have leverage > 30%");
         assertApproxEqRel(navAfter, navBefore, 0.02e18, "NAV preserved");
+        assertEq(usdc.balanceOf(address(flashloanProvider)), 0, "Helper keeps no float");
+        assertEq(usdc.balanceOf(allocator), 0, "Allocator paid exactly the premium");
 
         vm.stopPrank();
     }
@@ -517,7 +535,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.setIsAllocator(allocator, true);
         box.addFeederInstant(address(this));
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 17);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 17, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -527,10 +545,12 @@ contract BoxLeverageAaveMainnetTest is Test {
         FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
         box.setIsAllocator(address(flashloanProvider), true);
 
-        // Pre-fund the flash loan provider with a small amount to cover premiums
-        deal(address(usdc), address(flashloanProvider), 50e6); // 50 USDC for premiums
-
         vm.stopPrank();
+
+        // The allocator pays the Aave premium of both flash loans
+        deal(address(usdc), allocator, 50e6);
+        vm.prank(allocator);
+        usdc.approve(address(flashloanProvider), type(uint256).max);
 
         // Fund and create initial leveraged position
         deal(address(usdc), address(this), 1000e6);
@@ -605,6 +625,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         assertLt(finalCollateral, initialCollateral, "Collateral reduced");
         assertLt(finalDebt, initialDebt, "Debt reduced");
         assertApproxEqRel(navAfter, navBefore, 0.02e18, "NAV preserved");
+        assertEq(usdc.balanceOf(address(flashloanProvider)), 0, "Helper keeps no float");
 
         vm.stopPrank();
     }
@@ -615,7 +636,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         vm.prank(curator);
         box.setIsAllocator(allocator, true);
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0, LLTV_CAP);
         bytes memory facilityData = "";
         FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
 
@@ -634,6 +655,25 @@ contract BoxLeverageAaveMainnetTest is Test {
         flashloanProvider.refinance(box, fundingModule, facilityData, fundingModule, facilityData, ptSusde25Sep, 100e18, usdc, 100e6);
     }
 
+    function testFakeBoxCannotKeepTheFlashLoan() public {
+        FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
+        GreedyBox greedyBox = new GreedyBox();
+
+        uint256 loanAmount = 500e6;
+        uint256 premium = (loanAmount * flashloanProvider.POOL().FLASHLOAN_PREMIUM_TOTAL()) / 10_000;
+        deal(address(usdc), user, premium);
+
+        vm.startPrank(user);
+        usdc.approve(address(flashloanProvider), premium);
+        vm.expectRevert();
+        flashloanProvider.leverage(IBox(address(greedyBox)), IFunding(address(0)), "", swapper, "", ptSusde25Sep, usdc, loanAmount);
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(address(greedyBox)), 0, "Fake box kept nothing");
+        assertEq(usdc.balanceOf(address(flashloanProvider)), 0, "Helper had nothing to lose");
+        assertEq(usdc.balanceOf(user), premium, "Premium payer untouched");
+    }
+
     function testMaxLeveragePTsUSDe() public {
         Box box = new Box(address(usdc), owner, curator, "Max Leverage Box", "MAXBOX", 0.01 ether, 7 days, 10 days, MAX_SHUTDOWN_WARMUP);
 
@@ -643,7 +683,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.setIsAllocator(allocator, true);
         box.addFeederInstant(address(this));
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 17);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 17, LLTV_CAP);
         bytes memory facilityData = "";
         box.addFundingInstant(fundingModule);
         box.addFundingFacilityInstant(fundingModule, facilityData);
@@ -652,8 +692,11 @@ contract BoxLeverageAaveMainnetTest is Test {
 
         FlashLoanAave flashloanProvider = new FlashLoanAave(IPoolAddressesProviderAave(PROVIDER));
         box.setIsAllocator(address(flashloanProvider), true);
-        deal(address(usdc), address(flashloanProvider), 500e6);
         vm.stopPrank();
+
+        deal(address(usdc), allocator, 500e6);
+        vm.prank(allocator);
+        usdc.approve(address(flashloanProvider), type(uint256).max);
 
         deal(address(usdc), address(this), 5000e6);
         usdc.approve(address(box), 5000e6);
@@ -702,7 +745,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.addFeederInstant(address(this));
         vm.stopPrank();
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0, LLTV_CAP);
 
         vm.startPrank(curator);
         box.addFundingInstant(fundingModule);
@@ -741,7 +784,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.setIsAllocator(allocator, true);
         vm.stopPrank();
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0, LLTV_CAP);
 
         vm.startPrank(curator);
         box.addFundingInstant(fundingModule);
@@ -771,7 +814,7 @@ contract BoxLeverageAaveMainnetTest is Test {
         box.addFeederInstant(address(this));
         vm.stopPrank();
 
-        FundingAave fundingModule = new FundingAave(address(box), pool, 0);
+        FundingAave fundingModule = new FundingAave(address(box), pool, 0, LLTV_CAP);
 
         vm.startPrank(curator);
         box.addFundingInstant(fundingModule);
@@ -792,12 +835,12 @@ contract BoxLeverageAaveMainnetTest is Test {
         (, , , , , , , , address aTokenAddress, , , , , , ) = pool.getReserveData(address(usdc));
         IERC20 aToken = IERC20(aTokenAddress);
 
-        // Try to skim the aToken - should fail because it changes NAV
+        // Try to skim the aToken - should fail because it is the collateral position
         uint256 aTokenBalance = aToken.balanceOf(address(fundingModule));
         assertGt(aTokenBalance, 0, "Should have aToken balance");
 
         vm.prank(allocator);
-        vm.expectRevert(abi.encodeWithSelector(ErrorsLib.SkimChangedNav.selector));
+        vm.expectRevert(abi.encodeWithSelector(ErrorsLib.CannotSkimToken.selector));
         box.skimFunding(fundingModule, aToken);
     }
 }

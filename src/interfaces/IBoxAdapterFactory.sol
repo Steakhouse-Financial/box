@@ -14,6 +14,7 @@ interface IBoxAdapterFactory {
     /* FUNCTIONS */
 
     function boxAdapter(address parentVault, IBox box) external view returns (IBoxAdapter);
+    /// @dev True for adapters deployed by this factory, whatever their box: check BoxFactory.isBox(adapter.box()) as well
     function isBoxAdapter(address account) external view returns (bool);
     function createBoxAdapter(address parentVault, IBox box) external returns (IBoxAdapter boxAdapter);
 }
