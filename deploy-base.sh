@@ -5,7 +5,7 @@ FCT=$1
 FOUNDRY_PROFILE=deploy
 
 forge script script/DeployBase.s.sol:DeployBaseScript  --sig "${FCT}()" \
-  --rpc-url $BASE_RPC_URL \
+  --rpc-url base \
   --private-key $PRIVATE_KEY \
   --broadcast \
   --verify \

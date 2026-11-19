@@ -157,7 +157,7 @@ contract BoxLeverageAaveV4AvalancheTest is Test {
     FundingAaveV4 internal module;
 
     function setUp() public {
-        vm.createSelectFork(vm.envOr("AVALANCHE_RPC_URL", string("https://api.avax.network/ext/bc/C/rpc")), FORK_BLOCK);
+        vm.createSelectFork(vm.rpcUrl("avalanche"), FORK_BLOCK);
 
         factory = new FundingAaveV4Factory();
         avaxSpokeOracle = IAaveV4Oracle(AVAX_SPOKE.ORACLE());

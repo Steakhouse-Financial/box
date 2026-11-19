@@ -69,7 +69,7 @@ contract BoxLeverageAaveV4MainnetTest is Test {
     FundingAaveV4 internal module;
 
     function setUp() public {
-        vm.createSelectFork(vm.envOr("ETH_RPC_URL", string("https://eth.drpc.org")), FORK_BLOCK);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
 
         factory = new FundingAaveV4Factory();
         lidoSpokeOracle = IAaveV4Oracle(LIDO_SPOKE.ORACLE());
