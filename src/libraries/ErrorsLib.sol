@@ -75,6 +75,7 @@ library ErrorsLib {
     error InvalidFacilityData();
     error NoValidStaging();
     error FacilityMatured();
+    error TooManyFacilities();
 
     // Flash callback errors
     error ReentryNotAllowed();

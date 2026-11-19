@@ -12,6 +12,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Box} from "../src/Box.sol";
 import {FundingAave, IPool} from "../src/FundingAave.sol";
 import {FundingAaveV4} from "../src/FundingAaveV4.sol";
+import {FundingEuler} from "../src/FundingEuler.sol";
 import {FundingMidnight, OfferFill} from "../src/FundingMidnight.sol";
 import {FundingMorpho} from "../src/FundingMorpho.sol";
 import {IBox} from "../src/interfaces/IBox.sol";
@@ -22,16 +23,18 @@ import {BoxLib} from "../src/periphery/BoxLib.sol";
 import {ERC20MockDecimals} from "./mocks/ERC20MockDecimals.sol";
 import {MockAaveV3Pool} from "./mocks/MockAaveV3Pool.sol";
 import {MockAaveV4Spoke} from "./mocks/MockAaveV4Spoke.sol";
+import {MockEVault, MockEulerRouter} from "./mocks/MockEVault.sol";
+import {MockEVC} from "./mocks/MockEVC.sol";
 import {MockMidnight} from "./mocks/MockMidnight.sol";
 import {MockMidnightRatifier} from "./mocks/MockMidnightRatifier.sol";
 import {MockOracle} from "./mocks/MockOracle.sol";
 import {MockSwapper} from "./mocks/MockSwapper.sol";
 
-/// @notice One real Box with all four funding module types attached, each with an open position: FundingMorpho on a
-/// local Morpho Blue, FundingAave on MockAaveV3Pool, FundingAaveV4 on MockAaveV4Spoke and FundingMidnight on
-/// MockMidnight. The Box also holds a token T that no module knows. After shutdown, an address with no role must be
-/// able to exit everything.
-/// @dev All positions pledge WBTC; Morpho and Midnight borrow USDC (the Box asset), the two others borrow WETH (a Box
+/// @notice One real Box with all five funding module types attached, each with an open position: FundingMorpho on a
+/// local Morpho Blue, FundingAave on MockAaveV3Pool, FundingAaveV4 on MockAaveV4Spoke, FundingMidnight on MockMidnight
+/// and FundingEuler on MockEVC/MockEVault. The Box also holds a token T that no module knows. After shutdown, an address
+/// with no role must be able to exit everything.
+/// @dev All positions pledge WBTC; Morpho and Midnight borrow USDC (the Box asset), the three others borrow WETH (a Box
 ///      token), so that winddown needs an allocation of the outstanding debt token.
 contract MultiFundingWinddownTest is Test {
     using BoxLib for IBox;
@@ -39,6 +42,7 @@ contract MultiFundingWinddownTest is Test {
     uint256 internal constant ORACLE_SCALE = 1e36;
     uint256 internal constant WAD = 1e18;
     uint256 internal constant MAX_SLIPPAGE_LIMIT = 0.01e18;
+    address internal constant USD = address(840);
     uint256 internal constant WBTC_PRICE = 600_000_000_000_000_000_000_000_000_000_000_000_003; // 60,000 USDC, odd
     uint256 internal constant WETH_PRICE = 3_000_000_000_000_000_000_000_000_001; // 3,000 USDC, odd
     uint256 internal constant T_PRICE = 50_000_000_000_000_000_000_000_000_000_001; // 5 USDC per T (8 decimals), odd
@@ -63,10 +67,10 @@ contract MultiFundingWinddownTest is Test {
 
     MockAaveV3Pool internal aavePool;
     MockMidnightRatifier internal midnightRatifier;
-    IFunding[4] internal modules;
-    bytes[4] internal fds;
-    IERC20[4] internal debtTokens;
-    string[4] internal names = ["FundingMorpho", "FundingAave", "FundingAaveV4", "FundingMidnight"];
+    IFunding[5] internal modules;
+    bytes[5] internal fds;
+    IERC20[5] internal debtTokens;
+    string[5] internal names = ["FundingMorpho", "FundingAave", "FundingAaveV4", "FundingMidnight", "FundingEuler"];
 
     function setUp() public {
         usdc = new ERC20MockDecimals(6);
@@ -77,11 +81,12 @@ contract MultiFundingWinddownTest is Test {
         MockOracle wbtcOracle = new MockOracle(WBTC_PRICE);
         MockOracle tOracle = new MockOracle(T_PRICE);
 
-        box = IBox(address(new Box(address(usdc), boxOwner, curator, "Box Four Modules", "BOX4", 0.01 ether, 7 days, 10 days, 1 days)));
+        box = IBox(address(new Box(address(usdc), boxOwner, curator, "Box Five Modules", "BOX5", 0.01 ether, 7 days, 10 days, 1 days)));
         _deployMorpho();
         _deployAave();
         _deployAaveV4();
         _deployMidnight();
+        _deployEuler();
 
         vm.startPrank(curator);
         box.setIsAllocator(allocator, true);
@@ -90,7 +95,7 @@ contract MultiFundingWinddownTest is Test {
         box.addTokenInstant(wbtc, wbtcOracle);
         box.addTokenInstant(weth, wethOracle);
         box.addTokenInstant(tToken, tOracle);
-        for (uint256 i; i < 4; i++) {
+        for (uint256 i; i < 5; i++) {
             box.addFundingInstant(modules[i]);
             box.addFundingCollateralInstant(modules[i], wbtc);
             box.addFundingDebtInstant(modules[i], debtTokens[i]);
@@ -111,11 +116,11 @@ contract MultiFundingWinddownTest is Test {
         usdc.approve(address(box), 10_000_000e6);
         box.deposit(10_000_000e6, feeder);
         vm.stopPrank();
-        wbtc.mint(address(box), 4 * PLEDGED);
+        wbtc.mint(address(box), 5 * PLEDGED);
         tToken.mint(address(box), 1_000e8);
 
         vm.startPrank(allocator);
-        for (uint256 i; i < 4; i++) {
+        for (uint256 i; i < 5; i++) {
             box.pledge(modules[i], fds[i], wbtc, PLEDGED);
             if (i == 3) _stageMidnight();
             box.borrow(modules[i], fds[i], debtTokens[i], debtTokens[i] == usdc ? 100_000e6 : 30e18);
@@ -124,10 +129,10 @@ contract MultiFundingWinddownTest is Test {
     }
 
     function testWinddownExitWithEveryModuleType() public {
-        for (uint256 i; i < 4; i++) {
+        for (uint256 i; i < 5; i++) {
             assertGt(modules[i].debtBalance(fds[i], debtTokens[i]), 0, string.concat(names[i], " has open debt"));
         }
-        assertEq(box.totalAssets(), _independentTotalAssets(), "totalAssets = asset + floored token values + four navs");
+        assertEq(box.totalAssets(), _independentTotalAssets(), "totalAssets = asset + floored token values + five navs");
 
         // The allocator sells every WETH, so repaying the WETH debts in winddown needs an allocation; interest accrues
         vm.startPrank(allocator);
@@ -143,7 +148,7 @@ contract MultiFundingWinddownTest is Test {
         _assertTotalAssetsLive("at winddown start");
 
         // T is unknown to every module: every view returns 0 and anyone can sell it
-        for (uint256 i; i < 4; i++) {
+        for (uint256 i; i < 5; i++) {
             assertEq(modules[i].debtBalance(tToken), 0, string.concat(names[i], " debtBalance(T)"));
             assertEq(modules[i].collateralBalance(tToken), 0, string.concat(names[i], " collateralBalance(T)"));
         }
@@ -156,8 +161,8 @@ contract MultiFundingWinddownTest is Test {
         _assertTotalAssetsLive("after selling T");
 
         // Anyone may buy the outstanding debt token, up to the winddown cap
-        uint256 wethDebt = modules[1].debtBalance(weth) + modules[2].debtBalance(weth);
-        assertEq(_boxDebtBalance(weth), wethDebt, "only the two WETH borrowers report WETH debt");
+        uint256 wethDebt = modules[1].debtBalance(weth) + modules[2].debtBalance(weth) + modules[4].debtBalance(weth);
+        assertEq(_boxDebtBalance(weth), wethDebt, "only the three WETH borrowers report WETH debt");
         uint256 cap = _winddownMaxAllocation(wethDebt);
         vm.startPrank(nobody);
         vm.expectRevert(ErrorsLib.InvalidAmount.selector);
@@ -168,7 +173,7 @@ contract MultiFundingWinddownTest is Test {
         _assertTotalAssetsLive("after the allocation");
 
         // Anyone repays every debt in full, then withdraws every collateral
-        for (uint256 i; i < 4; i++) {
+        for (uint256 i; i < 5; i++) {
             vm.startPrank(nobody);
             box.repay(modules[i], fds[i], debtTokens[i], type(uint256).max);
             box.depledge(modules[i], fds[i], wbtc, type(uint256).max);
@@ -178,7 +183,7 @@ contract MultiFundingWinddownTest is Test {
             assertEq(modules[i].nav(IOracleCallback(address(box))), 0, string.concat(names[i], " nav"));
             _assertTotalAssetsLive(names[i]);
         }
-        assertEq(wbtc.balanceOf(address(box)), 4 * PLEDGED, "all the collateral is back in the Box");
+        assertEq(wbtc.balanceOf(address(box)), 5 * PLEDGED, "all the collateral is back in the Box");
         assertEq(_boxDebtBalance(weth), 0, "no WETH debt left");
         assertEq(_boxDebtBalance(usdc), 0, "no USDC debt left");
         assertEq(box.totalAssets(), _independentTotalAssets(), "totalAssets = idle holdings once every module is empty");
@@ -257,6 +262,26 @@ contract MultiFundingWinddownTest is Test {
         debtTokens[3] = usdc;
     }
 
+    function _deployEuler() internal {
+        MockEVC evc = new MockEVC();
+        MockEulerRouter router = new MockEulerRouter();
+        MockEVault collateralVault = new MockEVault(address(evc), address(wbtc), address(router), USD);
+        MockEVault borrowVault = new MockEVault(address(evc), address(weth), address(router), USD);
+        borrowVault.setLTV(address(collateralVault), 8100, 8300);
+        router.setResolvedVault(address(collateralVault), true);
+        router.setPrice(address(wbtc), USD, 6e32); // 1 WBTC unit = 6e14 USD wei
+        router.setPrice(address(weth), USD, 3_000e18);
+        weth.mint(lender, 10_000e18);
+        vm.startPrank(lender);
+        weth.approve(address(borrowVault), 10_000e18);
+        borrowVault.deposit(10_000e18, lender);
+        vm.stopPrank();
+
+        modules[4] = new FundingEuler(address(box), address(evc), 0.95e18);
+        fds[4] = abi.encode(address(collateralVault), address(borrowVault));
+        debtTokens[4] = weth;
+    }
+
     /// @dev Stages one uncapped lender bid at MIDNIGHT_TICK for the Midnight facility (called while pranking the allocator)
     function _stageMidnight() internal {
         (Market memory market, , ) = abi.decode(fds[3], (Market, uint256, uint256));
@@ -283,7 +308,7 @@ contract MultiFundingWinddownTest is Test {
         for (uint256 i; i < 3; i++) {
             expected += Math.mulDiv(tokens[i].balanceOf(address(box)), box.oracles(tokens[i]).price(), ORACLE_SCALE);
         }
-        for (uint256 i; i < 4; i++) {
+        for (uint256 i; i < 5; i++) {
             expected += modules[i].nav(IOracleCallback(address(box)));
         }
     }
@@ -295,7 +320,7 @@ contract MultiFundingWinddownTest is Test {
     }
 
     function _boxDebtBalance(IERC20 token) internal view returns (uint256 total) {
-        for (uint256 i; i < 4; i++) {
+        for (uint256 i; i < 5; i++) {
             total += modules[i].debtBalance(token);
         }
     }
