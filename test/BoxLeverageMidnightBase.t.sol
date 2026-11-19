@@ -66,7 +66,7 @@ contract BoxLeverageMidnightBaseTest is MidnightForkTest {
     bytes internal fd;
 
     function setUp() public {
-        vm.createSelectFork(vm.envOr("BASE_RPC_URL", string("https://mainnet.base.org")), FORK_BLOCK);
+        vm.createSelectFork(vm.rpcUrl("base"), FORK_BLOCK);
         IVmEvmVersion(address(vm)).setEvmVersion("osaka");
 
         midnight = IMidnightTest(BASE_MIDNIGHT);
