@@ -46,7 +46,7 @@ contract BoxLeverageEulerMainnetTest is EulerForkTest {
     bytes internal fdWeth;
 
     function setUp() public {
-        vm.createSelectFork(vm.envOr("ETH_RPC_URL", string("https://eth.drpc.org")), FORK_BLOCK);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
         evc = ETHEREUM_EVC;
         factory = new FundingEulerFactory();
 

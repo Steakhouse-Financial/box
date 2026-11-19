@@ -28,7 +28,7 @@ contract BoxLeverageEulerBaseTest is EulerForkTest {
     IERC20 internal constant WSTETH = IERC20(BASE_WSTETH);
 
     function setUp() public {
-        vm.createSelectFork(vm.envOr("BASE_RPC_URL", string("https://mainnet.base.org")), FORK_BLOCK);
+        vm.createSelectFork(vm.rpcUrl("base"), FORK_BLOCK);
         evc = BASE_EVC;
         factory = new FundingEulerFactory();
     }
