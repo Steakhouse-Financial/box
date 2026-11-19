@@ -374,6 +374,14 @@ contract FundingAaveTest is Test {
         assertEq(aToken.balanceOf(address(module)), 100e18, "collateral kept");
     }
 
+    function testSkimOfCollateralATokenByNonOwnerRevertsOnlyOwner() public {
+        _registerAll();
+        _pledge(coll, 100e18);
+        IERC20 aToken = _aToken(coll);
+        vm.expectRevert(ErrorsLib.OnlyOwner.selector);
+        module.skim(aToken);
+    }
+
     // ========== HEALTH GUARD ==========
 
     /// @dev 100e18 coll at a price of 2 is 200 base units: the pool lends up to 160 (its 80% ltv), the guard stops
