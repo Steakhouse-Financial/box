@@ -72,13 +72,12 @@ interface IScaledBalanceToken {
 
 /**
  * @dev Aave v3 lets a position withdraw collateral down to a health factor of exactly 1, so borrow and depledge are
- *      followed by a guard requiring `healthFactor >= ceil(1e36 / lltvCap)`, i.e.
+ *      followed by a guard (skipped without debt) requiring `healthFactor >= ceil(1e36 / lltvCap)`, i.e.
  *      `ltv <= liquidationThreshold * lltvCap / 1e18`.
  */
 contract FundingAave is FundingBase {
     using SafeERC20 for IERC20;
     using MathLib for uint256;
-    using Math for uint256;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -302,15 +301,24 @@ contract FundingAave is FundingBase {
         return IERC20(aTokenAddress).balanceOf(address(this));
     }
 
-    function _isFacilityUsed(bytes calldata facilityData) internal view override returns (bool) {
+    function _isFacilityUsed(bytes calldata) internal view override returns (bool) {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
         return totalCollateralBase > 0 || totalDebtBase > 0;
     }
 
-    /// @dev Health factor is type(uint256).max without debt.
+    /// @dev Skipped without debt, like Aave's own withdraw check, so that no price is needed to exit a debt-free position
     function _requireHealthy() internal view {
+        if (!_hasDebt()) return;
         (, , , , , uint256 healthFactor) = pool.getUserAccountData(address(this));
         require(healthFactor >= minHealthFactor, ErrorsLib.ExcessiveLTV());
+    }
+
+    function _hasDebt() internal view returns (bool) {
+        uint256 length = debtTokensSet.length();
+        for (uint256 i; i < length; i++) {
+            if (_debtBalance(IERC20(debtTokensSet.at(i))) > 0) return true;
+        }
+        return false;
     }
 }

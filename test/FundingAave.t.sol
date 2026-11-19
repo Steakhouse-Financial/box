@@ -398,6 +398,24 @@ contract FundingAaveTest is Test {
         assertEq(coll.balanceOf(owner), 25e18, "collateral sent to the owner");
         assertEq(_healthFactor(), 1.25e18, "exactly at the cap");
     }
+
+    /// @dev Without debt a depledge needs no price, like an Aave withdraw
+    function testDepledgeGuardSkippedWithoutDebt() public {
+        _registerAll();
+        _pledge(coll, 100e18);
+        pool.setAccountDataReverts(true);
+
+        vm.prank(owner);
+        module.depledge("", coll, 40e18);
+        assertEq(coll.balanceOf(owner), 40e18, "collateral sent to the owner");
+
+        // With debt the guard applies: 40e18 coll (80 base) against 60e18 is inside the pool's limit, outside the cap
+        pool.setAccountDataReverts(false);
+        _borrow(loan, 60e18);
+        vm.prank(owner);
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        module.depledge("", coll, 20e18);
+    }
 }
 
 /// @dev Real Box + FundingAave on the mock pool: the scenarios that bricked the Box before the fix.
