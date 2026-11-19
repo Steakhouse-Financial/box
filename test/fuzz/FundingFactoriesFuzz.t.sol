@@ -228,7 +228,7 @@ contract FundingFactoriesFuzzTest is Test {
 
     function testFuzz_AaveFactoryDeploysAndRegisters(address owner_, uint8 eMode, uint256 cap) public {
         owner_ = _nonZero(owner_);
-        cap = bound(cap, 1, WAD);
+        cap = bound(cap, 1, WAD - 1);
 
         address predicted = _nextAddress(address(aaveFactory));
         vm.expectEmit(true, true, true, true, address(aaveFactory));
@@ -249,7 +249,7 @@ contract FundingFactoriesFuzzTest is Test {
 
     function testFuzz_AaveFactoryRejectsInvalidParams(address owner_, uint8 eMode, uint256 cap, uint256 badCap) public {
         owner_ = _nonZero(owner_);
-        cap = bound(cap, 1, WAD);
+        cap = bound(cap, 1, WAD - 1);
         badCap = bound(badCap, WAD + 1, type(uint256).max);
         address predicted = _nextAddress(address(aaveFactory));
         uint256 nonceBefore = vm.getNonce(address(aaveFactory));
@@ -265,6 +265,8 @@ contract FundingFactoriesFuzzTest is Test {
         aaveFactory.createFundingAave(owner_, IPool(codeless), eMode, cap);
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
         aaveFactory.createFundingAave(owner_, IPool(address(aavePool)), eMode, 0);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        aaveFactory.createFundingAave(owner_, IPool(address(aavePool)), eMode, WAD);
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
         aaveFactory.createFundingAave(owner_, IPool(address(aavePool)), eMode, badCap);
 
@@ -298,7 +300,7 @@ contract FundingFactoriesFuzzTest is Test {
 
     function testFuzz_AaveV4FactoryDeploysAndRegisters(address owner_, uint256 seed, uint256 cap) public {
         owner_ = _nonZero(owner_);
-        cap = bound(cap, 1, WAD);
+        cap = bound(cap, 1, WAD - 1);
         uint256[] memory ids = _validReserveIds(seed);
 
         address predicted = _nextAddress(address(aaveV4Factory));
@@ -327,7 +329,7 @@ contract FundingFactoriesFuzzTest is Test {
         uint256 position
     ) public {
         owner_ = _nonZero(owner_);
-        cap = bound(cap, 1, WAD);
+        cap = bound(cap, 1, WAD - 1);
         badCap = bound(badCap, WAD + 1, type(uint256).max);
         uint256[] memory ids = _validReserveIds(seed);
         unknownId = bound(unknownId, spoke.getReserveCount(), type(uint256).max);
@@ -341,6 +343,8 @@ contract FundingFactoriesFuzzTest is Test {
         aaveV4Factory.createFundingAaveV4(owner_, address(0), ids, cap);
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
         aaveV4Factory.createFundingAaveV4(owner_, address(spoke), ids, 0);
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        aaveV4Factory.createFundingAaveV4(owner_, address(spoke), ids, WAD);
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
         aaveV4Factory.createFundingAaveV4(owner_, address(spoke), ids, badCap);
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
@@ -417,7 +421,7 @@ contract FundingFactoriesFuzzTest is Test {
     /////////////////////////////
 
     function testFuzz_ModulesOwnedByABoxCanBeAdded(uint256 cap, uint8 eMode, uint256 seed, address stranger) public {
-        cap = bound(cap, 1, WAD);
+        cap = bound(cap, 1, WAD - 1);
         address curator = address(0x3);
         ERC20MockDecimals boxAsset = new ERC20MockDecimals(18);
         IBox box = IBox(

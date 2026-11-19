@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Steakhouse Financial
-pragma solidity 0.8.28;
+pragma solidity >=0.8.0;
 
 /// @title IAaveV4Spoke
-/// @notice Minimal hand-written interface for the subset of an Aave v4 Spoke used by Box.
+/// @notice Hand-written interface for the subset of an Aave v4 Spoke used by FundingAaveV4 and its tests.
 /// @dev Written from the deployed ABI. Struct layouts are ABI-compatible with the deployed Spoke.
 interface IAaveV4Spoke {
     struct Reserve {

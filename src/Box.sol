@@ -28,7 +28,7 @@ import {EventsLib} from "./libraries/EventsLib.sol";
  * @dev Oracles can be manipulated to give an unfair price
  * @dev A Vault V2 parent vault adds resiliency with setMaxRate(). BoxAdapterCached smooths the reported value, but anyone can
  * @dev refresh it (e.g. VaultV2.forceDeallocate with 0 assets), so it is no protection against oracle manipulation
- * @dev During flash operations there is no totalAssets() calculation possible to avoid NAV based attacks
+ * @dev During flash and swap operations totalAssets() returns the NAV cached at their start to avoid NAV based attacks
  * @dev There is no protection against ERC4626 inflation attacks, as deposits are controlled via the isFeeder role.
  * @dev Users shouldn't be able to deposited directly or indirectly to a Box.
  * @dev The Box uses forceApprove with 0 value, making it incompatible with the BNB ERC-20 token (reverts on zero-value approvals)
@@ -442,7 +442,8 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @dev Enforces slippage protection based on oracle prices
      * @dev During wind-down, anyone can deallocate tokens with no outstanding debt
      * @dev During wind-down, the slippage tolerance applies to each amount sold with no cumulative limit, so unwinding
-     *      a position levered L times can cost up to L times the tolerance in NAV
+     *      a position levered L times can cost up to L times the tolerance in NAV (about 2L-1 times when the debt
+     *      token is not the asset)
      */
     function deallocate(
         IERC20 token,
@@ -609,12 +610,17 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param debtToken Token to repay
      * @param repayAmount Amount to repay (max uint256 = full debt)
      * @dev Transfers tokens from vault to module, reduces debt position
-     * @dev A facility whose debt exceeds its collateral (ltv above 100%) is left to liquidators: only allocators can repay it
+     * @dev A facility whose debt exceeds its collateral (ltv above 100%) is left to liquidators: only allocators can repay it.
+     *      If the module cannot compute its ltv (e.g. the lending protocol's oracle reverts), anyone can repay it.
      */
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external nonReentrant {
         _onlyAllocatorOrWinddown();
         _requireIsFunding(fundingModule);
-        require(isAllocator[msg.sender] || fundingModule.ltv(facilityData) <= PRECISION, ErrorsLib.ExcessiveLTV());
+        if (!isAllocator[msg.sender]) {
+            try fundingModule.ltv(facilityData) returns (uint256 facilityLtv) {
+                require(facilityLtv <= PRECISION, ErrorsLib.ExcessiveLTV());
+            } catch {}
+        }
 
         uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
 
@@ -988,7 +994,7 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @notice Updates the price oracle for a whitelisted token
      * @param token Token to update oracle for
      * @param oracle New price feed contract
-     * @dev Requires timelock, not during wind-down
+     * @dev Requires timelock, not during wind-down: an oracle reverting during wind-down blocks every NAV-based action until it works
      */
     function changeTokenOracle(IERC20 token, IOracle oracle) external {
         _requireNotWinddown();

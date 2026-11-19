@@ -89,7 +89,7 @@ contract FundingAaveV4FactoryTest is Test {
         factory.createFundingAaveV4(owner, address(spoke), _ids(0, 1), 0);
 
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
-        factory.createFundingAaveV4(owner, address(spoke), _ids(0, 1), 1e18 + 1);
+        factory.createFundingAaveV4(owner, address(spoke), _ids(0, 1), 1e18);
 
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
         factory.createFundingAaveV4(owner, address(spoke), _ids(1, 2), 0.9e18);

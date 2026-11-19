@@ -37,8 +37,8 @@ contract MockAaveV3BalanceToken {
 /// - withdraw above the supplied balance reverts; repay caps at the debt and returns the amount repaid;
 /// - borrowed tokens go to `msg.sender` (no credit delegation), withdrawn tokens go to `to`;
 /// - borrow reverts when the position would exceed `MAX_LTV_BPS`, while withdraw only requires a health factor of 1,
-///   i.e. a position up to `LIQUIDATION_THRESHOLD_BPS` (priced with `setAssetPrice`, 8 decimals).
-/// Interest is simulated with `accrueDebt`.
+///   i.e. a position up to `LIQUIDATION_THRESHOLD_BPS` (priced with `setAssetPrice`, 8 decimals), and only with debt.
+/// Interest is simulated with `accrueDebt`. `setAccountDataReverts` models a pool whose prices are unavailable.
 contract MockAaveV3Pool {
     using SafeERC20 for IERC20;
 
@@ -59,8 +59,13 @@ contract MockAaveV3Pool {
     address[] public reservesList;
     mapping(address user => uint256) public userEMode;
     mapping(address user => mapping(address asset => bool)) public usingAsCollateral;
+    bool public accountDataReverts;
 
     // ========== TEST SETUP ==========
+
+    function setAccountDataReverts(bool reverts) external {
+        accountDataReverts = reverts;
+    }
 
     function listReserve(address asset, uint256 price) external returns (address aToken, address variableDebtToken) {
         require(reserves[asset].aToken == address(0), "already listed");
@@ -102,7 +107,7 @@ contract MockAaveV3Pool {
         require(amount <= balance, "NOT_ENOUGH_AVAILABLE_USER_BALANCE");
         MockAaveV3BalanceToken(r.aToken).burn(msg.sender, amount);
         if (MockAaveV3BalanceToken(r.aToken).balanceOf(msg.sender) == 0) usingAsCollateral[msg.sender][asset] = false;
-        _requireHealthFactorAboveOne(msg.sender);
+        if (_isBorrowing(msg.sender)) _requireHealthFactorAboveOne(msg.sender);
         IERC20(asset).safeTransfer(to, amount);
         return amount;
     }
@@ -158,6 +163,7 @@ contract MockAaveV3Pool {
             uint256 healthFactor
         )
     {
+        require(!accountDataReverts, "ACCOUNT_DATA_UNAVAILABLE");
         for (uint256 i; i < reservesList.length; i++) {
             address asset = reservesList[i];
             Reserve memory r = reserves[asset];
@@ -223,6 +229,14 @@ contract MockAaveV3Pool {
     function _requireWithinMaxLtv(address user) internal view {
         (uint256 collateralBase, uint256 debtBase, , , , ) = getUserAccountData(user);
         require(debtBase * 1e4 <= collateralBase * MAX_LTV_BPS, "COLLATERAL_CANNOT_COVER_NEW_BORROW");
+    }
+
+    function _isBorrowing(address user) internal view returns (bool) {
+        for (uint256 i; i < reservesList.length; i++) {
+            address variableDebtToken = reserves[reservesList[i]].variableDebtToken;
+            if (variableDebtToken != address(0) && MockAaveV3BalanceToken(variableDebtToken).balanceOf(user) > 0) return true;
+        }
+        return false;
     }
 
     /// @dev What the real pool checks when collateral leaves the position: only the liquidation boundary.
