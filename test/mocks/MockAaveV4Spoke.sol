@@ -289,11 +289,11 @@ contract MockAaveV4Spoke is IAaveV4Spoke {
     function setUsingAsCollateral(uint256 reserveId, bool usingAsCollateral, address onBehalfOf) external {
         _onlyPositionManager(onBehalfOf);
         MockReserve storage r = _reserve(reserveId);
+        Position storage p = positions[reserveId][onBehalfOf];
+        // Like the Spoke, a call that changes nothing returns before the reserve checks
+        if (p.usingAsCollateral == usingAsCollateral) return;
         require(!r.config.paused, ReservePaused());
         if (usingAsCollateral) require(!r.config.frozen, ReserveFrozen());
-
-        Position storage p = positions[reserveId][onBehalfOf];
-        if (p.usingAsCollateral == usingAsCollateral) return;
         p.usingAsCollateral = usingAsCollateral;
         if (usingAsCollateral) {
             p.boundKey = r.reserve.dynamicConfigKey;
@@ -378,22 +378,22 @@ contract MockAaveV4Spoke is IAaveV4Spoke {
                 MockReserve storage r = reserves[id];
                 Position storage p = positions[id][user];
                 uint256 unit = 10 ** (18 - r.reserve.decimals);
+                uint256 debt = getUserTotalDebt(id, user);
+                // Like the Spoke, prices every reserve flagged as collateral or borrowed, whatever its balance
+                if (p.usingAsCollateral || debt > 0) require(r.price > 0, InvalidPrice());
 
                 uint256 supplied = getUserSuppliedAssets(id, user);
                 if (p.usingAsCollateral && supplied > 0) {
                     data.activeCollateralCount++;
                     uint256 collateralFactor = dynamicConfigs[id][p.boundKey].collateralFactor;
                     if (collateralFactor > 0) {
-                        require(r.price > 0, InvalidPrice());
                         uint256 value = supplied * r.price * unit;
                         data.totalCollateralValue += value;
                         weightedCollateralFactor += value * collateralFactor;
                     }
                 }
 
-                uint256 debt = getUserTotalDebt(id, user);
                 if (debt > 0) {
-                    require(r.price > 0, InvalidPrice());
                     data.borrowCount++;
                     data.totalDebtValueRay += debt * r.price * unit * RAY;
                 }

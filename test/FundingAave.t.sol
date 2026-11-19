@@ -129,9 +129,11 @@ contract FundingAaveTest is Test {
         assertEq(module.lltvCap(), LLTV_CAP, "lltvCap");
         assertEq(module.minHealthFactor(), 1.25e18, "ceil(1e36 / 0.8e18)");
 
-        FundingAave full = new FundingAave(owner, IPool(address(pool)), 0, 1e18);
-        assertEq(full.minHealthFactor(), 1e18, "a full cap is the pool's own liquidation boundary");
+        FundingAave largest = new FundingAave(owner, IPool(address(pool)), 0, 1e18 - 1);
+        assertEq(largest.minHealthFactor(), 1e18 + 2, "the guard stays above the pool's own liquidation boundary");
 
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        new FundingAave(owner, IPool(address(pool)), 0, 1e18);
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
         new FundingAave(owner, IPool(address(pool)), 0, 0);
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
@@ -339,6 +341,21 @@ contract FundingAaveTest is Test {
         assertEq(module.nav(provider), 0, "negative equity floored at 0");
     }
 
+    // ========== LTV ==========
+
+    function testLtvZeroWithoutDebtAndMaxWithoutCollateralValue() public {
+        _registerAll();
+        assertEq(module.ltv(""), 0, "empty position");
+        _pledge(coll, 100e18);
+        assertEq(module.ltv(""), 0, "collateral without debt");
+
+        _borrow(loan, 100e18);
+        assertEq(module.ltv(""), 0.5e18, "100 of debt against 200 of collateral");
+
+        pool.setAssetPrice(address(coll), 0);
+        assertEq(module.ltv(""), type(uint256).max, "debt without collateral value");
+    }
+
     // ========== SKIM ==========
 
     /// @dev nav is floored at 0 (Box oracles) while the pool still values the position: the nav check alone would let
@@ -397,6 +414,24 @@ contract FundingAaveTest is Test {
         assertEq(module.collateralBalance("", coll), 75e18, "collateral withdrawn");
         assertEq(coll.balanceOf(owner), 25e18, "collateral sent to the owner");
         assertEq(_healthFactor(), 1.25e18, "exactly at the cap");
+    }
+
+    /// @dev Without debt a depledge needs no price, like an Aave withdraw
+    function testDepledgeGuardSkippedWithoutDebt() public {
+        _registerAll();
+        _pledge(coll, 100e18);
+        pool.setAccountDataReverts(true);
+
+        vm.prank(owner);
+        module.depledge("", coll, 40e18);
+        assertEq(coll.balanceOf(owner), 40e18, "collateral sent to the owner");
+
+        // With debt the guard applies: 40e18 coll (80 base) against 60e18 is inside the pool's limit, outside the cap
+        pool.setAccountDataReverts(false);
+        _borrow(loan, 60e18);
+        vm.prank(owner);
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        module.depledge("", coll, 20e18);
     }
 }
 

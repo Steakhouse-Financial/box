@@ -72,13 +72,12 @@ interface IScaledBalanceToken {
 
 /**
  * @dev Aave v3 lets a position withdraw collateral down to a health factor of exactly 1, so borrow and depledge are
- *      followed by a guard requiring `healthFactor >= ceil(1e36 / lltvCap)`, i.e.
+ *      followed by a guard (skipped without debt) requiring `healthFactor >= ceil(1e36 / lltvCap)`, i.e.
  *      `ltv <= liquidationThreshold * lltvCap / 1e18`.
  */
 contract FundingAave is FundingBase {
     using SafeERC20 for IERC20;
     using MathLib for uint256;
-    using Math for uint256;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -96,10 +95,10 @@ contract FundingAave is FundingBase {
      * @param _owner The Box owning this module
      * @param _pool The Aave v3 pool
      * @param _eMode The e-mode category of the position, 0 for none
-     * @param _lltvCap Fraction of the Aave liquidation threshold the module may use, in (0, 1e18]
+     * @param _lltvCap Fraction of the Aave liquidation threshold the module may use, in (0, 1e18)
      */
     constructor(address _owner, IPool _pool, uint8 _eMode, uint256 _lltvCap) FundingBase(_owner) {
-        require(_lltvCap > 0 && _lltvCap <= WAD, ErrorsLib.InvalidValue());
+        require(_lltvCap > 0 && _lltvCap < WAD, ErrorsLib.InvalidValue());
 
         pool = _pool;
         eMode = _eMode;
@@ -225,17 +224,17 @@ contract FundingAave is FundingBase {
 
     /// @dev ltv can also use non whitelisted collaterals (donated)
     /// @dev Returns 0 without debt and type(uint256).max with debt but no collateral
-    function ltv(bytes calldata data) external view override returns (uint256) {
+    function ltv(bytes calldata) external view override returns (uint256) {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
         if (totalDebtBase == 0) return 0;
         return totalCollateralBase == 0 ? type(uint256).max : totalDebtBase.wDivUp(totalCollateralBase);
     }
 
-    function debtBalance(bytes calldata facilityData, IERC20 debtToken) external view override returns (uint256) {
+    function debtBalance(bytes calldata, IERC20 debtToken) external view override returns (uint256) {
         return _debtBalance(debtToken);
     }
 
-    function collateralBalance(bytes calldata facilityData, IERC20 collateralToken) external view override returns (uint256) {
+    function collateralBalance(bytes calldata, IERC20 collateralToken) external view override returns (uint256) {
         return _collateralBalance(collateralToken);
     }
 
@@ -302,15 +301,24 @@ contract FundingAave is FundingBase {
         return IERC20(aTokenAddress).balanceOf(address(this));
     }
 
-    function _isFacilityUsed(bytes calldata facilityData) internal view override returns (bool) {
+    function _isFacilityUsed(bytes calldata) internal view override returns (bool) {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
 
         return totalCollateralBase > 0 || totalDebtBase > 0;
     }
 
-    /// @dev Health factor is type(uint256).max without debt.
+    /// @dev Skipped without debt, like Aave's own withdraw check, so that no price is needed to exit a debt-free position
     function _requireHealthy() internal view {
+        if (!_hasDebt()) return;
         (, , , , , uint256 healthFactor) = pool.getUserAccountData(address(this));
         require(healthFactor >= minHealthFactor, ErrorsLib.ExcessiveLTV());
+    }
+
+    function _hasDebt() internal view returns (bool) {
+        uint256 length = debtTokensSet.length();
+        for (uint256 i; i < length; i++) {
+            if (_debtBalance(IERC20(debtTokensSet.at(i))) > 0) return true;
+        }
+        return false;
     }
 }

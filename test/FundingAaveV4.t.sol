@@ -148,10 +148,9 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
         assertEq(module.debtTokensLength(), 0);
     }
 
-    function testConstructorAcceptsFullLltvCap() public {
-        FundingAaveV4 m = _deploy(1e18);
-        assertEq(m.lltvCap(), 1e18);
-        assertEq(m.minHealthFactor(), 1e18);
+    function testConstructorRejectsFullLltvCap() public {
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        _deploy(1e18);
     }
 
     function testConstructorMinHealthFactorRoundsUp() public {
@@ -987,17 +986,20 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
         assertEq(m.debtBalance(EMPTY, debtB), 2e18);
     }
 
-    function testBorrowFullLltvCapAllowsHealthFactorOne() public {
-        FundingAaveV4 m = _deploy(1e18);
+    function testBorrowLargestLltvCapStopsBeforeHealthFactorOne() public {
+        FundingAaveV4 m = _deploy(1e18 - 1);
+        assertEq(m.minHealthFactor(), 1e18 + 2, "ceil(1e36 / (1e18 - 1))");
         _register(m);
         _pledge(m, collA, 100e18);
-        _borrow(m, debtB, 80e18);
-        assertEq(_hf(m), 1e18, "HF exactly 1.0");
 
-        // The Spoke's own limit applies beyond that
+        // HF exactly 1.0 is accepted by the Spoke, not by the guard
         vm.prank(owner);
-        vm.expectRevert(MockAaveV4Spoke.HealthFactorBelowThreshold.selector);
-        m.borrow(EMPTY, debtB, 1);
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        m.borrow(EMPTY, debtB, 80e18);
+        assertEq(m.debtBalance(EMPTY, debtB), 0, "no debt taken");
+
+        _borrow(m, debtB, 80e18 - 160);
+        assertEq(_hf(m), 1e18 + 2, "largest debt the guard accepts");
     }
 
     /////////////////////////////
@@ -1035,6 +1037,60 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
         module.depledge(EMPTY, collA, 100e18);
         assertEq(collA.balanceOf(owner), 100e18);
         assertEq(spoke.getUserSuppliedShares(COLL_A, address(module)), 0);
+    }
+
+    /////////////////////////////
+    /// EMPTIED COLLATERAL
+    /////////////////////////////
+
+    function testFullDepledgeDisablesCollateralAndPledgeEnablesItAgain() public {
+        _register(module);
+        _pledge(module, collA, 100e18);
+
+        vm.prank(owner);
+        module.depledge(EMPTY, collA, 40e18);
+        (bool usingAsCollateral, ) = spoke.getUserReserveStatus(COLL_A, address(module));
+        assertTrue(usingAsCollateral, "still enabled after a partial depledge");
+
+        vm.prank(owner);
+        module.depledge(EMPTY, collA, 60e18);
+        (usingAsCollateral, ) = spoke.getUserReserveStatus(COLL_A, address(module));
+        assertFalse(usingAsCollateral, "disabled once no supplied shares are left");
+
+        _pledge(module, collA, 10e18);
+        (usingAsCollateral, ) = spoke.getUserReserveStatus(COLL_A, address(module));
+        assertTrue(usingAsCollateral, "enabled again by the next pledge");
+    }
+
+    /// @dev The Spoke prices every reserve enabled as collateral, even an empty one
+    function testEmptiedCollateralWithoutPriceDoesNotBlockThePosition() public {
+        _register(module);
+        vm.prank(owner);
+        module.addCollateralToken(tokC);
+        _pledge(module, collA, 100e18);
+        _pledge(module, tokC, 100e6);
+        _borrow(module, debtB, 40e18);
+
+        vm.prank(owner);
+        module.depledge(EMPTY, tokC, 100e6);
+        spoke.setPrice(TOK_C, 0);
+
+        _borrow(module, debtB, 10e18);
+        vm.prank(owner);
+        module.depledge(EMPTY, collA, 10e18);
+        // 50 of debt against 90 of collateral, rounded up
+        assertEq(module.ltv(EMPTY), 555555555555555556);
+    }
+
+    function testRemoveCollateralTokenDisablesEmptyCollateral() public {
+        _register(module);
+        // Enabled without supplied shares, a state the module's own depledge never leaves
+        spoke.forceUsingAsCollateral(COLL_A, address(module), true);
+
+        vm.prank(owner);
+        module.removeCollateralToken(collA);
+        (bool usingAsCollateral, ) = spoke.getUserReserveStatus(COLL_A, address(module));
+        assertFalse(usingAsCollateral);
     }
 
     /////////////////////////////

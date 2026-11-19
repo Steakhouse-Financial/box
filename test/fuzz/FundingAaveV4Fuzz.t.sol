@@ -71,7 +71,7 @@ contract FundingAaveV4FuzzTest is Test {
 
     struct GuardCase {
         uint256 lltvCap;
-        bool fullCap;
+        bool largestCap;
         uint256 collPrice;
         uint256 debtPrice;
         uint256 collateralFactor;
@@ -276,7 +276,7 @@ contract FundingAaveV4FuzzTest is Test {
 
     /// @dev The largest borrow allowed by the guard (computed with a replica of the mock's account math) succeeds and
     ///      one more unit reverts with the predicted error: ExcessiveLTV, or the Spoke's own HealthFactorBelowThreshold
-    ///      when the Spoke limit binds first (always the case at lltvCap = 1e18).
+    ///      when the Spoke limit binds first.
     function testFuzz_BorrowGuardBoundaryIsExact(GuardCase memory g) public {
         GuardEnv memory e = _deployGuardCase(g);
         uint256 idx = e.s.drawnIndex;
@@ -682,7 +682,7 @@ contract FundingAaveV4FuzzTest is Test {
     function _deployGuardCase(GuardCase memory g) internal returns (GuardEnv memory e) {
         uint8 collDecimals = _pickDecimals(g.decimalsSeed);
         uint8 debtDecimals = _pickDecimals(g.decimalsSeed / 3);
-        uint256 lltvCap = g.fullCap ? WAD : bound(g.lltvCap, 1, WAD);
+        uint256 lltvCap = g.largestCap ? WAD - 1 : bound(g.lltvCap, 1, WAD - 1);
         e.s = SpokeCase({
             collPrice: bound(g.collPrice, 1, 1e14),
             collUnit: 10 ** (18 - collDecimals),
@@ -737,9 +737,6 @@ contract FundingAaveV4FuzzTest is Test {
     function _predictGuardRevert(SpokeCase memory s, uint256 hf) internal pure returns (bytes4 expected) {
         assertLt(hf, s.minHf, "outside the guard");
         expected = hf < WAD ? MockAaveV4Spoke.HealthFactorBelowThreshold.selector : ErrorsLib.ExcessiveLTV.selector;
-        if (s.minHf == WAD) {
-            assertEq(expected, MockAaveV4Spoke.HealthFactorBelowThreshold.selector, "full cap: the Spoke limit binds");
-        }
     }
 
     // ---------- replica of the MockAaveV4Spoke math ----------
@@ -810,7 +807,7 @@ contract FundingAaveV4FuzzTest is Test {
 
     // ---------- nav cases ----------
 
-    /// @dev Fresh Spoke, Box and module (lltvCap 1e18) with two collateral and two debt reserves. Mode 0: the Box asset is
+    /// @dev Fresh Spoke, Box and module (lltvCap 1e18 - 1) with two collateral and two debt reserves. Mode 0: the Box asset is
     ///      outside the position; mode 1: the first collateral is the Box asset; mode 2: the first debt is the Box asset.
     function _deployNavCase(NavCase memory n) internal returns (NavEnv memory e) {
         uint256 mode = n.mode % 3;
@@ -828,7 +825,7 @@ contract FundingAaveV4FuzzTest is Test {
             ids[i] = e.spoke.addReserve(address(e.tokens[i]), e.decimals[i], i < 2 ? uint16(9000) : uint16(0), i >= 2);
             e.prices[i] = isAsset[i] ? ORACLE_PRECISION : _boxPrice(priceSeeds[i], assetDecimals, e.decimals[i]);
         }
-        e.module = new FundingAaveV4(address(e.box), address(e.spoke), ids, WAD);
+        e.module = new FundingAaveV4(address(e.box), address(e.spoke), ids, WAD - 1);
 
         vm.startPrank(curator);
         for (uint256 i; i < 4; i++) {

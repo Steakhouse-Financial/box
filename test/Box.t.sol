@@ -2147,6 +2147,16 @@ contract BoxTest is Test {
         vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
         box.repay(fundingMorpho, facilityDataLtv80, asset, type(uint256).max);
 
+        // ltv cannot be computed while the market oracle reverts: anyone can repay
+        vm.mockCallRevert(address(oracle1), abi.encodeWithSelector(IOracle.price.selector), "oracle down");
+        vm.expectRevert();
+        fundingMorpho.ltv(facilityDataLtv80);
+        uint256 debtBefore = fundingMorpho.debtBalance(facilityDataLtv80, asset);
+        vm.prank(nonAuthorized);
+        box.repay(fundingMorpho, facilityDataLtv80, asset, 10e18);
+        assertApproxEqAbs(fundingMorpho.debtBalance(facilityDataLtv80, asset), debtBefore - 10e18, 1, "repaid while ltv reverts");
+        vm.clearMockedCalls();
+
         vm.prank(allocator);
         box.repay(fundingMorpho, facilityDataLtv80, asset, type(uint256).max);
         assertEq(fundingMorpho.debtBalance(facilityDataLtv80, asset), 0, "allocator repaid");
