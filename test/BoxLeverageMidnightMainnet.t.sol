@@ -61,7 +61,7 @@ contract BoxLeverageMidnightMainnetTest is MidnightForkTest {
     bytes internal fd;
 
     function setUp() public {
-        vm.createSelectFork(vm.envOr("ETH_RPC_URL", string("https://eth.drpc.org")), FORK_BLOCK);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
         IVmEvmVersion(address(vm)).setEvmVersion("osaka");
 
         midnight = IMidnightTest(ETHEREUM_MIDNIGHT);
