@@ -609,12 +609,17 @@ contract Box is IBox, ERC20, ReentrancyGuard {
      * @param debtToken Token to repay
      * @param repayAmount Amount to repay (max uint256 = full debt)
      * @dev Transfers tokens from vault to module, reduces debt position
-     * @dev A facility whose debt exceeds its collateral (ltv above 100%) is left to liquidators: only allocators can repay it
+     * @dev A facility whose debt exceeds its collateral (ltv above 100%) is left to liquidators: only allocators can repay it.
+     *      If the module cannot compute its ltv (e.g. the lending protocol's oracle reverts), anyone can repay it.
      */
     function repay(IFunding fundingModule, bytes calldata facilityData, IERC20 debtToken, uint256 repayAmount) external nonReentrant {
         _onlyAllocatorOrWinddown();
         _requireIsFunding(fundingModule);
-        require(isAllocator[msg.sender] || fundingModule.ltv(facilityData) <= PRECISION, ErrorsLib.ExcessiveLTV());
+        if (!isAllocator[msg.sender]) {
+            try fundingModule.ltv(facilityData) returns (uint256 facilityLtv) {
+                require(facilityLtv <= PRECISION, ErrorsLib.ExcessiveLTV());
+            } catch {}
+        }
 
         uint256 debtAmount = fundingModule.debtBalance(facilityData, debtToken);
 
