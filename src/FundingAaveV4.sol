@@ -115,6 +115,7 @@ contract FundingAaveV4 is FundingBase {
         require(msg.sender == owner, ErrorsLib.OnlyOwner());
         require(_collateralBalance(collateralToken) == 0, ErrorsLib.CannotRemove());
         require(collateralTokensSet.remove(address(collateralToken)), ErrorsLib.NotWhitelisted());
+        _disableEmptyCollateral(_requireReserveId(collateralToken));
     }
 
     /// @dev Only when the debt of the token (premium included) is 0
@@ -151,6 +152,7 @@ contract FundingAaveV4 is FundingBase {
         require(received >= collateralAmount, ErrorsLib.InvalidAmount());
 
         collateralToken.safeTransfer(owner, collateralAmount);
+        _disableEmptyCollateral(reserveId);
         _requireHealthy();
     }
 
@@ -306,9 +308,17 @@ contract FundingAaveV4 is FundingBase {
         return false;
     }
 
-    /// @dev The Spoke rebinds the account to the latest risk configuration inside borrow and withdraw, so the account
-    ///      data read right after reflects it. Health factor is type(uint256).max without debt.
+    /// @dev The Spoke rebinds the account to the latest risk configuration inside borrow and inside a withdraw of an
+    ///      enabled collateral, so the account data read right after reflects it. Health factor is type(uint256).max without debt.
     function _requireHealthy() internal view {
         require(spoke.getUserAccountData(address(this)).healthFactor >= minHealthFactor, ErrorsLib.ExcessiveLTV());
+    }
+
+    /// @dev The Spoke keeps a fully withdrawn reserve enabled as collateral and keeps pricing it in every health check,
+    ///      so the module turns it off once no supplied shares are left
+    function _disableEmptyCollateral(uint256 reserveId) internal {
+        if (spoke.getUserSuppliedShares(reserveId, address(this)) == 0) {
+            spoke.setUsingAsCollateral(reserveId, false, address(this));
+        }
     }
 }

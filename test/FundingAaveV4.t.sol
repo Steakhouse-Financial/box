@@ -1038,6 +1038,60 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
     }
 
     /////////////////////////////
+    /// EMPTIED COLLATERAL
+    /////////////////////////////
+
+    function testFullDepledgeDisablesCollateralAndPledgeEnablesItAgain() public {
+        _register(module);
+        _pledge(module, collA, 100e18);
+
+        vm.prank(owner);
+        module.depledge(EMPTY, collA, 40e18);
+        (bool usingAsCollateral, ) = spoke.getUserReserveStatus(COLL_A, address(module));
+        assertTrue(usingAsCollateral, "still enabled after a partial depledge");
+
+        vm.prank(owner);
+        module.depledge(EMPTY, collA, 60e18);
+        (usingAsCollateral, ) = spoke.getUserReserveStatus(COLL_A, address(module));
+        assertFalse(usingAsCollateral, "disabled once no supplied shares are left");
+
+        _pledge(module, collA, 10e18);
+        (usingAsCollateral, ) = spoke.getUserReserveStatus(COLL_A, address(module));
+        assertTrue(usingAsCollateral, "enabled again by the next pledge");
+    }
+
+    /// @dev The Spoke prices every reserve enabled as collateral, even an empty one
+    function testEmptiedCollateralWithoutPriceDoesNotBlockThePosition() public {
+        _register(module);
+        vm.prank(owner);
+        module.addCollateralToken(tokC);
+        _pledge(module, collA, 100e18);
+        _pledge(module, tokC, 100e6);
+        _borrow(module, debtB, 40e18);
+
+        vm.prank(owner);
+        module.depledge(EMPTY, tokC, 100e6);
+        spoke.setPrice(TOK_C, 0);
+
+        _borrow(module, debtB, 10e18);
+        vm.prank(owner);
+        module.depledge(EMPTY, collA, 10e18);
+        // 50 of debt against 90 of collateral, rounded up
+        assertEq(module.ltv(EMPTY), 555555555555555556);
+    }
+
+    function testRemoveCollateralTokenDisablesEmptyCollateral() public {
+        _register(module);
+        // Enabled without supplied shares, a state the module's own depledge never leaves
+        spoke.forceUsingAsCollateral(COLL_A, address(module), true);
+
+        vm.prank(owner);
+        module.removeCollateralToken(collA);
+        (bool usingAsCollateral, ) = spoke.getUserReserveStatus(COLL_A, address(module));
+        assertFalse(usingAsCollateral);
+    }
+
+    /////////////////////////////
     /// GUARD NEVER BLOCKS PLEDGE / REPAY
     /////////////////////////////
 
