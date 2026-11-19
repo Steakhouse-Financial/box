@@ -73,6 +73,8 @@ library ErrorsLib {
     error ExcessiveLTV();
     error NoNavDuringCache();
     error InvalidFacilityData();
+    error NoValidStaging();
+    error FacilityMatured();
 
     // Flash callback errors
     error ReentryNotAllowed();
