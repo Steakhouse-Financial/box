@@ -42,11 +42,11 @@ contract FundingAaveV4 is FundingBase {
      * @param _owner The Box owning this module
      * @param _spoke The Aave v4 Spoke
      * @param _reserveIds The Spoke reserves this module may use; their underlyings must be pairwise distinct
-     * @param _lltvCap Fraction of the Spoke's borrowing limit the module may use, in (0, 1e18]
+     * @param _lltvCap Fraction of the Spoke's borrowing limit the module may use, in (0, 1e18)
      */
     constructor(address _owner, address _spoke, uint256[] memory _reserveIds, uint256 _lltvCap) FundingBase(_owner) {
         require(_spoke != address(0), ErrorsLib.InvalidAddress());
-        require(_lltvCap > 0 && _lltvCap <= WAD, ErrorsLib.InvalidValue());
+        require(_lltvCap > 0 && _lltvCap < WAD, ErrorsLib.InvalidValue());
         require(_reserveIds.length > 0, ErrorsLib.InvalidValue());
 
         spoke = IAaveV4Spoke(_spoke);

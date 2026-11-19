@@ -95,10 +95,10 @@ contract FundingAave is FundingBase {
      * @param _owner The Box owning this module
      * @param _pool The Aave v3 pool
      * @param _eMode The e-mode category of the position, 0 for none
-     * @param _lltvCap Fraction of the Aave liquidation threshold the module may use, in (0, 1e18]
+     * @param _lltvCap Fraction of the Aave liquidation threshold the module may use, in (0, 1e18)
      */
     constructor(address _owner, IPool _pool, uint8 _eMode, uint256 _lltvCap) FundingBase(_owner) {
-        require(_lltvCap > 0 && _lltvCap <= WAD, ErrorsLib.InvalidValue());
+        require(_lltvCap > 0 && _lltvCap < WAD, ErrorsLib.InvalidValue());
 
         pool = _pool;
         eMode = _eMode;

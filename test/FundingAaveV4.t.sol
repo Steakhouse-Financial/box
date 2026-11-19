@@ -148,10 +148,9 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
         assertEq(module.debtTokensLength(), 0);
     }
 
-    function testConstructorAcceptsFullLltvCap() public {
-        FundingAaveV4 m = _deploy(1e18);
-        assertEq(m.lltvCap(), 1e18);
-        assertEq(m.minHealthFactor(), 1e18);
+    function testConstructorRejectsFullLltvCap() public {
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        _deploy(1e18);
     }
 
     function testConstructorMinHealthFactorRoundsUp() public {
@@ -987,17 +986,20 @@ contract FundingAaveV4Test is FundingAaveV4Fixture {
         assertEq(m.debtBalance(EMPTY, debtB), 2e18);
     }
 
-    function testBorrowFullLltvCapAllowsHealthFactorOne() public {
-        FundingAaveV4 m = _deploy(1e18);
+    function testBorrowLargestLltvCapStopsBeforeHealthFactorOne() public {
+        FundingAaveV4 m = _deploy(1e18 - 1);
+        assertEq(m.minHealthFactor(), 1e18 + 2, "ceil(1e36 / (1e18 - 1))");
         _register(m);
         _pledge(m, collA, 100e18);
-        _borrow(m, debtB, 80e18);
-        assertEq(_hf(m), 1e18, "HF exactly 1.0");
 
-        // The Spoke's own limit applies beyond that
+        // HF exactly 1.0 is accepted by the Spoke, not by the guard
         vm.prank(owner);
-        vm.expectRevert(MockAaveV4Spoke.HealthFactorBelowThreshold.selector);
-        m.borrow(EMPTY, debtB, 1);
+        vm.expectRevert(ErrorsLib.ExcessiveLTV.selector);
+        m.borrow(EMPTY, debtB, 80e18);
+        assertEq(m.debtBalance(EMPTY, debtB), 0, "no debt taken");
+
+        _borrow(m, debtB, 80e18 - 160);
+        assertEq(_hf(m), 1e18 + 2, "largest debt the guard accepts");
     }
 
     /////////////////////////////

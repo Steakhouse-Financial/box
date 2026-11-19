@@ -129,9 +129,11 @@ contract FundingAaveTest is Test {
         assertEq(module.lltvCap(), LLTV_CAP, "lltvCap");
         assertEq(module.minHealthFactor(), 1.25e18, "ceil(1e36 / 0.8e18)");
 
-        FundingAave full = new FundingAave(owner, IPool(address(pool)), 0, 1e18);
-        assertEq(full.minHealthFactor(), 1e18, "a full cap is the pool's own liquidation boundary");
+        FundingAave largest = new FundingAave(owner, IPool(address(pool)), 0, 1e18 - 1);
+        assertEq(largest.minHealthFactor(), 1e18 + 2, "the guard stays above the pool's own liquidation boundary");
 
+        vm.expectRevert(ErrorsLib.InvalidValue.selector);
+        new FundingAave(owner, IPool(address(pool)), 0, 1e18);
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
         new FundingAave(owner, IPool(address(pool)), 0, 0);
         vm.expectRevert(ErrorsLib.InvalidValue.selector);
