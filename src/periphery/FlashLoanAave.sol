@@ -123,7 +123,7 @@ contract FlashLoanAave is IFlashLoanReceiver, IBoxFlashCallback {
         return true;
     }
 
-    function onBoxFlash(IERC20 token, uint256 amount, bytes calldata data) external {
+    function onBoxFlash(IERC20, uint256, bytes calldata data) external {
         require(msg.sender == _box, ErrorsLib.OnlyBox());
         bytes4 operation = abi.decode(data, (bytes4));
 

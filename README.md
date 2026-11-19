@@ -14,7 +14,7 @@ It allows to:
 
 ### Curator checks and limits
 - **Slippage controls**: Every swap is bounded by an oracle-based slippage check. Cumulative slippage over time is also limited.  
-- **Shutdown mechanism**: In case of curator misbehavior, anyone can trigger a `shutdown`. This ensures depositors can eventually withdraw through a permissionless `winddown` process.  
+- **Shutdown mechanism**: In case of curator misbehavior, the guardian (or the curator) can trigger a `shutdown`. This ensures depositors can eventually withdraw through a permissionless `winddown` process.  
 
 ### Remaining assumptions
 - Allocators will not manipulate weak oracles during allocations.  
@@ -22,6 +22,7 @@ It allows to:
 - Allocators will not deliberately set excessive LTVs that harm depositors.  
 - Whitelisted tokens are plain ERC-20s: no rebasing, transfer hooks or transfer fees.  
 - `BoxAdapterCached` smooths the value reported to the parent vault but is no protection against oracle manipulation: anyone can refresh it, e.g. through `VaultV2.forceDeallocate` with 0 assets.  
+- The lending protocols behind the funding modules are trusted, including their governance and upgrades (Aave v3 pools, Aave v4 Spokes and Hubs).  
 
 ⚠️ Deposits are restricted to whitelisted **feeder** addresses to prevent arbitrage. Liquidity is not expected under normal conditions, so that `redeem` can't be used as an arbitrage path.  
 
@@ -45,16 +46,16 @@ Each Box has one `curator`, it can:
 - Trigger a `shutdown` process
 - Add new tokens and their oracles (timelocked)
 - Remove a token
-- Change an existing token’s oracle (timelocked, not during wind-down)
+- Change an existing token’s oracle (timelocked, not during wind-down: an oracle reverting during wind-down blocks every NAV-based action until it works again)
 - Add funding modules and facilities (timelocked)
-- Add collateral and debt tokens for funding mdoules (timelocked)
+- Add collateral and debt tokens for funding modules (timelocked)
 - Remove funding modules, facilities, debt and collateral tokens
 - Set max slippage (timelocked)
 - Increase timelocks
 - Decrease timelocks (timelocked)
 - `revoke`a timelocked action (cancel it before execution)  
 
-The `curator` is an important role that should be strongly protected, but all critical actions can be revoked during a timelock and a compromised curator can be removed by the `owner`. Once its timelock has passed, a submitted action can be executed by anyone, and replacing the curator does not cancel its pending actions: the new curator or the guardian must `revoke` them.
+The `curator` is an important role that should be strongly protected, but all critical actions can be revoked during a timelock and a compromised curator can be removed by the `owner`. Once its timelock has passed, a submitted action can be executed by anyone (except `setGuardian`, `decreaseTimelock` and `changeTokenOracle`, which only the curator can execute), and replacing the curator does not cancel its pending actions: the new curator or the guardian must `revoke` them.
 
 ### Feeders
 Direct depositor in the Box are given the role `feeder`
@@ -77,10 +78,11 @@ Notice that a Box holder don't need to be a `feeder` to redeem and transfer a Bo
 - `recover` from a shutdown back to normal mode (only before `winddown` begins)  
 
 ### Anyone (during `winddown`)
-- `repay` debt
+- `repay` debt, unless the facility's ltv is above 100% (left to liquidators and allocators)
 - `depledge` collateral
 - `deallocate` from tokens without a debt balance
 - `allocate` to a token with a debt balance (so the debt balance can be repaid)
+- `flash` and `skimFunding`
 
 ## Funding Modules
 
@@ -91,7 +93,7 @@ Supported modules: **Morpho Blue**, **Aave v3** and **Aave v4**.
 - Only whitelisted tokens from the parent Box can be used as collateral/debt.  
 - Only empty modules (no facilities, collateral, or debt tokens) can be added.  
 - Modules are chain-agnostic: every protocol address (pool, Spoke) is a constructor argument, so a module can be deployed on any chain where its protocol is deployed. Each module has a factory in `src/factories/` that records the modules it created (`isFundingX`) and emits a creation event.  
-- `nav` values positions with the Box oracles (collateral rounded down, debt rounded up, floored at 0 because there is no recourse beyond the collateral) and ignores tokens held idle by the module. `ltv` uses the protocol's own pricing. Every module checks it in a post-action guard after `borrow` and `depledge`.  
+- `nav` values positions with the Box oracles (collateral rounded down, debt rounded up, floored at 0 because there is no recourse beyond the collateral) and ignores tokens held idle by the module. `ltv` uses the protocol's own pricing. Every module checks the position in a post-action guard after `borrow` and `depledge` (ltv for Morpho, health factor for the Aave modules).  
 - The token-only views `debtBalance(token)` and `collateralBalance(token)` return 0 (and never revert) for tokens the module does not use, so a winddown `deallocate` cannot be blocked by an attached module.  
 - The Aave v4 module also returns 0 instead of reverting from the per-facility views (`debtBalance(facilityData, token)`, `collateralBalance(facilityData, token)`, `ltv(facilityData)`) for tokens the facility does not use and for unregistered `facilityData`. The Morpho Blue module's per-facility views revert on a wrong token or malformed `facilityData`, and the Aave v3 module's per-facility views ignore `facilityData`.  
 
@@ -100,23 +102,23 @@ Supported modules: **Morpho Blue**, **Aave v3** and **Aave v4**.
 - Each module instance is tied to a Morpho instance address.  
 - Borrowing is capped by a max LTV relative to the market’s LLTV.  
 
-### Aave Module
+### Aave v3 Module (`FundingAave`)
 - `facilityData` is always empty (`""`).  
 - Each module is tied to an Aave pool address and a given `eMode` parameter.  
 - Constructor / factory: `createFundingAave(owner, pool, eMode, lltvCap)`.  
-  - `lltvCap`: fraction (1e18 = 100%) of the Aave liquidation threshold the module may use, in `(0, 1e18]`.  
-- `borrow` and `depledge` are followed by a health guard: `healthFactor >= ceil(1e36 / lltvCap)`, i.e. `ltv <= liquidationThreshold * lltvCap / 1e18` (Aave v3 on its own lets a position withdraw collateral down to a health factor of exactly 1).  
-- `debtBalance` / `collateralBalance` return 0 for tokens that are not listed on the Aave pool (instead of reverting).  
-- `addCollateralToken` / `addDebtToken` only accept listed Aave reserves (non-zero aToken / variable debt token), so an unlisted token can no longer make `nav` revert.  
+  - `lltvCap`: fraction (1e18 = 100%) of the Aave liquidation threshold the module may use, in `(0, 1e18)`.  
+- `borrow` and `depledge` are followed by a health guard (skipped without debt): `healthFactor >= ceil(1e36 / lltvCap)`, i.e. `ltv <= liquidationThreshold * lltvCap / 1e18` (Aave v3 on its own lets a position withdraw collateral down to a health factor of exactly 1).  
+- `debtBalance` / `collateralBalance` return 0 for tokens that are not listed on the Aave pool.  
+- `addCollateralToken` / `addDebtToken` only accept listed Aave reserves (non-zero aToken / variable debt token), so an unlisted token cannot make `nav` revert.  
 
 ### Aave v4 Module (`FundingAaveV4`)
 - One module instance = one position (the module address) on one Aave v4 Spoke. Use one module per Spoke.  
 - `facilityData` is always empty (`""`); any other value is rejected.  
 - Constructor / factory: `createFundingAaveV4(owner, spoke, reserveIds, lltvCap)`.  
   - `reserveIds`: the Spoke reserves the module may use. Their underlying tokens must be pairwise distinct: when a Spoke lists the same token several times (reserves backed by different Hubs), this list selects which reserve the token uses.  
-  - `lltvCap`: fraction (1e18 = 100%) of the Spoke's own borrowing limit the module may use, in `(0, 1e18]`.  
+  - `lltvCap`: fraction (1e18 = 100%) of the Spoke's own borrowing limit the module may use, in `(0, 1e18)`.  
 - A collateral token must be the underlying of a configured reserve with a non-zero collateral factor; a debt token must be the underlying of a configured borrowable reserve.  
-- `pledge` supplies and enables the reserve as collateral. `borrow` and `depledge` deliver exactly the requested amount to the Box and are followed by a health guard: `healthFactor >= ceil(1e36 / lltvCap)`, i.e. `ltv <= avgCollateralFactor * lltvCap / 1e18` (Aave v4 lets a position borrow down to a health factor of exactly 1).  
+- `pledge` supplies and enables the reserve as collateral; `depledge` turns it off once nothing is left. `borrow` and `depledge` deliver exactly the requested amount to the Box and are followed by a health guard: `healthFactor >= ceil(1e36 / lltvCap)`, i.e. `ltv <= avgCollateralFactor * lltvCap / 1e18` (Aave v4 lets a position borrow down to a health factor of exactly 1).  
 - `debtBalance` includes the Aave v4 premium debt, so repaying `debtBalance` closes the debt with no dust; unused tokens are returned to the Box.  
 
 ## Arbitrage Protection
@@ -142,5 +144,5 @@ A Box moves through three possible states:
 3. **Winddown mode**  
    - Permissionless recovery process.  
    - Increasing slippage tolerance allows full exit for all feeders.  
-   - The tolerance applies to each amount sold, with no cumulative limit: unwinding a position levered L times can cost up to L × 1% of NAV, so allocators should deleverage during the shutdown warmup.  
+   - The tolerance applies to each amount sold, with no cumulative limit: unwinding a position levered L times can cost up to L × 1% of NAV, or about (2L-1) × 1% when the debt token is not the Box asset, so allocators should deleverage during the shutdown warmup.  
    - Anyone may help unwind positions and repay debt.  

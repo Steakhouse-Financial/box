@@ -224,17 +224,17 @@ contract FundingAave is FundingBase {
 
     /// @dev ltv can also use non whitelisted collaterals (donated)
     /// @dev Returns 0 without debt and type(uint256).max with debt but no collateral
-    function ltv(bytes calldata data) external view override returns (uint256) {
+    function ltv(bytes calldata) external view override returns (uint256) {
         (uint256 totalCollateralBase, uint256 totalDebtBase, , , , ) = pool.getUserAccountData(address(this));
         if (totalDebtBase == 0) return 0;
         return totalCollateralBase == 0 ? type(uint256).max : totalDebtBase.wDivUp(totalCollateralBase);
     }
 
-    function debtBalance(bytes calldata facilityData, IERC20 debtToken) external view override returns (uint256) {
+    function debtBalance(bytes calldata, IERC20 debtToken) external view override returns (uint256) {
         return _debtBalance(debtToken);
     }
 
-    function collateralBalance(bytes calldata facilityData, IERC20 collateralToken) external view override returns (uint256) {
+    function collateralBalance(bytes calldata, IERC20 collateralToken) external view override returns (uint256) {
         return _collateralBalance(collateralToken);
     }
 
