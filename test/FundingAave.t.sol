@@ -341,6 +341,21 @@ contract FundingAaveTest is Test {
         assertEq(module.nav(provider), 0, "negative equity floored at 0");
     }
 
+    // ========== LTV ==========
+
+    function testLtvZeroWithoutDebtAndMaxWithoutCollateralValue() public {
+        _registerAll();
+        assertEq(module.ltv(""), 0, "empty position");
+        _pledge(coll, 100e18);
+        assertEq(module.ltv(""), 0, "collateral without debt");
+
+        _borrow(loan, 100e18);
+        assertEq(module.ltv(""), 0.5e18, "100 of debt against 200 of collateral");
+
+        pool.setAssetPrice(address(coll), 0);
+        assertEq(module.ltv(""), type(uint256).max, "debt without collateral value");
+    }
+
     // ========== SKIM ==========
 
     /// @dev nav is floored at 0 (Box oracles) while the pool still values the position: the nav check alone would let

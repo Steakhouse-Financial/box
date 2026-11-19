@@ -298,6 +298,20 @@ contract FundingMorphoTest is Test {
         fundingMorpho.borrow(facilityDataLtv80, debtToken, (0.08 ether * fundingMorpho.lltvCap()) / 1e18);
     }
 
+    function testLtvZeroWithoutDebtAndMaxWithoutCollateralValue() public {
+        collateralToken.mint(address(fundingMorpho), 1 ether);
+        vm.startPrank(owner);
+        fundingMorpho.pledge(facilityDataLtv80, collateralToken, 1 ether);
+        assertEq(fundingMorpho.ltv(facilityDataLtv80), 0, "collateral without debt");
+
+        fundingMorpho.borrow(facilityDataLtv80, debtToken, 0.5 ether);
+        vm.stopPrank();
+        assertEq(fundingMorpho.ltv(facilityDataLtv80), 0.5 ether, "debt over collateral value");
+
+        oracle.setPrice(0);
+        assertEq(fundingMorpho.ltv(facilityDataLtv80), type(uint256).max, "debt without collateral value");
+    }
+
     /// @dev Test for audit issue 5.6: Ensure token parameters match the market's actual tokens
     function testTokenParameterValidation() public {
         // Setup: whitelist a second collateral token
